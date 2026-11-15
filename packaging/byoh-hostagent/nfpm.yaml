@@ -15,7 +15,7 @@ description: |-
   The agent registers the host to a management cluster of Cluster API as a
   ByoHost, and installs Kubernetes on the host and bootstraps it as a node
   when a ByoMachine is assigned to it.
-homepage: https://github.com/superbrothers/cluster-api-provider-bringyourownhost
+homepage: https://github.com/openkubes/ok-baremetal-byoh
 license: Apache-2.0
 
 contents:

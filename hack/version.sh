@@ -80,7 +80,7 @@ version::ldflags() {
         local key=${1}
         local val=${2}
         ldflags+=(
-            "-X 'github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/version.${key}=${val}'"
+            "-X 'github.com/openkubes/ok-baremetal-byoh/agent/version.${key}=${val}'"
         )
     }
 

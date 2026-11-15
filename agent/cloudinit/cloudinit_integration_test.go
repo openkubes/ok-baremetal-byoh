@@ -13,9 +13,9 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/cloudinit"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/registration"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/common"
+	"github.com/openkubes/ok-baremetal-byoh/agent/cloudinit"
+	"github.com/openkubes/ok-baremetal-byoh/agent/registration"
+	"github.com/openkubes/ok-baremetal-byoh/common"
 )
 
 var (

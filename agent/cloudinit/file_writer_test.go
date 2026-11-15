@@ -11,7 +11,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/cloudinit"
+	"github.com/openkubes/ok-baremetal-byoh/agent/cloudinit"
 )
 
 var _ = Describe("FileWriter", func() {

@@ -21,10 +21,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	infrastructurev1beta1 "github.com/superbrothers/cluster-api-provider-bringyourownhost/apis/infrastructure/v1beta1"
-	controllers "github.com/superbrothers/cluster-api-provider-bringyourownhost/controllers/infrastructure"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/test/builder"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/test/utils/crds"
+	infrastructurev1beta1 "github.com/openkubes/ok-baremetal-byoh/apis/infrastructure/v1beta1"
+	controllers "github.com/openkubes/ok-baremetal-byoh/controllers/infrastructure"
+	"github.com/openkubes/ok-baremetal-byoh/test/builder"
+	"github.com/openkubes/ok-baremetal-byoh/test/utils/crds"
 
 	//+kubebuilder:scaffold:imports
 

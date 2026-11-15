@@ -12,8 +12,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/cloudinit"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/cloudinit/cloudinitfakes"
+	"github.com/openkubes/ok-baremetal-byoh/agent/cloudinit"
+	"github.com/openkubes/ok-baremetal-byoh/agent/cloudinit/cloudinitfakes"
 )
 
 var _ = Describe("Cloudinit", func() {

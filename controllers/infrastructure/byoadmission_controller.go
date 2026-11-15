@@ -13,7 +13,7 @@ import (
 	"slices"
 	"strings"
 
-	infrav1 "github.com/superbrothers/cluster-api-provider-bringyourownhost/apis/infrastructure/v1beta1"
+	infrav1 "github.com/openkubes/ok-baremetal-byoh/apis/infrastructure/v1beta1"
 	certv1 "k8s.io/api/certificates/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"

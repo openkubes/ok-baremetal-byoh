@@ -8,9 +8,9 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	infrav1 "github.com/openkubes/ok-baremetal-byoh/apis/infrastructure/v1beta1"
+	"github.com/openkubes/ok-baremetal-byoh/installer"
 	"github.com/pkg/errors"
-	infrav1 "github.com/superbrothers/cluster-api-provider-bringyourownhost/apis/infrastructure/v1beta1"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/installer"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

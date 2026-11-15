@@ -14,7 +14,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/installer"
+	"github.com/openkubes/ok-baremetal-byoh/installer"
 )
 
 func main() {

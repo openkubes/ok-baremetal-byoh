@@ -18,8 +18,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	infraproviderv1 "github.com/superbrothers/cluster-api-provider-bringyourownhost/apis/infrastructure/v1beta1"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/test/builder"
+	infraproviderv1 "github.com/openkubes/ok-baremetal-byoh/apis/infrastructure/v1beta1"
+	"github.com/openkubes/ok-baremetal-byoh/test/builder"
 	certv1 "k8s.io/api/certificates/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"

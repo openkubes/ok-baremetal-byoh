@@ -6,7 +6,7 @@ package installer_test
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/installer"
+	"github.com/openkubes/ok-baremetal-byoh/installer"
 )
 
 var _ = Describe("Byohost Installer Tests", func() {

@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/openkubes/ok-baremetal-byoh/common"
 	"github.com/pkg/errors"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/common"
 	"sigs.k8s.io/yaml"
 )
 

@@ -1,4 +1,4 @@
-module github.com/superbrothers/cluster-api-provider-bringyourownhost
+module github.com/openkubes/ok-baremetal-byoh
 
 go 1.26.0
 

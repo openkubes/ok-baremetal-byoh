@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/installer/internal/algo"
+	"github.com/openkubes/ok-baremetal-byoh/installer/internal/algo"
 )
 
 // K8sInstaller represent k8s installer interface
