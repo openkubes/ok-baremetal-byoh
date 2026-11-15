@@ -6,7 +6,7 @@ toolchain go1.26.10
 
 require (
 	github.com/containerd/errdefs v1.0.0
-	github.com/docker/cli v28.5.2+incompatible
+	github.com/docker/cli v29.9.3+incompatible
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/go-logr/logr v1.4.4
 	github.com/jackpal/gateway v1.0.7
@@ -101,7 +101,6 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
-	github.com/miekg/pkcs11 v1.1.1 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/moby/api v1.55.0 // indirect
 	github.com/moby/moby/client v0.5.1 // indirect
@@ -137,7 +136,6 @@ require (
 	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/viper v1.21.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
-	github.com/theupdateframework/notary v0.7.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0 // indirect
