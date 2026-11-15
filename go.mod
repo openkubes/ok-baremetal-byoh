@@ -1,6 +1,6 @@
 module github.com/superbrothers/cluster-api-provider-bringyourownhost
 
-go 1.26.0
+go 1.26.2
 
 toolchain go1.26.10
 
@@ -9,7 +9,7 @@ require (
 	github.com/docker/cli v28.5.2+incompatible
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/go-logr/logr v1.4.4
-	github.com/jackpal/gateway v1.0.7
+	github.com/jackpal/gateway v1.2.0
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.6.1
 	github.com/moby/go-archive v0.1.0
 	github.com/onsi/ginkgo/v2 v2.32.0
