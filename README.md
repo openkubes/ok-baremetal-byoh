@@ -1,5 +1,15 @@
 # Kubernetes Cluster API Provider Bring Your Own Host (BYOH)
 
+> **OpenKubes fork.** This repository, `openkubes/ok-baremetal-byoh`, is the
+> OpenKubes-maintained Cluster API BYOH infrastructure provider. It is a downstream
+> fork of [superbrothers/cluster-api-provider-bringyourownhost](https://github.com/superbrothers/cluster-api-provider-bringyourownhost),
+> imported with the full upstream Git history at commit
+> [`5ea71bf`](https://github.com/superbrothers/cluster-api-provider-bringyourownhost/commit/5ea71bf4ed5d7e592d66252d62c1613334c296af).
+> OpenKubes tracks upstream closely, keeps divergence minimal, and aims to contribute
+> fixes back upstream. See [`UPSTREAM.md`](./UPSTREAM.md) for the pinned baseline, the
+> fork lineage and attribution, and the upstream-synchronization workflow. Upstream
+> licensing and copyright notices are preserved unchanged (see `LICENSE` and `NOTICE`).
+
 This is a maintained fork of [vmware-tanzu/cluster-api-provider-bringyourownhost](https://github.com/vmware-tanzu/cluster-api-provider-bringyourownhost), which is no longer maintained ([vmware-tanzu/cluster-api-provider-bringyourownhost#894](https://github.com/vmware-tanzu/cluster-api-provider-bringyourownhost/issues/894)).
 
 ## What is Cluster API Provider BYOH
