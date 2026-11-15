@@ -34,25 +34,42 @@ OpenKubes additions carry their own headers; they do not replace upstream copyri
 
 ## Git remotes
 
+A fresh `git clone` of this repository already provides `origin`, so only the
+`upstream` remote needs to be added. The commands below are idempotent:
+
 ```bash
-git remote add origin   https://github.com/openkubes/ok-baremetal-byoh
-git remote add upstream https://github.com/superbrothers/cluster-api-provider-bringyourownhost
+# origin already exists from `git clone`; verify it rather than re-adding:
+git remote get-url origin        # -> https://github.com/openkubes/ok-baremetal-byoh
+
+# add upstream if missing, otherwise update its URL:
+git remote get-url upstream >/dev/null 2>&1 \
+  && git remote set-url upstream https://github.com/superbrothers/cluster-api-provider-bringyourownhost \
+  || git remote add    upstream https://github.com/superbrothers/cluster-api-provider-bringyourownhost
+
 # prevent accidental pushes to upstream:
 git remote set-url --push upstream DISABLED_no_push
 ```
 
 ## Synchronizing with upstream
 
+Upstream changes are integrated on a dedicated sync branch and merged into `main`
+only through a reviewed pull request — never by pushing to `main` directly. This
+preserves the OpenKubes review and merge-approval policy (Claude implements,
+ChatGPT reviews, Arash approves).
+
 ```bash
 git fetch upstream
-git switch main
 
-# While main still equals the upstream baseline (no OpenKubes commits yet):
-git merge --ff-only upstream/main
+# integrate upstream on a dedicated sync branch, based on the current origin/main:
+git switch -c sync/upstream-$(date +%Y%m%d) origin/main
+git merge upstream/main          # resolve conflicts here
+                                 # (import-line conflicts are expected after the module-path rename)
 
-# Once OpenKubes commits exist on main, prefer one of:
-git merge upstream/main        # keeps OpenKubes commits; resolve conflicts, then PR
-# or, for a linear fork line, rebase the OpenKubes-only commits onto upstream/main.
+# for a linear fork line, instead rebase the OpenKubes-only commits onto upstream/main
+# on this branch before pushing.
+
+git push -u origin sync/upstream-$(date +%Y%m%d)
+# then open a PR  sync/upstream-<date> -> main , review (three-way), and Arash merges.
 ```
 
 **Contribution policy.** Fixes that are not OpenKubes-specific (for example, general security
@@ -69,4 +86,5 @@ single isolated commit to make replaying it on upstream merges straightforward.
 repository. In particular, OpenKubes preserves upstream's separation between BYOH infrastructure
 provisioning and kubeadm machine bootstrap, and does not adopt `mensylisir`'s repurposing of the
 `BootstrapKubeconfig` CRD as a machine bootstrap provider (which introduced a bootstrap-token
-reconciliation loop). See the OpenKubes assessment `reviews/byoh-provider-evaluation-and-bootstrap-token-bug.md`.
+reconciliation loop). This rationale is recorded in OpenKubes' internal BYOH provider assessment,
+maintained in the OpenKubes project workspace (not part of this repository).
