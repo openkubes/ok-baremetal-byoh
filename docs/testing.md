@@ -53,13 +53,33 @@ Explicit list of tests that can affect resources outside the Go process:
 bootstrap tokens, CSRs and kubeconfigs are generated inside envtest or against
 disposable containers. CI must never inject real Scaleway credentials.
 
+**Runner isolation is not automatic.** A GitHub-hosted runner is ephemeral *per
+job*, but ephemerality alone does **not** guarantee Docker isolation or least
+privilege *within* a job: all steps in a job share one Docker daemon (and
+membership of the `docker` group is effectively root-equivalent), steps commonly
+run as root, and concurrent tests on the same runner can see each other's
+containers. "Throwaway runner" therefore bounds *blast radius across jobs*, not
+*isolation within a job*. M1.3c must verify these boundaries explicitly — unique
+per-run resource names, scoped cleanup that cannot touch unrelated containers,
+and running suites non-root where an assertion depends on it (without assuming
+non-root implies safe Docker access).
+
 ## Supported test matrix
 
 | Component | Arch | OS |
 |---|---|---|
 | Management / controller (envtest, controller & webhook tests) | **arm64** + amd64 | Linux; macOS for envtest & unit tiers |
 | Host agent (agent-integration, deb, installer) | **amd64** + arm64 | **Linux** (Ubuntu 24.04 / 26.04) |
-| Kubernetes (envtest) | – | **1.35** (OpenKubes target); upstream default `1.36.2` |
+
+**Kubernetes version status (read carefully):**
+- **OpenKubes target: Kubernetes 1.35.** Verified **locally only** so far — envtest
+  `build`/`vet` + the controller, webhook and reconciler suites passed on a
+  developer Mac M5 (Go 1.26.10, arm64) against K8s 1.35 envtest binaries.
+- **Not yet validated by OpenKubes Linux CI.** No OpenKubes CI run has exercised
+  1.35; a developer-machine result is not a CI guarantee. Pinning envtest to 1.35
+  and proving it green in CI is an M1.3b deliverable.
+- **Upstream CI default remains `1.36.2`** (`ENVTEST_K8S_VERSION` in the Makefile);
+  OpenKubes adds 1.36 as a matrix entry only after the 1.35 baseline is stable.
 
 ## Reproducible local commands
 
