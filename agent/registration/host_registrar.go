@@ -13,9 +13,9 @@ import (
 	"strings"
 
 	"github.com/jackpal/gateway"
+	"github.com/openkubes/ok-baremetal-byoh/agent/version"
+	infrastructurev1beta1 "github.com/openkubes/ok-baremetal-byoh/apis/infrastructure/v1beta1"
 	"github.com/pkg/errors"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/version"
-	infrastructurev1beta1 "github.com/superbrothers/cluster-api-provider-bringyourownhost/apis/infrastructure/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"

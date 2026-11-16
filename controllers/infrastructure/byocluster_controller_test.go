@@ -9,9 +9,9 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	infrastructurev1beta1 "github.com/superbrothers/cluster-api-provider-bringyourownhost/apis/infrastructure/v1beta1"
-	controllers "github.com/superbrothers/cluster-api-provider-bringyourownhost/controllers/infrastructure"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/test/builder"
+	infrastructurev1beta1 "github.com/openkubes/ok-baremetal-byoh/apis/infrastructure/v1beta1"
+	controllers "github.com/openkubes/ok-baremetal-byoh/controllers/infrastructure"
+	"github.com/openkubes/ok-baremetal-byoh/test/builder"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"

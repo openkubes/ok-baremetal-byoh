@@ -3,7 +3,7 @@
 
 [Unit]
 Description=BYOH host agent
-Documentation=https://github.com/superbrothers/cluster-api-provider-bringyourownhost/blob/main/docs/byoh_agent.md
+Documentation=https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/byoh_agent.md
 Wants=network-online.target
 After=network-online.target
 # TLS with the management cluster needs a correct clock, which hosts without

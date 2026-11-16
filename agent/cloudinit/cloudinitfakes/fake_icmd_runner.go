@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/cloudinit"
+	"github.com/openkubes/ok-baremetal-byoh/agent/cloudinit"
 )
 
 type FakeICmdRunner struct {

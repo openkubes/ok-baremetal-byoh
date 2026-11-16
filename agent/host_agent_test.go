@@ -22,11 +22,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/registration"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/version"
-	infrastructurev1beta1 "github.com/superbrothers/cluster-api-provider-bringyourownhost/apis/infrastructure/v1beta1"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/test/builder"
-	"github.com/superbrothers/cluster-api-provider-bringyourownhost/test/e2e"
+	"github.com/openkubes/ok-baremetal-byoh/agent/registration"
+	"github.com/openkubes/ok-baremetal-byoh/agent/version"
+	infrastructurev1beta1 "github.com/openkubes/ok-baremetal-byoh/apis/infrastructure/v1beta1"
+	"github.com/openkubes/ok-baremetal-byoh/test/builder"
+	"github.com/openkubes/ok-baremetal-byoh/test/e2e"
 	certv1 "k8s.io/api/certificates/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -350,15 +350,15 @@ var _ = Describe("Agent", func() {
 			version.GitTreeState = "clean"
 			version.BuildDate = string(date)
 
-			ldflags := fmt.Sprintf("-X 'github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/version.GitMajor=%s'"+
-				"-X 'github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/version.GitMinor=%s'"+
-				"-X 'github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/version.GitVersion=%s'"+
-				"-X 'github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/version.GitCommit=%s'"+
-				"-X 'github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/version.GitTreeState=%s'"+
-				"-X 'github.com/superbrothers/cluster-api-provider-bringyourownhost/agent/version.BuildDate=%s'",
+			ldflags := fmt.Sprintf("-X 'github.com/openkubes/ok-baremetal-byoh/agent/version.GitMajor=%s'"+
+				"-X 'github.com/openkubes/ok-baremetal-byoh/agent/version.GitMinor=%s'"+
+				"-X 'github.com/openkubes/ok-baremetal-byoh/agent/version.GitVersion=%s'"+
+				"-X 'github.com/openkubes/ok-baremetal-byoh/agent/version.GitCommit=%s'"+
+				"-X 'github.com/openkubes/ok-baremetal-byoh/agent/version.GitTreeState=%s'"+
+				"-X 'github.com/openkubes/ok-baremetal-byoh/agent/version.BuildDate=%s'",
 				version.GitMajor, version.GitMinor, version.GitVersion, version.GitCommit, version.GitTreeState, version.BuildDate)
 
-			tmpHostAgentBinary, err = gexec.Build("github.com/superbrothers/cluster-api-provider-bringyourownhost/agent", "-ldflags", ldflags)
+			tmpHostAgentBinary, err = gexec.Build("github.com/openkubes/ok-baremetal-byoh/agent", "-ldflags", ldflags)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -416,7 +416,7 @@ var _ = Describe("Agent", func() {
 			// The script versions a tree without a release tag as v0.0.0.
 			tagged = exec.Command("git", "describe", "--tags", "--match", "v[0-9]*").Run() == nil
 
-			tmpHostAgentBinary, err = gexec.Build("github.com/superbrothers/cluster-api-provider-bringyourownhost/agent", "-ldflags", string(ldflags))
+			tmpHostAgentBinary, err = gexec.Build("github.com/openkubes/ok-baremetal-byoh/agent", "-ldflags", string(ldflags))
 			Expect(err).NotTo(HaveOccurred())
 		})
 
