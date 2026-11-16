@@ -66,6 +66,13 @@ jobs:
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
       with:
         go-version-file: go.mod
+    # envtest starts etcd + kube-apiserver; the repo's own test/e2e/installer
+    # jobs run these with swap off (and conntrack raised). Mirror that proven
+    # runner prep here rather than inventing a new environment.
+    - name: Prepare runner for envtest (mirror the repo's test job)
+      run: |
+        sudo swapoff -a
+        sudo sysctl -w net.netfilter.nf_conntrack_max=131072
     - name: Run envtest controller + webhook tests
       run: make test-evidence-envtest ENVTEST_K8S_VERSION=${{ matrix.k8s }}
     - name: Assert no skipped or pending specs
