@@ -179,8 +179,8 @@ unit: $(GINKGO) ## Run the hermetic unit tests (no envtest, no Docker) with JUni
 
 test-evidence-envtest: $(GINKGO) $(SETUP_ENVTEST) ## Run envtest controller+webhook tests with JUnit (ENVTEST_K8S_VERSION selectable)
 	mkdir -p $(REPORTS_DIR)
-	$(ENVTEST_ASSETS) $(GINKGO) --randomize-all --junit-report=junit-controller.xml --output-dir=$(REPORTS_DIR) controllers/infrastructure
-	$(ENVTEST_ASSETS) $(GINKGO) --junit-report=junit-webhook.xml --output-dir=$(REPORTS_DIR) apis/infrastructure/v1beta1
+	$(ENVTEST_ASSETS) $(GINKGO) --randomize-all --fail-on-pending --junit-report=junit-controller.xml --output-dir=$(REPORTS_DIR) controllers/infrastructure
+	$(ENVTEST_ASSETS) $(GINKGO) --fail-on-pending --junit-report=junit-webhook.xml --output-dir=$(REPORTS_DIR) apis/infrastructure/v1beta1
 
 _SKIP_ARGS := $(if $(GINKGO_SKIP),-skip="$(GINKGO_SKIP)")
 
