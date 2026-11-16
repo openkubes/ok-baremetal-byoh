@@ -66,13 +66,21 @@ jobs:
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
       with:
         go-version-file: go.mod
-    # envtest starts etcd + kube-apiserver; the repo's own test/e2e/installer
-    # jobs run these with swap off (and conntrack raised). Mirror that proven
-    # runner prep here rather than inventing a new environment.
-    - name: Prepare runner for envtest (mirror the repo's test job)
+    # The webhook-agent specs in apis/infrastructure/v1beta1 are NOT envtest-only:
+    # they drive the real host-cleanup path (HostReconciler.reconcileNormal ->
+    # cleank8sdirectories), which removes /etc/cni/net.d/*. Podman ships a
+    # root-owned 87-podman-bridge.conflist there that the non-root test user
+    # cannot unlink -> "permission denied" (2 specs fail). The inherited ci.yml
+    # "test" job purges podman and clears /etc/cni/net.d for exactly this reason;
+    # mirror it here. DESTRUCTIVE: this runs only on the disposable GitHub-hosted
+    # Ubuntu runner (a workflow step, never a Makefile target), never on a
+    # workstation, Kind cluster, or shared runner.
+    # Follow-up (M1.3c): make this cleanup path use an injected/sandboxed boundary
+    # so the test cannot touch the runner's real /etc/cni/net.d.
+    - name: Prepare disposable runner — clear podman CNI (mirror ci.yml test job)
       run: |
-        sudo swapoff -a
-        sudo sysctl -w net.netfilter.nf_conntrack_max=131072
+        sudo apt-get purge -y podman || true
+        sudo rm -rf /etc/cni/net.d/
     - name: Run envtest controller + webhook tests
       run: make test-evidence-envtest ENVTEST_K8S_VERSION=${{ matrix.k8s }}
     - name: Assert no skipped or pending specs
