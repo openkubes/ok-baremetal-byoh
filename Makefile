@@ -22,6 +22,7 @@ GINKGO_SKIP ?=
 GINKGO_NODES  ?= 1
 E2E_CONF_FILE  ?= ${REPO_ROOT}/test/e2e/config/provider.yaml
 ARTIFACTS ?= ${REPO_ROOT}/_artifacts
+REPORTS_DIR ?= ${REPO_ROOT}/_reports
 SKIP_RESOURCE_CLEANUP ?= false
 USE_EXISTING_CLUSTER ?= false
 EXISTING_CLUSTER_KUBECONFIG_PATH ?=
@@ -167,6 +168,18 @@ controller-test: $(GINKGO) $(SETUP_ENVTEST) ## Run controller tests
 
 webhook-test: $(GINKGO) $(SETUP_ENVTEST) ## Run webhook tests
 	$(ENVTEST_ASSETS) $(GINKGO) --coverprofile cover.out apis/infrastructure/v1beta1
+
+# OpenKubes test-evidence targets (M1.3b-2). Additive: these do not modify the
+# existing test / controller-test / webhook-test targets above. They emit JUnit
+# XML into REPORTS_DIR and fail on pending specs (no silent skips).
+unit: $(GINKGO) ## Run the hermetic unit tests (no envtest, no Docker) with JUnit output
+	mkdir -p $(REPORTS_DIR)
+	$(GINKGO) --randomize-all --fail-on-pending --junit-report=junit-unit.xml --output-dir=$(REPORTS_DIR) ./installer ./agent/cloudinit
+	go test ./agent/version
+
+test-evidence-envtest: $(GINKGO) $(SETUP_ENVTEST) ## Run envtest controller+webhook tests with JUnit (ENVTEST_K8S_VERSION selectable)
+	mkdir -p $(REPORTS_DIR)
+	$(ENVTEST_ASSETS) $(GINKGO) --randomize-all --fail-on-pending --junit-report=junit-envtest.xml --output-dir=$(REPORTS_DIR) controllers/infrastructure apis/infrastructure/v1beta1
 
 _SKIP_ARGS := $(if $(GINKGO_SKIP),-skip="$(GINKGO_SKIP)")
 

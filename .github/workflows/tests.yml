@@ -1,0 +1,80 @@
+name: tests
+
+# OpenKubes additive test-evidence workflow (M1.3b-2). It does NOT replace or
+# modify the existing ci.yml / e2e.yml / installer.yml test jobs; it adds a
+# hermetic unit tier and an envtest matrix (Kubernetes 1.35 + 1.36.2) that emit
+# machine-readable JUnit reports with explicit pass/fail criteria.
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'PROJECT'
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'PROJECT'
+
+permissions:
+  contents: read
+
+jobs:
+  # Tier 1: hermetic unit tests — no envtest, no Docker. Fast signal.
+  unit:
+    name: unit (hermetic)
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      with:
+        go-version-file: go.mod
+    - name: Run hermetic unit tests
+      run: make unit
+    - name: Assert no skipped or pending specs
+      run: python3 hack/ci/assert-no-skips.py _reports
+    - name: Upload JUnit reports
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: junit-unit
+        path: _reports/
+        retention-days: 7
+        if-no-files-found: error
+
+  # Tier 2: envtest (controllers + webhooks). No Docker. Matrix over the
+  # OpenKubes target 1.35 and the preserved upstream default 1.36.2.
+  envtest:
+    name: envtest (k8s ${{ matrix.k8s }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        k8s: [ '1.35.x', '1.36.2' ]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      with:
+        go-version-file: go.mod
+    - name: Run envtest controller + webhook tests
+      run: make test-evidence-envtest ENVTEST_K8S_VERSION=${{ matrix.k8s }}
+    - name: Assert no skipped or pending specs
+      run: python3 hack/ci/assert-no-skips.py _reports
+    - name: Upload JUnit reports
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: junit-envtest-${{ matrix.k8s }}
+        path: _reports/
+        retention-days: 7
+        if-no-files-found: error
