@@ -5,8 +5,14 @@ import re
 import sys
 
 def render(text: str, image: str) -> str:
-    if not re.fullmatch(r"localhost/openkubes/byoh-controller:git-[0-9a-f]{12}", image):
-        raise ValueError("non-revision local controller image")
+    local = re.fullmatch(
+        r"localhost/openkubes/byoh-controller:git-[0-9a-f]{12}", image
+    )
+    ghcr = re.fullmatch(
+        r"ghcr[.]io/openkubes/byoh-controller@sha256:[0-9a-f]{64}", image
+    )
+    if not (local or ghcr):
+        raise ValueError("controller image must be a local Git revision or pinned OpenKubes GHCR digest")
     changes = {
         "ghcr.io/superbrothers/cluster-api-byoh-controller:dev": image,
         "${MANUAL_CSR_APPROVAL:=disable}": "enable",

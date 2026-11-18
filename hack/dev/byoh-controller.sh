@@ -13,7 +13,24 @@ KC="$HOME/.config/ok/$SUBDIR/kubeconfig"
 CTX="kind-$NAME"
 KUSTOMIZE="$ROOT/bin/kustomize-v5.7.0"
 REV="$(git -C "$ROOT" rev-parse --short=12 HEAD)"
-IMAGE="localhost/openkubes/byoh-controller:git-$REV"
+SOURCE="${BYOH_CONTROLLER_SOURCE:-local}"
+case "$SOURCE" in
+  local)
+    IMAGE="localhost/openkubes/byoh-controller:git-$REV"
+    ;;
+  ghcr)
+    DIGEST="${BYOH_CONTROLLER_DIGEST:-}"
+    [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+      echo "STOP: GHCR requires a full sha256 digest" >&2
+      exit 1
+    }
+    IMAGE="ghcr.io/openkubes/byoh-controller@$DIGEST"
+    ;;
+  *)
+    echo "STOP: unsupported BYOH_CONTROLLER_SOURCE" >&2
+    exit 1
+    ;;
+esac
 
 fail() { echo "STOP: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "missing tool: $1"; }
@@ -33,6 +50,8 @@ clean_source() {
     fail "source tree is not clean; commit changes before building a revision-tagged image"
 }
 build() {
+  [[ "$SOURCE" == local ]] ||
+    fail "local build is only available for local controller images"
   need docker
   clean_source
   [[ -n "$(sed -n 's/^toolchain go//p' "$ROOT/go.mod")" ]] || fail "Go toolchain directive missing"
@@ -40,6 +59,8 @@ build() {
   echo "Built $IMAGE"
 }
 load() {
+  [[ "$SOURCE" == local ]] ||
+    fail "kind load is only available for local controller images"
   check_target
   docker image inspect "$IMAGE" >/dev/null || fail "missing local image $IMAGE; run byoh-controller-build"
   kind load docker-image "$IMAGE" --name "$NAME"
@@ -61,7 +82,9 @@ render() (
 deploy() (
   check_target
   check_capi
-  check_loaded
+  if [[ "$SOURCE" == local ]]; then
+    check_loaded
+  fi
   local manifest
   manifest="$(mktemp)"
   trap 'rm -f "$manifest"' EXIT
@@ -82,6 +105,50 @@ verify() {
   mode="$(kubectl --kubeconfig "$KC" -n byoh-system get deployment byoh-controller-manager -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="MANUAL_CSR_APPROVAL")].value}')"
   [[ "$mode" == enable ]] || fail "automatic CSR approval must be disabled"
   kubectl --kubeconfig "$KC" -n byoh-system rollout status deployment/byoh-controller-manager --timeout=180s
+
+  if [[ "$SOURCE" == ghcr ]]; then
+    kubectl --kubeconfig "$KC" -n byoh-system get pods \
+      -l cluster.x-k8s.io/provider=infrastructure-byoh,control-plane=controller-manager \
+      -o json | EXPECTED_IMAGE="$IMAGE" python3 -c '
+import json
+import os
+import re
+import sys
+
+data = json.load(sys.stdin)
+expected = os.environ["EXPECTED_IMAGE"]
+
+ready = []
+for pod in data["items"]:
+    if pod.get("metadata", {}).get("deletionTimestamp"):
+        continue
+    spec = pod.get("spec", {})
+    containers = {
+        c["name"]: c for c in spec.get("containers", [])
+    }
+    statuses = {
+        c["name"]: c
+        for c in pod.get("status", {}).get("containerStatuses", [])
+    }
+    manager = containers.get("manager")
+    status = statuses.get("manager")
+    if not manager or manager.get("image") != expected:
+        continue
+    if not status or not status.get("ready"):
+        continue
+    image_id = status.get("imageID", "")
+    if not re.search(r"sha256:[0-9a-f]{64}", image_id):
+        continue
+    ready.append((pod["metadata"]["name"], image_id))
+
+if len(ready) != 1:
+    sys.exit("STOP: expected exactly one ready GHCR controller pod with a valid imageID")
+
+print("PASS: GHCR controller pod", ready[0][0])
+print("Runtime imageID:", ready[0][1])
+' || fail "GHCR runtime image verification failed"
+  fi
+
   local permission
   for permission in 'create secrets' 'get secrets' 'delete secrets'; do
     kubectl --kubeconfig "$KC" auth can-i $permission -n kube-system \
@@ -101,8 +168,10 @@ up() {
   else
     BYOH_KIND_NAME="$NAME" bash "$ROOT/hack/dev/byoh-kind.sh" capi-init
   fi
-  build
-  load
+  if [[ "$SOURCE" == local ]]; then
+    build
+    load
+  fi
   deploy
 }
 case "${1:-}" in
