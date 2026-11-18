@@ -74,7 +74,11 @@ var _ = Describe("Controllers/BoottrapKubeconfigController", func() {
 		})
 
 		It("should generate the bootstrap kubeconfig data", func() {
+			// First pass ensures revocation finalizer before token issuance.
 			_, err := bootstrapKubeconfigReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: bootstrapKubeconfigLookupKey})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = bootstrapKubeconfigReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: bootstrapKubeconfigLookupKey})
 			Expect(err).NotTo(HaveOccurred())
 
