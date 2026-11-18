@@ -36,7 +36,7 @@ type failingStatusWriter struct {
 
 func (w failingStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 	if *w.remaining > 0 {
-		*w.remaining = *w.remaining - 1
+		*w.remaining--
 		return errInjectedStatusPatch
 	}
 	return w.SubResourceWriter.Patch(ctx, obj, patch, opts...)
