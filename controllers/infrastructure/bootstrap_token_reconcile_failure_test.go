@@ -73,6 +73,18 @@ func TestBootstrapKubeconfigReconcileStatusPatchFailureDoesNotMultiplyTokens(t *
 		Build()
 	broken := &statusPatchFailureClient{Client: storage, remaining: 5}
 	key := types.NamespacedName{Namespace: request.Namespace, Name: request.Name}
+	// The first pass must persist the finalizer without creating credentials.
+	preflight := &controllers.BootstrapKubeconfigReconciler{Client: broken, Scheme: scheme}
+	if _, err := preflight.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	before := &corev1.SecretList{}
+	if err := storage.List(ctx, before, client.InNamespace(metav1.NamespaceSystem)); err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Items) != 0 {
+		t.Fatal("token issued before finalizer persistence")
+	}
 	for i := 0; i < 6; i++ {
 		r := &controllers.BootstrapKubeconfigReconciler{Client: broken, Scheme: scheme}
 		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
