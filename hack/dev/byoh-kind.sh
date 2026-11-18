@@ -2,11 +2,18 @@
 set -euo pipefail
 
 # Manual local bootstrap only. No BYOH controller, host enrollment, or teardown.
-NAME=ok-byoh-dev
+# Explicit allow-list: a known development environment and a disposable test
+# environment. Never allow targeting the preserved ok-bm-bootstrap cluster.
+NAME="${BYOH_KIND_NAME:-ok-byoh-dev}"
+case "$NAME" in
+  ok-byoh-dev) CONFIG_SUBDIR=byoh-dev ;;
+  ok-byoh-make-test) CONFIG_SUBDIR=byoh-make-test ;;
+  *) printf 'STOP: BYOH_KIND_NAME must be ok-byoh-dev or ok-byoh-make-test\n' >&2; exit 1 ;;
+esac
 IMAGE=kindest/node:v1.36.4
 K8S=v1.36.4
 CAPI=v1.14.4
-KUBECONFIG_FILE="${HOME}/.config/ok/byoh-dev/kubeconfig"
+KUBECONFIG_FILE="${HOME}/.config/ok/${CONFIG_SUBDIR}/kubeconfig"
 CTX="kind-${NAME}"
 
 fail() { printf 'STOP: %s\n' "$*" >&2; exit 1; }
