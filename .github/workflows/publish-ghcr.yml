@@ -1,0 +1,76 @@
+name: Publish BYOH Controller to GHCR
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: >-
+      ${{
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      }}
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout verified commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and publish AMD64 + ARM64
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          SHORT_SHA="${SOURCE_SHA:0:12}"
+          IMAGE="ghcr.io/openkubes/byoh-controller:git-${SHORT_SHA}"
+
+          make docker-buildx \
+            IMAGE_PLATFORMS=linux/amd64,linux/arm64 \
+            DOCKER_BUILDX_PUSH=true \
+            IMG="$IMAGE"
+
+      - name: Verify published image and report digest
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          SHORT_SHA="${SOURCE_SHA:0:12}"
+          IMAGE="ghcr.io/openkubes/byoh-controller:git-${SHORT_SHA}"
+
+          docker buildx imagetools inspect "$IMAGE"
+
+          DIGEST="$(docker buildx imagetools inspect "$IMAGE" \
+            --format '{{.Manifest.Digest}}')"
+
+          test -n "$DIGEST"
+          [[ "$DIGEST" == sha256:* ]]
+
+          {
+            echo "### BYOH Controller Published"
+            printf "Image: \`%s\`\\n" "$IMAGE"
+            printf "Digest: \`%s\`\\n" "$DIGEST"
+            printf "Immutable reference: \`ghcr.io/openkubes/byoh-controller@%s\`\\n" "$DIGEST"
+          } >> "$GITHUB_STEP_SUMMARY"
