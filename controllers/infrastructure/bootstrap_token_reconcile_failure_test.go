@@ -7,7 +7,6 @@ import (
     "context"
     "errors"
     "testing"
-    "time"
 
     infrastructurev1beta1 "github.com/openkubes/ok-baremetal-byoh/apis/infrastructure/v1beta1"
     controllers "github.com/openkubes/ok-baremetal-byoh/controllers/infrastructure"
@@ -37,7 +36,7 @@ type failingStatusWriter struct {
 
 func (w failingStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
     if *w.remaining > 0 {
-        *w.remaining--
+        *w.remaining = *w.remaining - 1
         return errInjectedStatusPatch
     }
     return w.SubResourceWriter.Patch(ctx, obj, patch, opts...)
@@ -109,5 +108,4 @@ func TestBootstrapKubeconfigReconcileStatusPatchFailureDoesNotMultiplyTokens(t *
     if len(secrets.Items) != 1 {
         t.Fatalf("post-success reconcile multiplied tokens: %d", len(secrets.Items))
     }
-    _ = time.Second // Keep regression isolated from actual expiry timing.
 }
