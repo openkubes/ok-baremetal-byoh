@@ -55,8 +55,8 @@ func (r *BootstrapKubeconfigReconciler) Reconcile(ctx context.Context, req ctrl.
 	if !bootstrapKubeconfig.DeletionTimestamp.IsZero() {
 		// Always attempt revocation, even on older objects with no finalizer.
 		// For new requests the finalizer is added before issuing any token.
-		if err := revokeBootstrapTokenSecret(ctx, r.Client, bootstrapKubeconfig); err != nil {
-			return ctrl.Result{}, err
+		if revokeErr := revokeBootstrapTokenSecret(ctx, r.Client, bootstrapKubeconfig); revokeErr != nil {
+			return ctrl.Result{}, revokeErr
 		}
 		if controllerutil.ContainsFinalizer(bootstrapKubeconfig, bootstrapTokenFinalizer) {
 			original := bootstrapKubeconfig.DeepCopy()
