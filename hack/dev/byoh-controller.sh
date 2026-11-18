@@ -35,6 +35,7 @@ clean_source() {
 build() {
   need docker
   clean_source
+  [[ -n "$(sed -n 's/^toolchain go//p' "$ROOT/go.mod")" ]] || fail "Go toolchain directive missing"
   docker build --build-arg GO_VERSION="$(sed -n 's/^toolchain go//p' "$ROOT/go.mod")" -t "$IMAGE" "$ROOT"
   echo "Built $IMAGE"
 }
@@ -45,8 +46,8 @@ load() {
   check_loaded
 }
 check_loaded() {
-  docker exec "$NAME-control-plane" crictl images |
-    grep -Fq "$IMAGE" || fail "image not available inside $NAME"
+  docker exec "$NAME-control-plane" crictl inspecti "$IMAGE" >/dev/null 2>&1 ||
+    fail "image not available inside $NAME"
 }
 render() {
   need python3
