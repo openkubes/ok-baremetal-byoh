@@ -1,4 +1,4 @@
-// Copyright 2026 OpenKubes Contributors.
+// Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
 // SPDX-License-Identifier: Apache-2.0
 
 package controllers
