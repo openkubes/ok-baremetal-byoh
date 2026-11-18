@@ -315,19 +315,21 @@ endef
 
 ##@ Local BYOH management bootstrap
 
+BYOH_KIND_NAME ?= ok-byoh-dev
+
 # Replays only the manually verified Kind -> CAPI steps. Existing Kind clusters
 # are preserved. Unlike upstream E2E, no BYOH provider or hosts are installed.
 byoh-preflight: ## Read-only local Docker/Kind/CAPI prerequisite checks.
-	@bash hack/dev/byoh-kind.sh preflight
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-kind.sh preflight
 
-byoh-kind-create: ## Create isolated ok-byoh-dev Kind (fails if already present).
-	@bash hack/dev/byoh-kind.sh create
+byoh-kind-create: ## Create isolated Kind (set BYOH_KIND_NAME=ok-byoh-make-test for testing).
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-kind.sh create
 
 byoh-kind-status: ## Read-only status for the isolated Kind cluster.
-	@bash hack/dev/byoh-kind.sh status
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-kind.sh status
 
-byoh-capi-init: ## Install CAPI v1.14.4 to fresh ok-byoh-dev only.
-	@bash hack/dev/byoh-kind.sh capi-init
+byoh-capi-init: ## Install CAPI v1.14.4 to a fresh verified BYOH Kind cluster.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-kind.sh capi-init
 
 byoh-capi-verify: ## Read-only rollout and provider version verification.
-	@bash hack/dev/byoh-kind.sh capi-verify
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-kind.sh capi-verify
