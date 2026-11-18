@@ -354,7 +354,7 @@ byoh-controller-verify: ## Verify controller image, manual CSR mode, RBAC, rollo
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-controller.sh verify
 
 byoh-controller-test: ## Run offline fail-closed manifest negative tests.
-	@python3 hack/dev/test-byoh-controller-manifest.py
+	@PYTHONDONTWRITEBYTECODE=1 python3 hack/dev/test-byoh-controller-manifest.py
 
 byoh-kind-up: kustomize ## Preserve existing kind/CAPI and safely bring up BYOH management plane.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-controller.sh up
