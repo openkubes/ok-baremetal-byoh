@@ -353,8 +353,9 @@ byoh-controller-deploy: kustomize ## Install BYOH only after target/CAPI/image/m
 byoh-controller-verify: ## Verify controller image, manual CSR mode, RBAC, rollout.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-controller.sh verify
 
-byoh-controller-test: ## Run offline fail-closed manifest negative tests.
+byoh-controller-test: ## Run offline manifest and bootstrap security tests.
 	@PYTHONDONTWRITEBYTECODE=1 python3 hack/dev/test-byoh-controller-manifest.py
+	@PYTHONDONTWRITEBYTECODE=1 python3 hack/dev/test-byoh-bootstrap-revocation-unit.py
 
 byoh-kind-up: kustomize ## Preserve existing kind/CAPI and safely bring up BYOH management plane.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-controller.sh up

@@ -2,7 +2,9 @@
 
 This document captures the security boundary for
 `BootstrapKubeconfig` and its `kube-system/bootstrap-token-*` Secret.
-It does **not** imply that revocation-on-delete is implemented.
+Revocation-on-delete is implemented and has been verified on an
+isolated kind management cluster using TokenReview and direct API
+authentication checks.
 
 ## Implemented by PR #13
 
@@ -20,62 +22,52 @@ It does **not** imply that revocation-on-delete is implemented.
 - Status patch failure and collision regression tests run against a fake
   Kubernetes API; this is not a complete apiserver/RBAC integration proof.
 
-## Revocation and cleanup: remaining security gate
+## Implemented revocation-on-delete
 
-`BootstrapKubeconfig` is namespaced, but Kubernetes bootstrap-token Secrets
-must be in `kube-system`. A cross-namespace ownerReference is invalid for
-garbage collection. Consequently, adding an ownerReference on the Secret is
-**not** a valid solution.
+The controller persists a finalizer before issuing a bootstrap token.
+When a BootstrapKubeconfig is deleted, the controller identifies its
+kube-system token Secret using the immutable request UID.
 
-The configured Secret expiration limits the token's authentication lifetime,
-subject to the Kubernetes bootstrap-token authenticator being enabled and
-respecting expiry. Kubernetes also has an optional bootstrap token cleaner,
-but the code in PR #13 does **not** establish that the target management
-cluster runs it. Expiration is **not** equivalent to immediate revocation,
-and it does not prove that the physical Secret has been removed.
+It verifies Secret ownership and type before deletion, uses Kubernetes
+UID and resourceVersion preconditions, and confirms that the Secret is
+absent before removing the finalizer.
 
-Before a production or exposed-host enrollment flow, implement and verify an
-explicit revocation-on-delete contract in a separate, reviewable change:
+Missing Secrets are handled idempotently. Foreign or conflicting
+Secrets fail closed; the controller does not delete them.
 
-1. Add a finalizer to `BootstrapKubeconfig` **before** issuing its Secret,
-   including safe adoption/transition rules for existing requests without it.
-2. On deletion, identify the Secret strictly by request UID and token ID.
-   Verify Secret type and ownership before deletion; never delete collisions,
-   unannotated Secrets, or foreign Secrets.
-3. Handle already-absent Secrets idempotently, preserve finalizer and retry
-   on transient API failures, and remove finalizer only after revocation
-   has been verified. Define behavior when ownership verification fails,
-   without allowing permanent silent orphaning.
-4. Cover deletion-before-issuance, deletion-after-issuance, concurrent
-   reconciliation, expired Secret, missing Secret, name collision, and API
-   delete failures with regression tests.
-5. Verify revocation against a real Kubernetes API server and confirm that
-   subsequent authentication with the old token fails. Keep CSR approval
-   manual until the host enrollment identity and authorization review is done.
+Cross-namespace ownerReferences are not used for garbage collection.
 
-The present code is appropriate for *isolated development review only*.
-Do not install or enable the BYOH controller for live host enrollment based
-solely on green unit tests or a green E2E suite.
+### Live verification on kind
 
+An isolated test on ok-byoh-make-test verified:
 
-## Proposed revocation implementation (dependent draft PR)
+- Bootstrap token authentication before deletion.
+- The expected system:bootstrap identity via TokenReview.
+- The same identity via a direct authenticated API request.
+- Deletion of the BootstrapKubeconfig and its owned token Secret.
+- Rejection of the previous token through TokenReview.
+- HTTP 401 for the previous token on a direct API request.
+- Successful cleanup without remaining test requests.
 
-The follow-up branch adds a finalizer before token issuance. When a
-`BootstrapKubeconfig` is terminating, the controller looks up only the
-deterministic token Secret for that UID, checks the Secret type, token ID and
-request UID annotation, then deletes with UID and resourceVersion
-preconditions. It re-reads the API to confirm absence before dropping the
-finalizer. Missing Secrets are treated as already revoked; foreign Secrets
-cause a fail-closed error and retain the finalizer for investigation.
+The live test is implemented in
+hack/dev/test-byoh-bootstrap-revocation-live.py.
 
-This is a **proposed** implementation, not yet validated against a real API
-server. Its tests cover normal deletion, forged ownership and API delete
-failure/retry. Remaining review gates include: pre-existing resources without
-finalizers, concurrent deletion and Secret replacement, post-delete token
-authentication, a controller crash between Secret creation and status patch,
-RBAC and Kubernetes garbage-collection behavior, and recovery from an
-ownership collision that otherwise leaves a finalizer pending.
+These observations establish functional revocation in the tested
+local kind environment, not universal behavior across Kubernetes
+distributions or production configurations.
 
-Kubernetes bootstrap-token expiry and the built-in token cleaner remain
-defense in depth, not a substitute for explicit revocation. Do not use for
-live host enrollment until these gates pass.
+### Remaining security gates
+
+Before production or exposed-host enrollment, review and test:
+
+- Existing requests created before the finalizer was introduced.
+- Concurrent deletion, Secret replacement and controller restarts.
+- Token ownership collisions and stuck-finalizer recovery.
+- Failure injection and incomplete test cleanup.
+- Restricted controller RBAC and admission authorization.
+- Host identity binding, CSR approval and certificate lifecycle.
+
+Manual CSR approval remains mandatory in the local test workflow.
+
+Bootstrap-token expiration and optional token cleanup remain defense
+in depth, not a replacement for explicit revocation.

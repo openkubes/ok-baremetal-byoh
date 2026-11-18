@@ -183,12 +183,14 @@ Without the renewal, register the host again before its certificate expires (see
 
 - Create a BootstrapKubeconfig for each host just before you start its agent, and copy its bootstrap kubeconfig only to that host. Remove the file from the host after the registration (`sudo rm /etc/byoh-hostagent/bootstrap-kubeconfig` with the package), unless the agent renews its certificate with it.
 - Keep `~/.byoh/config` on the host readable only by root. It contains the private key of the host.
-- Delete the BootstrapKubeconfigs that you no longer need, as their status keeps the token. Deleting a BootstrapKubeconfig does not delete its token. An expired token can no longer be used, and the token cleaner of kube-controller-manager deletes it if it is enabled (kubeadm enables it). To revoke a token before it expires, delete its Secret. The token ID is the part of the token before the dot:
-
-  ```shell
-  kubectl -n kube-system delete secret bootstrap-token-<token ID>
-  ```
-
+- Delete BootstrapKubeconfigs when they are no longer needed. The
+  controller uses a finalizer to revoke the associated bootstrap-token
+  Secret in kube-system before completing deletion. Verify successful
+  deletion and investigate requests stuck in Terminating; do not
+  manually remove the finalizer to bypass failed revocation.
+  Token expiration remains a separate defense-in-depth measure.
+  The revocation behavior has been verified on isolated local kind,
+  but production enrollment requires additional security review.
 - Kubernetes cannot revoke a client certificate. When you remove a host, delete its ByoHost after its Machine is deleted, and remove the kubeconfig and the private key of the host from it (`sudo apt purge byoh-hostagent` with the package removes `/root/.byoh`). The certificate of the host stays valid until it expires, with the permissions of the group `byoh:hosts`. A shorter `--certExpiryDuration` shortens this period. If a host may be compromised, the only ways to stop its certificate earlier are to remove the permissions of the group `byoh:hosts`, which stops all the hosts, or to rotate the CA of the cluster.
 - Check the CSRs with `kubectl get csr`. The condition of a denied CSR tells why:
 
