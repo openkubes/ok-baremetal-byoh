@@ -9,11 +9,9 @@ import (
 	"time"
 
 	infrastructurev1beta1 "github.com/openkubes/ok-baremetal-byoh/apis/infrastructure/v1beta1"
-	"github.com/openkubes/ok-baremetal-byoh/common/bootstraptoken"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientcmdlatest "k8s.io/client-go/tools/clientcmd/api/latest"
-	bootstraputil "k8s.io/cluster-bootstrap/token/util"
 	v1beta1patch "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -57,18 +55,9 @@ func (r *BootstrapKubeconfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	tokenStr, err := bootstraputil.GenerateBootstrapToken()
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	bootstrapKubeconfigSecret, err := bootstraptoken.GenerateSecretFromBootstrapToken(tokenStr, ttl)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// create secret
-	err = r.Client.Create(ctx, bootstrapKubeconfigSecret)
+	// An earlier reconciliation may already have created the Secret but failed
+	// to persist the status. Reuse that exact token instead of issuing another.
+	tokenStr, err := ensureBootstrapTokenSecret(ctx, r.Client, bootstrapKubeconfig, ttl)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
