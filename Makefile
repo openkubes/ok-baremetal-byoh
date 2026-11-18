@@ -333,3 +333,28 @@ byoh-capi-init: ## Install CAPI v1.14.4 to a fresh verified BYOH Kind cluster.
 
 byoh-capi-verify: ## Read-only rollout and provider version verification.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-kind.sh capi-verify
+
+##@ Safe local BYOH controller lifecycle
+
+# These targets only target allow-listed kind clusters through their dedicated
+# ~/.config/ok/<name>/kubeconfig; never use the ambient kubectl context.
+byoh-controller-build: ## Build the controller locally, tagged with Git revision.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-controller.sh build
+
+byoh-controller-load: ## Load the local revision-tagged controller image into kind.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-controller.sh load
+
+byoh-controller-render: kustomize ## Render a fail-closed local controller manifest (no cluster writes).
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-controller.sh render /tmp/ok-byoh-kind-rendered.yaml
+
+byoh-controller-deploy: kustomize ## Install BYOH only after target/CAPI/image/manifest checks.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-controller.sh deploy
+
+byoh-controller-verify: ## Verify controller image, manual CSR mode, RBAC, rollout.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-controller.sh verify
+
+byoh-controller-test: ## Run offline fail-closed manifest negative tests.
+	@python3 hack/dev/test-byoh-controller-manifest.py
+
+byoh-kind-up: kustomize ## Preserve existing kind/CAPI and safely bring up BYOH management plane.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-controller.sh up
