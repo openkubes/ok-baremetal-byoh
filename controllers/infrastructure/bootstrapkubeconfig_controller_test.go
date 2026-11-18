@@ -74,16 +74,23 @@ var _ = Describe("Controllers/BoottrapKubeconfigController", func() {
 		})
 
 		It("should generate the bootstrap kubeconfig data", func() {
+			// First pass ensures revocation finalizer before token issuance.
 			_, err := bootstrapKubeconfigReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: bootstrapKubeconfigLookupKey})
 			Expect(err).NotTo(HaveOccurred())
-
 			createdBootstrapKubeconfig := &infrav1.BootstrapKubeconfig{}
-			err = k8sClientUncached.Get(ctx, bootstrapKubeconfigLookupKey, createdBootstrapKubeconfig)
-			Expect(err).ToNot(HaveOccurred())
+			Eventually(func(g Gomega) {
+				_, reconcileErr := bootstrapKubeconfigReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: bootstrapKubeconfigLookupKey})
+				g.Expect(reconcileErr).NotTo(HaveOccurred())
+
+				g.Expect(k8sClientUncached.Get(
+					ctx, bootstrapKubeconfigLookupKey, createdBootstrapKubeconfig,
+				)).To(Succeed())
+				g.Expect(createdBootstrapKubeconfig.Status.BootstrapKubeconfigData).NotTo(BeNil())
+			}, "10s", "100ms").Should(Succeed())
 
 			kubeconfigData := createdBootstrapKubeconfig.Status.BootstrapKubeconfigData
-			Expect(kubeconfigData).ShouldNot(BeNil())
 
 			bootstrapKubeconfigFileData, err := clientcmd.Load([]byte(*kubeconfigData))
 			Expect(err).NotTo(HaveOccurred())

@@ -46,7 +46,8 @@ func (c *statusPatchFailureClient) Status() client.SubResourceWriter {
 	return failingStatusWriter{SubResourceWriter: c.Client.Status(), remaining: &c.remaining}
 }
 
-func TestBootstrapKubeconfigReconcileStatusPatchFailureDoesNotMultiplyTokens(t *testing.T) {
+func newStatusPatchFailureFixture(t *testing.T) (context.Context, *runtime.Scheme, client.Client, *infrastructurev1beta1.BootstrapKubeconfig) {
+	t.Helper()
 	ctx := context.Background()
 	scheme := runtime.NewScheme()
 	if err := corev1.AddToScheme(scheme); err != nil {
@@ -71,8 +72,36 @@ func TestBootstrapKubeconfigReconcileStatusPatchFailureDoesNotMultiplyTokens(t *
 		WithStatusSubresource(&infrastructurev1beta1.BootstrapKubeconfig{}).
 		WithObjects(request).
 		Build()
+	return ctx, scheme, storage, request
+}
+
+func assertBootstrapTokenSecretCount(t *testing.T, ctx context.Context, storage client.Client, expected int) {
+	t.Helper()
+	secrets := &corev1.SecretList{}
+	if err := storage.List(ctx, secrets, client.InNamespace(metav1.NamespaceSystem)); err != nil {
+		t.Fatal(err)
+	}
+	if len(secrets.Items) != expected {
+		t.Fatalf("expected %d token Secrets, got %d", expected, len(secrets.Items))
+	}
+}
+
+func TestBootstrapKubeconfigReconcileStatusPatchFailureDoesNotMultiplyTokens(t *testing.T) {
+	ctx, scheme, storage, request := newStatusPatchFailureFixture(t)
 	broken := &statusPatchFailureClient{Client: storage, remaining: 5}
 	key := types.NamespacedName{Namespace: request.Namespace, Name: request.Name}
+	// The first pass must persist the finalizer without creating credentials.
+	preflight := &controllers.BootstrapKubeconfigReconciler{Client: broken, Scheme: scheme}
+	if _, err := preflight.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	before := &corev1.SecretList{}
+	if err := storage.List(ctx, before, client.InNamespace(metav1.NamespaceSystem)); err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Items) != 0 {
+		t.Fatal("token issued before finalizer persistence")
+	}
 	for i := 0; i < 6; i++ {
 		r := &controllers.BootstrapKubeconfigReconciler{Client: broken, Scheme: scheme}
 		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
@@ -82,13 +111,7 @@ func TestBootstrapKubeconfigReconcileStatusPatchFailureDoesNotMultiplyTokens(t *
 		if i == 5 && err != nil {
 			t.Fatalf("recovery failed: %v", err)
 		}
-		secrets := &corev1.SecretList{}
-		if err := storage.List(ctx, secrets, client.InNamespace(metav1.NamespaceSystem)); err != nil {
-			t.Fatal(err)
-		}
-		if len(secrets.Items) != 1 {
-			t.Fatalf("retry %d: expected exactly one token Secret, got %d", i, len(secrets.Items))
-		}
+		assertBootstrapTokenSecretCount(t, ctx, storage, 1)
 	}
 	stored := &infrastructurev1beta1.BootstrapKubeconfig{}
 	if err := storage.Get(ctx, key, stored); err != nil {
@@ -101,11 +124,5 @@ func TestBootstrapKubeconfigReconcileStatusPatchFailureDoesNotMultiplyTokens(t *
 	if _, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
 		t.Fatal(err)
 	}
-	secrets := &corev1.SecretList{}
-	if err := storage.List(ctx, secrets, client.InNamespace(metav1.NamespaceSystem)); err != nil {
-		t.Fatal(err)
-	}
-	if len(secrets.Items) != 1 {
-		t.Fatalf("post-success reconcile multiplied tokens: %d", len(secrets.Items))
-	}
+	assertBootstrapTokenSecretCount(t, ctx, storage, 1)
 }
