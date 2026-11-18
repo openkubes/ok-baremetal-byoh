@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package-internal tests intentionally exercise the unexported token Secret helper.
+
 //nolint:testpackage // Ensure retries and Secret ownership are tested without exporting internals.
 package controllers
 
