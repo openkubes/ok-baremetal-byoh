@@ -72,7 +72,7 @@ verify_capi() {
     kubectl --kubeconfig "$KUBECONFIG_FILE" -n "$ns" rollout status deployment --timeout=120s
   done
   kubectl --kubeconfig "$KUBECONFIG_FILE" get providers.clusterctl.cluster.x-k8s.io -A
-  count="$(kubectl --kubeconfig "$KUBECONFIG_FILE" get providers.clusterctl.cluster.x-k8s.io -A -o jsonpath='{range .items[*]}{.spec.version}{"\n"}{end}' | grep -Fxc "$CAPI" || true)"
+  count="$(kubectl --kubeconfig "$KUBECONFIG_FILE" get providers.clusterctl.cluster.x-k8s.io -A -o jsonpath='{range .items[*]}{.version}{"\n"}{end}' | grep -Fxc "$CAPI" || true)"
   [[ "$count" == 3 ]] || fail "expected exactly three CAPI $CAPI providers; found $count"
   printf 'CAPI %s ready on %s\n' "$CAPI" "$NAME"
 }
