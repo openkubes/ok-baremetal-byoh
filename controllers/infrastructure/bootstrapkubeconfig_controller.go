@@ -16,6 +16,7 @@ import (
 	v1beta1patch "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -28,6 +29,7 @@ type BootstrapKubeconfigReconciler struct {
 const (
 	// ttl is the time to live for the generated bootstrap token
 	ttl = time.Minute * 30
+	bootstrapTokenFinalizer = "infrastructure.cluster.x-k8s.io/bootstrap-token-cleanup"
 )
 
 //+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=bootstrapkubeconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -50,8 +52,29 @@ func (r *BootstrapKubeconfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
-	// There already is bootstrap-kubeconfig data associated with this object
-	// Do not create secrets again
+	if !bootstrapKubeconfig.DeletionTimestamp.IsZero() {
+		// Always attempt revocation, even on older objects with no finalizer.
+		// For new requests the finalizer is added before issuing any token.
+		if err := revokeBootstrapTokenSecret(ctx, r.Client, bootstrapKubeconfig); err != nil {
+			return ctrl.Result{}, err
+		}
+		if controllerutil.ContainsFinalizer(bootstrapKubeconfig, bootstrapTokenFinalizer) {
+			original := bootstrapKubeconfig.DeepCopy()
+			controllerutil.RemoveFinalizer(bootstrapKubeconfig, bootstrapTokenFinalizer)
+			return ctrl.Result{}, r.Client.Patch(ctx, bootstrapKubeconfig, client.MergeFrom(original))
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Persist the finalizer BEFORE creating any token Secret. A crash after
+	// issuance must not leave a deletable request and a live credential.
+	if !controllerutil.ContainsFinalizer(bootstrapKubeconfig, bootstrapTokenFinalizer) {
+		original := bootstrapKubeconfig.DeepCopy()
+		controllerutil.AddFinalizer(bootstrapKubeconfig, bootstrapTokenFinalizer)
+		return ctrl.Result{}, r.Client.Patch(ctx, bootstrapKubeconfig, client.MergeFrom(original))
+	}
+
+	// There already is bootstrap-kubeconfig data associated with this object.
 	if bootstrapKubeconfig.Status.BootstrapKubeconfigData != nil {
 		return ctrl.Result{}, nil
 	}
