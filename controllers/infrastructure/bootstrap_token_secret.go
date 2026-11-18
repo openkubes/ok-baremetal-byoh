@@ -96,7 +96,6 @@ func recoverBootstrapToken(secret *corev1.Secret, request *infrastructurev1beta1
 	return token, nil
 }
 
- 
 // revokeBootstrapTokenSecret deletes only the Secret belonging to this exact
 // request UID. A missing Secret is already revoked. A foreign Secret (including
 // an ID-hash collision) is NEVER deleted, even for a terminating request.

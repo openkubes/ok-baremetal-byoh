@@ -28,7 +28,7 @@ type BootstrapKubeconfigReconciler struct {
 
 const (
 	// ttl is the time to live for the generated bootstrap token
-	ttl = time.Minute * 30
+	ttl                     = time.Minute * 30
 	bootstrapTokenFinalizer = "infrastructure.cluster.x-k8s.io/bootstrap-token-cleanup"
 )
 

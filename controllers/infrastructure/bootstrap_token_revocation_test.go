@@ -35,7 +35,7 @@ func newTokenRevocationFixture(t *testing.T) (context.Context, client.Client, *i
 			Name: "revoke-me", Namespace: "default", UID: types.UID("revocation-request-uid"),
 		},
 		Spec: infrav1.BootstrapKubeconfigSpec{
-			APIServer: "https://127.0.0.1:6443",
+			APIServer:                "https://127.0.0.1:6443",
 			CertificateAuthorityData: "dGVzdC1jYQ==",
 		},
 	}
