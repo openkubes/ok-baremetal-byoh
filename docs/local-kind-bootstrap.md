@@ -85,5 +85,5 @@ initialized. No destructive "reset" target is provided.
 - The next phase (OpenKubes BYOH installation) is intentionally blocked until
   token idempotence, CSR handling and controller image provenance are verified.
 
-See [the Scaleway end-to-end plan](../scaleway-kubeadm-e2e/README.md) for
+See [the Scaleway end-to-end plan](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/scaleway-kubeadm-e2e/README.md) for
 later host-registration and workload-cluster phases.
