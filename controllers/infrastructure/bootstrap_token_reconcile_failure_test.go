@@ -46,7 +46,8 @@ func (c *statusPatchFailureClient) Status() client.SubResourceWriter {
 	return failingStatusWriter{SubResourceWriter: c.Client.Status(), remaining: &c.remaining}
 }
 
-func TestBootstrapKubeconfigReconcileStatusPatchFailureDoesNotMultiplyTokens(t *testing.T) {
+func newStatusPatchFailureFixture(t *testing.T) (context.Context, *runtime.Scheme, client.Client, *infrastructurev1beta1.BootstrapKubeconfig) {
+	t.Helper()
 	ctx := context.Background()
 	scheme := runtime.NewScheme()
 	if err := corev1.AddToScheme(scheme); err != nil {
@@ -71,6 +72,11 @@ func TestBootstrapKubeconfigReconcileStatusPatchFailureDoesNotMultiplyTokens(t *
 		WithStatusSubresource(&infrastructurev1beta1.BootstrapKubeconfig{}).
 		WithObjects(request).
 		Build()
+	return ctx, scheme, storage, request
+}
+
+func TestBootstrapKubeconfigReconcileStatusPatchFailureDoesNotMultiplyTokens(t *testing.T) {
+	ctx, scheme, storage, request := newStatusPatchFailureFixture(t)
 	broken := &statusPatchFailureClient{Client: storage, remaining: 5}
 	key := types.NamespacedName{Namespace: request.Namespace, Name: request.Name}
 	// The first pass must persist the finalizer without creating credentials.
