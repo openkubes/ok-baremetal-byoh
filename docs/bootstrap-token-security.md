@@ -56,3 +56,26 @@ explicit revocation-on-delete contract in a separate, reviewable change:
 The present code is appropriate for *isolated development review only*.
 Do not install or enable the BYOH controller for live host enrollment based
 solely on green unit tests or a green E2E suite.
+
+
+## Proposed revocation implementation (dependent draft PR)
+
+The follow-up branch adds a finalizer before token issuance. When a
+`BootstrapKubeconfig` is terminating, the controller looks up only the
+deterministic token Secret for that UID, checks the Secret type, token ID and
+request UID annotation, then deletes with UID and resourceVersion
+preconditions. It re-reads the API to confirm absence before dropping the
+finalizer. Missing Secrets are treated as already revoked; foreign Secrets
+cause a fail-closed error and retain the finalizer for investigation.
+
+This is a **proposed** implementation, not yet validated against a real API
+server. Its tests cover normal deletion, forged ownership and API delete
+failure/retry. Remaining review gates include: pre-existing resources without
+finalizers, concurrent deletion and Secret replacement, post-delete token
+authentication, a controller crash between Secret creation and status patch,
+RBAC and Kubernetes garbage-collection behavior, and recovery from an
+ownership collision that otherwise leaves a finalizer pending.
+
+Kubernetes bootstrap-token expiry and the built-in token cleaner remain
+defense in depth, not a substitute for explicit revocation. Do not use for
+live host enrollment until these gates pass.
