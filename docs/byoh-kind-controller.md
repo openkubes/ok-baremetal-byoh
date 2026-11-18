@@ -35,6 +35,63 @@ The controller build requires a **clean Git worktree**, and uses an image
 tag derived from the 12-character Git commit SHA. No registry push or
 external server provisioning is performed.
 
+## Controller image sources
+
+The default image source is `local`. It builds the controller from
+the current Git revision and imports the image into the kind node.
+
+The alternative `ghcr` source installs a previously published
+OpenKubes controller image pinned to an OCI SHA-256 digest.
+
+### Local mode (default)
+
+Run `make byoh-kind-up`.
+
+This builds the controller locally and runs `kind load`.
+
+### GHCR mode
+
+Set these environment variables:
+
+- `BYOH_CONTROLLER_SOURCE=ghcr`
+- `BYOH_CONTROLLER_DIGEST=sha256:<64 lowercase hex characters>`
+
+For the published Git revision `11e32536ac51`, the verified
+multi-architecture OCI index digest is:
+
+`sha256:c7766a4e27ef250880683ff55bfa7a58e6ce2e95850141a1b949f7f0de95c9f7`
+
+Then run `make byoh-kind-up`.
+
+The GHCR mode skips the local controller build and `kind load`.
+Kubernetes retrieves the image from GHCR when it is not cached.
+
+For an existing initialized kind cluster, use
+`make byoh-controller-deploy` followed by
+`make byoh-controller-verify`.
+
+Missing or malformed digests, image tags and unsupported sources
+are rejected. The manifest renderer permits only the expected
+OpenKubes GHCR repository with a complete SHA-256 digest.
+
+### Verification boundaries
+
+The GHCR deployment has been tested on an existing kind cluster.
+Controller readiness, runtime image ID, manual CSR approval mode
+and repeated deployment without a new Deployment revision
+have been verified.
+
+A fresh kind-cluster installation without a preloaded image
+remains to be tested.
+
+The runtime image ID check does not independently establish
+cryptographic image provenance or verify a platform-specific
+manifest against the published OCI index.
+
+The existing cluster is never automatically destroyed.
+All operations remain limited to disposable local kind
+development environments.
+
 ## Safety and contract
 
 - Kubernetes operations use only
@@ -46,15 +103,18 @@ external server provisioning is performed.
 - Controller deployment is built from `config/default` in memory/temp
   files, **without** changing `config/manager/kustomization.yaml`.
 - The manifest renderer permits exactly one expected upstream image
-  reference and substitutes a local, revision-tagged image. It rejects
+  reference and substitutes either a local, revision-tagged image or a
+  digest-pinned image from the OpenKubes GHCR repository. It rejects
   missing or duplicated expected placeholders, unresolved placeholders
   and any remaining upstream image.
 - `MANUAL_CSR_APPROVAL=enable` is mandatory: this disables the
   automatic BYOH CSR approval controller. The naming is counterintuitive.
 - Required runtime options are replaced with explicit values. The deploy
-  command checks the image is in the kind node and runs a client dry-run
-  before the write. The verification checks deployment image, manual CSR
-  mode, rollout and controller service-account permissions in kube-system.
+  command checks that locally built images are loaded in local mode and
+  runs a client dry-run before the write. In GHCR mode Kubernetes handles
+  image retrieval. Verification checks deployment image, manual CSR mode,
+  rollout and controller service-account permissions in kube-system.
+  GHCR mode additionally verifies the Ready pod and runtime image ID.
 - Repeating the workflow does not create extra kind clusters, reinitialize
   CAPI, or mint bootstrap-token Secrets. It does recheck/reapply BYOH
   management-plane manifests.
