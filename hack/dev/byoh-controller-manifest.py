@@ -21,7 +21,11 @@ def render(text: str, image: str) -> str:
         text = text.replace(old, new)
     if "${" in text or "ghcr.io/superbrothers/cluster-api-byoh-controller" in text:
         raise ValueError("unresolved substitution or upstream image")
-    if text.count("image: " + image) != 1 or text.count("value: enable") != 1:
+    approval = re.findall(
+        r'(?m)^\s*- name: MANUAL_CSR_APPROVAL\s*\n\s*value: ["\']?enable["\']?\s*$',
+        text,
+    )
+    if text.count("image: " + image) != 1 or len(approval) != 1:
         raise ValueError("controller image or manual-CSR setting mismatch")
     return text
 

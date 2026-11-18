@@ -23,7 +23,7 @@ class ManifestGateTest(unittest.TestCase):
     def test_safe_render(self):
         result = module.render(BASE, IMAGE)
         self.assertIn("image: " + IMAGE, result)
-        self.assertIn("value: enable", result)
+        self.assertIn('value: "enable"', result)
         self.assertNotIn("${", result)
 
     def test_wrong_image(self):
