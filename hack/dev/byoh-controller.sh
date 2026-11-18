@@ -49,22 +49,22 @@ check_loaded() {
   docker exec "$NAME-control-plane" crictl inspecti "$IMAGE" >/dev/null 2>&1 ||
     fail "image not available inside $NAME"
 }
-render() {
+render() (
   need python3
   [[ -x "$KUSTOMIZE" ]] || fail "missing $KUSTOMIZE; run make kustomize"
   local file="$1" raw
   raw="$(mktemp)"
-  trap 'rm -f "$raw"' RETURN
+  trap 'rm -f "$raw"' EXIT
   "$KUSTOMIZE" build "$ROOT/config/default" > "$raw"
   python3 "$ROOT/hack/dev/byoh-controller-manifest.py" "$raw" "$file" "$IMAGE"
-}
-deploy() {
+)
+deploy() (
   check_target
   check_capi
   check_loaded
   local manifest
   manifest="$(mktemp)"
-  trap 'rm -f "$manifest"' RETURN
+  trap 'rm -f "$manifest"' EXIT
   render "$manifest"
   kubectl --kubeconfig "$KC" apply --dry-run=client -f "$manifest" -o name >/dev/null ||
     fail "manifest dry-run failed"
@@ -72,7 +72,7 @@ deploy() {
   check_target
   kubectl --kubeconfig "$KC" apply -f "$manifest"
   verify
-}
+)
 verify() {
   check_target
   check_capi
