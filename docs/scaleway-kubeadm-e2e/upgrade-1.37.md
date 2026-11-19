@@ -86,3 +86,29 @@ Raw evidence was captured locally under:
 /tmp/ok-byoh-upgrade-137-evidence
 
 Raw CAPI objects are intentionally not committed.
+
+## CAPI Reconciliation Assessment
+
+The existing BYOH E2E tests demonstrate replacement-based
+upgrades with host reuse:
+
+- cluster_upgrade_test.go: maxSurge 0 with sufficient
+  control-plane replicas.
+- clusterclass_upgrade_test.go: maxSurge 1 with an
+  additional available control-plane host.
+
+Neither path validates adopting an existing Machine after
+a manual kubeadm in-place upgrade.
+
+The Scaleway lab contains one control-plane host and one
+worker host, both assigned to existing Machines.
+
+Decision:
+- Keep Cluster.spec.paused=true.
+- Do not patch Machine.spec.version or KCP/MD versions.
+- Do not resume CAPI reconciliation without validating
+  the resulting rollout behavior.
+- Track safe reconciliation or reprovisioning separately.
+
+This limitation does not invalidate the successful
+Kubernetes 1.37.2 in-place upgrade.
