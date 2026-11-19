@@ -47,6 +47,18 @@ class BindingTests(TestCase):
         data, machines = fixtures()
         self.assertEqual(self.call_verify(data, machines), (NAME, NAME))
 
+    def test_wrong_kcp_template_reference_rejected(self):
+        data, machines = fixtures()
+        data[("kubeadmcontrolplane", "ok-byoh-scw1-control-plane")]["spec"]["machineTemplate"]["infrastructureRef"]["name"] = "unexpected-template"
+        with self.assertRaises(SystemExit):
+            self.call_verify(data, machines)
+
+    def test_missing_kcp_template_reference_rejected(self):
+        data, machines = fixtures()
+        del data[("kubeadmcontrolplane", "ok-byoh-scw1-control-plane")]["spec"]["machineTemplate"]["infrastructureRef"]
+        with self.assertRaises(SystemExit):
+            self.call_verify(data, machines)
+
     def test_unbound_host_rejected(self):
         data, machines = fixtures()
         data[("byohost", "ok-bm-lab-01")]["spec"]["byoMachineRef"] = None
