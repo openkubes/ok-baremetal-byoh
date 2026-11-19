@@ -242,6 +242,43 @@ func (r *HostReconciler) resetHost(ctx context.Context, byoHost *infrastructurev
 		return err
 	}
 
+	if err := r.resetNodeForAttachment(ctx, byoHost, installed); err != nil {
+		return err
+	}
+	v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sNodeBootstrapSucceeded, infrastructurev1beta1.K8sNodeAbsentReason, clusterv1beta1.ConditionSeverityInfo, "")
+
+	if installed {
+		logger.Info("Executing Uninstall script")
+		if err := r.CmdRunner.RunCmd(ctx, uninstallScript); err != nil {
+			logger.Error(err, "error execting Uninstallation script")
+			r.Recorder.Eventf(byoHost, nil, corev1.EventTypeWarning, "UninstallScriptExecutionFailed", "UninstallK8sComponents", "uninstall script execution failed")
+			v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sComponentsInstallationSucceeded, infrastructurev1beta1.K8sComponentsUninstallationFailedReason, clusterv1beta1.ConditionSeverityWarning, "%v", err)
+			return err
+		}
+		if err := os.Remove(r.UninstallScriptPath); err != nil && !os.IsNotExist(err) {
+			v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sComponentsInstallationSucceeded, infrastructurev1beta1.K8sComponentsUninstallationFailedReason, clusterv1beta1.ConditionSeverityWarning, "%v", err)
+			return errors.Wrapf(err, "failed to remove the uninstall script %s", r.UninstallScriptPath)
+		}
+	} else if !r.SkipK8sInstallation {
+		logger.Info("Skipping k8s component uninstallation, as the agent has not installed them")
+	}
+	v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sComponentsInstallationSucceeded, infrastructurev1beta1.K8sNodeAbsentReason, clusterv1beta1.ConditionSeverityInfo, "")
+
+	if err := r.removeSentinelFile(ctx, byoHost); err != nil {
+		v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sNodeBootstrapSucceeded, infrastructurev1beta1.K8sNodeResetFailedReason, clusterv1beta1.ConditionSeverityWarning, "%v", err)
+		return err
+	}
+	// Keep the UID-bound checkpoint until the attachment is released.
+	// If patching status.lastReset fails, the next reconcile must not
+	// repeat a successful kubeadm reset.
+	return nil
+}
+
+// resetNodeForAttachment checks the UID-bound checkpoint before the node reset.
+// A successful reset is checkpointed before the uninstall phase so retries
+// never repeat kubeadm reset for the same ByoMachine attachment.
+func (r *HostReconciler) resetNodeForAttachment(ctx context.Context, byoHost *infrastructurev1beta1.ByoHost, installed bool) error {
+	logger := ctrl.LoggerFrom(ctx)
 	// The checkpoint belongs to a specific ByoMachine attachment.
 	// Unlike a status condition, it survives an agent restart and cannot
 	// accidentally authorize skipping the reset of another Machine.
@@ -298,32 +335,6 @@ func (r *HostReconciler) resetHost(ctx context.Context, byoHost *infrastructurev
 	} else {
 		logger.Info("Skipping kubeadm reset, as the agent has not installed the k8s components")
 	}
-	v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sNodeBootstrapSucceeded, infrastructurev1beta1.K8sNodeAbsentReason, clusterv1beta1.ConditionSeverityInfo, "")
-
-	if installed {
-		logger.Info("Executing Uninstall script")
-		if err := r.CmdRunner.RunCmd(ctx, uninstallScript); err != nil {
-			logger.Error(err, "error execting Uninstallation script")
-			r.Recorder.Eventf(byoHost, nil, corev1.EventTypeWarning, "UninstallScriptExecutionFailed", "UninstallK8sComponents", "uninstall script execution failed")
-			v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sComponentsInstallationSucceeded, infrastructurev1beta1.K8sComponentsUninstallationFailedReason, clusterv1beta1.ConditionSeverityWarning, "%v", err)
-			return err
-		}
-		if err := os.Remove(r.UninstallScriptPath); err != nil && !os.IsNotExist(err) {
-			v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sComponentsInstallationSucceeded, infrastructurev1beta1.K8sComponentsUninstallationFailedReason, clusterv1beta1.ConditionSeverityWarning, "%v", err)
-			return errors.Wrapf(err, "failed to remove the uninstall script %s", r.UninstallScriptPath)
-		}
-	} else if !r.SkipK8sInstallation {
-		logger.Info("Skipping k8s component uninstallation, as the agent has not installed them")
-	}
-	v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sComponentsInstallationSucceeded, infrastructurev1beta1.K8sNodeAbsentReason, clusterv1beta1.ConditionSeverityInfo, "")
-
-	if err := r.removeSentinelFile(ctx, byoHost); err != nil {
-		v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sNodeBootstrapSucceeded, infrastructurev1beta1.K8sNodeResetFailedReason, clusterv1beta1.ConditionSeverityWarning, "%v", err)
-		return err
-	}
-	// Keep the UID-bound checkpoint until the attachment is released.
-	// If patching status.lastReset fails, the next reconcile must not
-	// repeat a successful kubeadm reset.
 	return nil
 }
 
