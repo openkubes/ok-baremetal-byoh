@@ -99,3 +99,33 @@ a separate planned change.
 **Testing status:** Newly implemented; syntax, sandbox tests, and the actual
 Scaleway renewal still require validation before treating this as a proven
 unattended runbook.
+
+## Host registration: explicit start, independent CSR approval
+
+After bootstrap renewal and successful agent preparation, run the read-only
+preflight for the registration phase:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-hosts-register
+```
+
+This first validates all inventory hosts (management CA/tunnel, host identity,
+active/disabled service, effective `--skip-installation` systemd command,
+permanent-credential absence, and remote credential checksum against the
+current fresh BootstrapKubeconfig), and prints a host-batched digest-bound
+plan. **The command starts services only after a single typed `start <hash>`
+confirmation.** Check the plan before authorizing. It revalidates the
+selected host immediately before each start. It does NOT approve a CSR,
+provision Kubernetes nodes or modify the infrastructure.
+
+Do **not** run this target against already-started/partially registered hosts
+as a retry. After a partial start, review the host service state and CSRs
+independently before choosing an explicit recovery procedure. CSR approval
+requires an independently reviewed requester/token identity contract;
+`scripts/scaleway-e2e/byoh-e2e.sh approve-csr` remains disabled by design.
+
+The existing 30-minute token TTL and 20-minute conservative start-age
+restriction remain. If tokens have expired, first use the separately confirmed
+`byoh-hosts-bootstrap-renew` on **stopped, unregistered** hosts.
