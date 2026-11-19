@@ -162,7 +162,16 @@ def ready_installation(kc, machine_name):
             host_ref.get("namespace", V.NAMESPACE) != V.NAMESPACE or
             desired_ref.get("namespace", V.NAMESPACE) != V.NAMESPACE or
             host_ref.get("kind") != "Secret"):
-        stop("installation Secret reference mismatch")
+        # ObjectReference fields are non-secret. Print only the exact
+        # attributes needed to distinguish API conversion, namespace drift,
+        # and a genuinely foreign Secret before any host action.
+        print("Installation Secret reference evidence (read-only):")
+        for field in ("name", "kind", "namespace", "apiVersion", "uid"):
+            print("  installer.status.installationSecret." + field + ": " +
+                  str(desired_ref.get(field, "<absent>")))
+            print("  byohost.spec.installationSecret." + field + ": " +
+                  str(host_ref.get(field, "<absent>")))
+        stop("installation Secret reference mismatch; no fallback accepted")
     name = host_ref.get("name")
     if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", name):
         stop("unexpected installation Secret name")
