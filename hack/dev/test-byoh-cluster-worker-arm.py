@@ -27,7 +27,7 @@ class WorkerArmTests(unittest.TestCase):
 
     def test_plan_only_has_no_automatic_arm(self):
         text = Path(A.__file__).read_text()
-        self.assertIn('if not args.arm:', text)
+        self.assertIn('if not args.install:', text)
         self.assertIn('if answer != phrase:', text)
         self.assertIn('raw2, unit_hash2, proof2, digest2 = compute(path)', text)
         self.assertIn('unit_hash + "\\n" + REMOTE_ARM', text)
