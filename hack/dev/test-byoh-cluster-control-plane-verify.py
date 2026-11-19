@@ -70,7 +70,7 @@ class BindingTests(TestCase):
 
     def test_missing_kcp_template_reference_rejected(self):
         data, machines = fixtures()
-        del data[("kubeadmcontrolplane", "ok-byoh-scw1-control-plane")]["spec"]["machineTemplate"]["infrastructureRef"]
+        del data[("kubeadmcontrolplane", "ok-byoh-scw1-control-plane")]["spec"]["machineTemplate"]["spec"]["infrastructureRef"]
         with self.assertRaises(SystemExit):
             self.call_verify(data, machines)
 
