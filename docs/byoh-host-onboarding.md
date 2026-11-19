@@ -48,16 +48,19 @@ Run `make byoh-hosts-idempotency-test` for deterministic offline tests of reques
 freshness, management CA/endpoint binding, transfer checksum replay decisions,
 host-inventory plan fingerprints and systemd unit drift/no-op decisions.
 
-**This is not a live end-to-end idempotency guarantee.** The actual enrollment
-and existing transfer helper still require additional state-aware integration
-and simulated interruption tests. In particular, the clean-host preflight
-rejects staged bootstrap files, the existing transfer helper refuses even
-matching preexisting credentials, and systemd currently reloads on repeated
-successful preparation. Therefore **do not rerun BYOH_ENROLL=true ok-up on
-already-staged hosts**. The offline tests intentionally establish the
-decision contracts before those changes; real remote retries remain gated.
+**Live idempotency is not yet proven.** The enrollment preflight now supports
+an explicit staged mode; an existing remote bootstrap credential is verified
+by SHA-256 and reused without transfer, and an already-correct agent systemd
+drop-in is left unchanged without a daemon reload. These changes are not yet
+E2E-tested against Scaleway.
 
-A full E2E idempotency acceptance test must demonstrate unchanged bootstrap
-Secret/token identity, unchanged credential checksum, unchanged systemd drop-in
-and service state, no new CSR issuance and no unintended writes on a second
-run. Stale credentials require explicit revocation/reissue authorization.
+Do not rerun enrollment while bootstrap tokens are stale. The test cluster
+currently has tokens with a 30-minute TTL and a conservative 20-minute
+freshness bound; a repeat after that bound must fail closed until an explicit
+revocation and new issuance procedure is completed.
+
+The final E2E acceptance test must compare the token Secret identity and
+expiration, remote credential hashes, systemd drop-in timestamps, effective
+systemd state, and CSR count before and after a second run. Partial failure
+replay, simulated interruptions and multi-host failure isolation still need
+integration tests. No CSR auto-approval or agent start has been introduced.
