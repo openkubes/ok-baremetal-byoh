@@ -102,9 +102,6 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-    - name: Offline BYOH E2E security regression
-      run: bash tests/offline/test-byoh-e2e.sh
-
     - name: Check Docker Version
       run: docker --version
     
@@ -115,6 +112,9 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         fetch-depth: 0
+
+    - name: Offline BYOH E2E security regression
+      run: bash tests/offline/test-byoh-e2e.sh
 
     - name: turn off swap
       run: sudo swapoff -a
