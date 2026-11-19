@@ -496,3 +496,17 @@ fail-closed state. Inspect systemd, the control-plane host, and CAPI
 reconciliation before recovery. No automatic rollback or retry.
 Existing `network-up` is a separate post-API step and must not be
 attempted before the workload API starts.
+
+### Optional ObjectReference fields after API conversion
+
+For a ready K8sInstallerConfig, the BYOH controller copies
+`status.installationSecret` into `ByoHost.spec.installationSecret`
+using a Kubernetes `corev1.ObjectReference`. The live Scaleway
+preflight showed matching Secret names and namespace `default`, but
+both references omitted the optional `kind` field. The CP install
+plan accepts this legitimate omission only when the exact names and
+namespaces agree and the actual core Kubernetes Secret is present.
+Explicit foreign `kind`, `apiVersion`, mismatched UID or missing
+Secret still cause STOP. The ByoHost bootstrap Secret reference is
+checked with the same optional-field semantics and against the
+KubeadmConfig Secret name. No secret payload is logged or changed.
