@@ -60,7 +60,7 @@ def main():
 
     # Re-check all hosts and exact management tunnel identity before any write.
     call(["bash", "hack/dev/python-toolchain.sh",
-          "hack/dev/byoh-hosts-preflight.py", "--inventory", str(inventory)])
+          "hack/dev/byoh-hosts-preflight.py", "--inventory", str(inventory), "--allow-staged"])
 
     # Read-only identity/freshness checks before reusing an existing object.
     # The controller's token lifetime is 30 minutes. Do not resume old tokens.
@@ -108,6 +108,49 @@ def main():
         if age < -60 or age >= 20 * 60:
             fail("bootstrap object older than 20 minutes; inspect token expiration and revoke explicitly: " + host)
         print("PASS: existing bootstrap object matches current management CA and endpoint: " + host, flush=True)
+
+    def transfer_needed(host):
+        # Never display the token or credential; compare only its SHA-256.
+        # This is evaluated after verifying bootstrap identity and age.
+        import hashlib
+        import base64
+        result = subprocess.run(
+            ["kubectl", "--kubeconfig", str(kubeconfig), "-n", "default",
+             "get", "bootstrapkubeconfig", host["name"], "-o", "json"],
+            cwd=ROOT, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            fail("cannot load bootstrap status for " + host["name"])
+        try:
+            obj = json.loads(result.stdout)
+            raw = obj["status"]["bootstrapKubeconfigData"]
+            if not isinstance(raw, str) or not raw:
+                raise ValueError("empty status")
+            expected = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        except (ValueError, KeyError, TypeError):
+            fail("invalid bootstrap status for " + host["name"])
+        peer = host["ssh"]["user"] + "@" + host["ssh"]["address"]
+        # Nonzero means failed verification, never interpreted as absent.
+        probe = subprocess.run(
+            ["ssh", "-T", "-o", "BatchMode=yes",
+             "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8",
+             peer, "sudo", "-n", "sh", "-c",
+             'if test -L /root/.byoh/bootstrap.kubeconfig; then exit 10; '
+             'elif test -e /root/.byoh/bootstrap.kubeconfig; then '
+             'test -f /root/.byoh/bootstrap.kubeconfig || exit 11; '
+             'test "$(stat -c \'%a %U:%G\' /root/.byoh/bootstrap.kubeconfig)" = "600 root:root" || exit 12; '
+             'sha256sum /root/.byoh/bootstrap.kubeconfig | cut -d " " -f 1; '
+             'else echo ABSENT; fi'],
+            cwd=ROOT, capture_output=True, text=True, timeout=20, check=False)
+        if probe.returncode != 0:
+            fail("remote credential verification failed on " + host["name"])
+        actual = probe.stdout.strip()
+        if actual == "ABSENT":
+            return True
+        if actual != expected:
+            fail("remote credential checksum mismatch on " + host["name"])
+        print("PASS: existing credential matches exactly; no transfer on " +
+              host["name"], flush=True)
+        return False
 
     def wait_for_credential(host):
         deadline = time.monotonic() + 90
@@ -168,8 +211,9 @@ def main():
         wait_for_credential(host["name"])
         # Reuse the existing secure transfer helper, which refuses to overwrite
         # preexisting remote credentials and requires a typed confirmation.
-        call(["bash", str(SCRIPT), "enroll-transfer"], env=env,
-             confirmation="transfer-bootstrap-" + host["name"])
+        if transfer_needed(host):
+            call(["bash", str(SCRIPT), "enroll-transfer"], env=env,
+                 confirmation="transfer-bootstrap-" + host["name"])
         print("PASS: staged bootstrap credential for " + host["name"], flush=True)
 
     # The single approval also covered agent-unit preparation. Import the
