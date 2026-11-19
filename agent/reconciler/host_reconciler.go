@@ -288,7 +288,7 @@ func (r *HostReconciler) resetHost(ctx context.Context, byoHost *infrastructurev
 			}
 			// Publish the checkpoint atomically only after a successful reset.
 			tmp := checkpointPath + ".tmp"
-			if err := os.WriteFile(tmp, []byte(uid), 0o600); err != nil {
+			if err := os.WriteFile(tmp, []byte(uid), uninstallScriptMode); err != nil {
 				return fmt.Errorf("writing node reset checkpoint: %w", err)
 			}
 			if err := os.Rename(tmp, checkpointPath); err != nil {
