@@ -323,7 +323,7 @@ BYOH_ENROLL ?= false
 ok-up: byoh-kind-up ## Bootstrap local BYOH; with BYOH_ENROLL=true stage host enrollment.
 	@case '$(BYOH_ENROLL)' in \
 	  false|'') ;; \
-	  true) $(MAKE) --no-print-directory BYOH_KIND_NAME='$(BYOH_KIND_NAME)' BYOH_HOSTS_INVENTORY='$(BYOH_HOSTS_INVENTORY)' byoh-hosts-enroll ;; \
+	  true) $(MAKE) --no-print-directory BYOH_KIND_NAME='$(BYOH_KIND_NAME)' BYOH_HOSTS_INVENTORY='$(BYOH_HOSTS_INVENTORY)' byoh-hosts-enroll byoh-hosts-agent-prepare ;; \
 	  *) echo 'STOP: BYOH_ENROLL must be true or false' >&2; exit 1 ;; \
 	esac
 
@@ -362,6 +362,10 @@ byoh-hosts-preflight: ## Read-only inventory, SSH, agent and management-tunnel i
 .PHONY: byoh-hosts-enroll
 byoh-hosts-enroll: ## Stage confirmed host bootstrap credentials; never start agents or approve CSRs.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-enroll.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-hosts-agent-prepare
+byoh-hosts-agent-prepare: ## Safely prepare existing stopped agent units for enrollment only.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-agent-prepare.py --inventory '$(BYOH_HOSTS_INVENTORY)'
 
 ##@ Safe local BYOH controller lifecycle
 
