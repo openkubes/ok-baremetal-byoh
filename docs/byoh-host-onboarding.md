@@ -442,3 +442,57 @@ and not proof that the network path from management to workload API is ready.
 A missing ByoMachine binding or installer may be a controller reconciliation
 delay; inspect the precise failing state and controller logs rather than
 starting the agent, changing finalizers, or recreating resources.
+
+## Guarded CP install: read-only plan then explicit activation (experimental)
+
+After `byoh-cluster-control-plane-verify` succeeds, the next safety
+boundary is the **read-only** installer readiness plan:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-control-plane-install-plan
+```
+
+This new workflow is not yet live tested. It checks the current 1-node
+CAPI KCP/Machine/ByoMachine/ByoHost binding, matches attachment **UID**
+(not only name), checks that `K8sInstallerConfig.status.ready` is true,
+and confirms its `status.installationSecret` matches the exact
+`ByoHost.spec.installationSecret`. The corresponding Secret must
+exist and have nonempty data; no Secret payload is read into log output.
+The ByoHost bootstrap Secret reference must also match the
+`KubeadmConfig.status.dataSecretName`.
+
+Remote checks require an inactive/disabled agent, valid permanent BYOH
+credential file, no temporary enrollment credential, no initialized
+kubeadm state, and exactly one known enrollment drop-in at
+`90-ok-byoh-enrollment.conf` with expected content and 0644/root
+ownership. This is bound to an SSH-observed SHA-256 checksum of that
+existing unit, the host UID, ByoMachine UID, installation Secret UID,
+inventory bytes and the exact machine identity.
+
+Only after the plan and explicit operator authorization, the **mutating**
+target may be used:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-control-plane-install
+```
+
+A typed `install <plan-hash>` approval is required. The entire
+preflight is re-evaluated before changes. The host-only operation
+installs a dedicated `95-ok-byoh-cp-install.conf` systemd drop-in, with
+effective `ExecStart=/usr/local/bin/byoh-hostagent --namespace default`,
+validates systemd state, and starts the **existing disabled** agent
+once. It does not enable it at boot, install packages directly,
+replace permanent credentials, approve CSRs, or change CAPI specs.
+The agent itself can immediately execute kubeadm work as root, so this
+is a high-impact approval boundary. **Never run it unattended.**
+
+On a partial failure do not rerun the original plan: a written 95 drop-in,
+started agent, or partially initialized kubeadm leaves a deliberate
+fail-closed state. Inspect systemd, the control-plane host, and CAPI
+reconciliation before recovery. No automatic rollback or retry.
+Existing `network-up` is a separate post-API step and must not be
+attempted before the workload API starts.
