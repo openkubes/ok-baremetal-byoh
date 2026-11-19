@@ -232,9 +232,21 @@ def validate_workload(cfg):
     return call_with_kubeconfig(cfg, check)
 
 
+def helm_list_args(kc, version):
+    """Preserve all-status release inventory on Helm 3 and Helm 4."""
+    import re
+    match = re.match(r"^v?([34])\\.", version.strip())
+    if not match:
+        stop("unsupported Helm version for release inventory")
+    args = ["helm", "list", "--kubeconfig", str(kc), "-n", "kube-system"]
+    if match.group(1) == "3":
+        args.append("--all")
+    return args + ["-o", "json"]
+
+
 def kubeconfig_helm_state(kc):
-    releases = json.loads(output(["helm", "list", "--kubeconfig", str(kc),
-                                  "-n", "kube-system", "--all", "-o", "json"]))
+    version = output(["helm", "version", "--short"])
+    releases = json.loads(output(helm_list_args(kc, version)))
     selected = [x for x in releases if x.get("name") == "cilium"]
     daemon = json.loads(output(["kubectl", "--kubeconfig", str(kc), "-n", "kube-system",
                                 "get", "daemonsets", "-o", "json"]))["items"]
