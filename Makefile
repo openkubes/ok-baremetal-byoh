@@ -341,11 +341,16 @@ byoh-capi-verify: ## Read-only rollout and provider version verification.
 
 ##@ BYOH host onboarding (inventory-driven)
 
+.PHONY: byoh-python-check
+byoh-python-check: ## Prepare and verify isolated Python dependencies for BYOH tooling.
+	@bash hack/dev/python-toolchain.sh --check
+
+
 BYOH_HOSTS_INVENTORY ?= config/hosts/scaleway.yaml
 
 .PHONY: byoh-hosts-preflight
 byoh-hosts-preflight: ## Read-only inventory, SSH, agent and management-tunnel identity checks.
-	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' python3 hack/dev/byoh-hosts-preflight.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-preflight.py --inventory '$(BYOH_HOSTS_INVENTORY)'
 
 ##@ Safe local BYOH controller lifecycle
 
