@@ -2,7 +2,6 @@
 """Read-only, fail-closed BYOH host inventory and connectivity preflight."""
 import argparse
 import hashlib
-import ipaddress
 import os
 from pathlib import Path
 import re
@@ -59,15 +58,19 @@ def validate(data):
     if resolved.is_symlink() or not resolved.is_file():
         stop("dedicated kubeconfig missing or symlink")
     hosts = spec.get("hosts")
-    if not isinstance(hosts, list) or len(hosts) != 2:
-        stop("lab preflight requires exactly one control-plane and one worker")
+    if not isinstance(hosts, list) or not (2 <= len(hosts) <= 100):
+        stop("inventory must contain 2 to 100 hosts")
     names, endpoints, roles = set(), set(), set()
+    cp_count = 0
+    worker_count = 0
     for h in hosts:
         if not isinstance(h, dict) or not isinstance(h.get("name"), str) or not NAME.fullmatch(h["name"]):
             stop("invalid host name")
         role = h.get("role")
-        if role not in ("control-plane", "worker") or role in roles or h["name"] in names:
+        if role not in ("control-plane", "worker") or h["name"] in names:
             stop("duplicate/unsupported host role or name")
+        cp_count += role == "control-plane"
+        worker_count += role == "worker"
         ssh = h.get("ssh")
         if not isinstance(ssh, dict):
             stop("missing ssh host data")
@@ -79,8 +82,9 @@ def validate(data):
         if (user, addr) in endpoints:
             stop("duplicate SSH endpoint")
         names.add(h["name"])
-        roles.add(role)
         endpoints.add((user, addr))
+    if cp_count < 1 or worker_count < 1:
+        stop("inventory needs at least one control-plane and one worker")
     return kind, resolved, port, hosts
 
 
