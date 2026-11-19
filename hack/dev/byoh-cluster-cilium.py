@@ -299,6 +299,18 @@ def store_kubeconfig(cfg):
         raise
 
 
+def verify_lab_nodes(nodes):
+    """Accept only the observed one- or two-node Scaleway test topology."""
+    expected = {"ok-bm-lab-01", "ok-bm-lab-02"}
+    names = [n.get("metadata", {}).get("name") for n in nodes]
+    if len(names) not in (1, 2) or len(set(names)) != len(names) or set(names) not in (
+            {"ok-bm-lab-01"}, expected):
+        stop("unexpected workload Node identity/count after Cilium")
+    if any(not any(c.get("type") == "Ready" and c.get("status") == "True"
+                   for c in n.get("status", {}).get("conditions", [])) for n in nodes):
+        stop("workload Node not Ready after Cilium")
+
+
 def verify_installed(cfg):
     def inspect_kc(kc):
         selected, daemon, operator = kubeconfig_helm_state(kc)
@@ -314,11 +326,7 @@ def verify_installed(cfg):
                 installed.get("k8sServicePort") != 6443):
             stop("Cilium Helm values differ from reviewed configuration")
         nodes = json.loads(output(["kubectl", "--kubeconfig", str(kc), "get", "nodes", "-o", "json"]))["items"]
-        if len(nodes) != 1 or nodes[0]["metadata"]["name"] != "ok-bm-lab-01":
-            stop("unexpected Node state after Cilium")
-        if not any(c.get("type") == "Ready" and c.get("status") == "True"
-                   for c in nodes[0].get("status", {}).get("conditions", [])):
-            stop("workload Node not Ready after Cilium")
+        verify_lab_nodes(nodes)
         pods = json.loads(output(["kubectl", "--kubeconfig", str(kc), "-n", "kube-system",
                                   "get", "pods", "-o", "json"]))["items"]
         for prefix in ("cilium-", "cilium-operator-", "coredns-"):
@@ -329,7 +337,7 @@ def verify_installed(cfg):
                                          for p in candidates):
                 stop("CNI/CoreDNS Pod readiness missing: " + prefix)
     call_with_kubeconfig(cfg, inspect_kc)
-    print("PASS: pinned Cilium release deployed with expected values; Node/CoreDNS Ready")
+    print("PASS: pinned Cilium release deployed with expected values; workload Nodes/CoreDNS Ready")
     print("NOTE: multi-node connectivity and network policy still require worker E2E")
 
 
