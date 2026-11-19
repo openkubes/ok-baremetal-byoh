@@ -63,6 +63,9 @@ var _ = Describe("ByohostWebhook with the agent", func() {
 			TemplateParser:      &cloudinitfakes.FakeITemplateParser{},
 			Recorder:            events.NewFakeRecorder(100),
 			UninstallScriptPath: uninstallScriptPath,
+			// The webhook test checks API/RBAC behavior, not the host CRI runtime.
+			// Sandbox cleanup has dedicated unit tests.
+			PreResetCleanup: func(context.Context) error { return nil },
 		}
 		registrar = &registration.HostRegistrar{K8sClient: ValidUserK8sClient}
 
