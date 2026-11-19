@@ -51,6 +51,30 @@ I = load("hack/dev/byoh-hosts-preflight.py", "cilium_hosts_inventory")
 P = load("hack/dev/byoh-cluster-control-plane-plan.py", "cilium_cp_plan")
 
 
+def safe_helm_error(stderr):
+    """Classify known Helm errors without ever exposing command stderr."""
+    message = stderr.decode("utf-8", errors="replace").lower()
+    if "certificate signed by unknown authority" in message:
+        return "TLS CA verification failed"
+    if "x509:" in message or "tls:" in message or "certificate" in message:
+        return "TLS/certificate validation failed"
+    if "forbidden" in message or "unauthorized" in message:
+        return "workload Kubernetes authorization denied"
+    if "connection refused" in message or "no route to host" in message:
+        return "workload API tunnel/connectivity failed"
+    if "context deadline exceeded" in message or "i/o timeout" in message:
+        return "workload API timed out"
+    if "kubernetes cluster unreachable" in message:
+        return "Helm cannot reach workload API"
+    if "unknown flag" in message or "unknown shorthand flag" in message:
+        return "Helm CLI does not accept a required flag"
+    if "permission denied" in message:
+        return "local Helm configuration or cache permission denied"
+    if "no such file or directory" in message:
+        return "Helm local file dependency missing"
+    return "unclassified Helm failure; stderr withheld for credential safety"
+
+
 def command(argv, *, stdin=None, timeout=25, check=True):
     try:
         p = subprocess.run(argv, input=stdin, capture_output=True, timeout=timeout)
@@ -58,6 +82,8 @@ def command(argv, *, stdin=None, timeout=25, check=True):
         stop("command unavailable or timed out: " + argv[0])
     if check and p.returncode:
         # Never dump stderr: may contain kubeconfig details or credentials.
+        if argv[0] == "helm":
+            stop("Helm exit " + str(p.returncode) + ": " + safe_helm_error(p.stderr))
         stop("command failed (exit " + str(p.returncode) + "): " + argv[0])
     return p
 
