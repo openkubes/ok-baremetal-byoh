@@ -99,12 +99,21 @@ def main():
     _, _, _, _, manifest2, digest2 = identity(path)
     if digest2 != digest or manifest2 != manifest:
         P.stop("host, manifest, or management state changed after approval")
-    # Labeling is exact, no --overwrite; if resources are created but a later
-    # write fails, refuse automatic rerun and require a new state review.
-    P.run(["kubectl", "--kubeconfig", str(kc), "-n", "default",
-           "label", "byohost", cp["name"], "role=control-plane"],
-          timeout=25)
-    print("PASS: selected host labelled role=control-plane")
+    # Labeling is exact, no --overwrite, and a previously correct label
+    # must not trigger a needless write or fail the first apply.
+    live_host = P.fetch(kc, "byohost", cp["name"], "default")
+    if live_host["metadata"]["uid"] != P.fetch(kc, "byohost", cp["name"], "default")["metadata"]["uid"]:
+        P.stop("ByoHost changed during apply")
+    role = live_host.get("metadata", {}).get("labels", {}).get("role")
+    if role is None:
+        P.run(["kubectl", "--kubeconfig", str(kc), "-n", "default",
+               "label", "byohost", cp["name"], "role=control-plane"],
+              timeout=25)
+        print("PASS: selected host labelled role=control-plane")
+    elif role == "control-plane":
+        print("PASS: existing host role=control-plane preserved")
+    else:
+        P.stop("unexpected role label")
     with tempfile.TemporaryDirectory(prefix="ok-byoh-cp-apply-") as td:
         file = Path(td) / "cp.yaml"
         file.write_text(manifest, encoding="utf-8")
