@@ -5,6 +5,8 @@ Run only after staged bootstrap credentials have been transferred. Every host
 write requires an explicit host-specific confirmation.
 """
 import argparse
+import hashlib
+import json
 from datetime import datetime, timezone
 import os
 from pathlib import Path
@@ -115,11 +117,8 @@ def run_ssh(peer, script):
     return result.stdout.strip()
 
 
-def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--inventory", required=True)
-    args = p.parse_args()
-    path = Path(args.inventory)
+def prepare_hosts(inventory_path, *, authorized_inventory=None, authorized_hosts=None):
+    path = Path(inventory_path)
     if not path.is_file() or path.is_symlink():
         fail("inventory missing or symlink")
     try:
@@ -132,6 +131,10 @@ def main():
     module = module_from_spec(spec)
     loader.exec_module(module)
     kind, kc, _, hosts = module.validate(inventory)
+    if authorized_inventory is not None and inventory != authorized_inventory:
+        fail("inventory changed after batch authorization")
+    if authorized_hosts is not None and hosts != authorized_hosts:
+        fail("host list changed after batch authorization")
     if kind != "ok-byoh-make-test" or os.environ.get("BYOH_KIND_NAME", kind) != kind:
         fail("only the explicitly selected disposable kind management is supported")
     # Verify target management identity without running preflight, which expects
@@ -178,16 +181,41 @@ def main():
     for name, peer in peers:
         print(name + ": " + run_ssh(peer, PREFLIGHT_REMOTE), flush=True)
 
-    print("Will only install a systemd enrollment drop-in on these two hosts.", flush=True)
-    print("No agent start, CSR approval, kubeadm installation, or infra changes.", flush=True)
+    plan = {"management": kind, "inventory": str(path),
+            "hosts": [{"name": n, "ssh": p} for n, p in peers],
+            "operation": "install enrollment-only systemd drop-in",
+            "agent_start": False, "csr_approval": False}
+    digest = hashlib.sha256(
+        json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    print("BYOH agent preparation plan: " + str(len(peers)) + " hosts", flush=True)
     for name, peer in peers:
-        expected_confirmation = "prepare-agent-" + name
-        entered = input("Type " + expected_confirmation + " to proceed: ")
-        if entered != expected_confirmation:
-            fail("confirmation not given; no change to " + name)
+        print("  " + name + " " + peer + " -> --skip-installation", flush=True)
+    print("Plan sha256: " + digest, flush=True)
+    print("No agent start, CSR approval, kubeadm installation, or infra changes.", flush=True)
+    if authorized_hosts is None:
+        expected_phrase = "ok " + digest[:12]
+        try:
+            entered = input("Type '" + expected_phrase + "' to approve all hosts: ")
+        except EOFError:
+            fail("interactive confirmation required")
+        if entered != expected_phrase:
+            fail("plan not authorized; no unit changes")
+    else:
+        print("Approved by the enclosing confirmed bootstrap plan.", flush=True)
+    if yaml.safe_load(path.read_text(encoding="utf-8")) != inventory:
+        fail("inventory changed since approval")
+    for name, peer in peers:
         print(name + ": " + run_ssh(peer, APPLY_REMOTE), flush=True)
 
-    print("PASS: both agents configured for --skip-installation and remain disabled.", flush=True)
+    print("PASS: " + str(len(peers)) +
+          " agents configured for --skip-installation and remain disabled.", flush=True)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--inventory", required=True)
+    args = p.parse_args()
+    prepare_hosts(args.inventory)
 
 
 if __name__ == "__main__":
