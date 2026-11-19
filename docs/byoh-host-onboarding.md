@@ -102,16 +102,19 @@ unattended runbook.
 
 ## Host registration: explicit start, independent CSR approval
 
-After bootstrap renewal and successful agent preparation, run the read-only
+After bootstrap renewal and successful agent preparation, first run the read-only
 preflight for the registration phase:
 
 ```sh
 make BYOH_KIND_NAME=ok-byoh-make-test \
   BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
-  byoh-hosts-register
+  byoh-hosts-register-plan
 ```
 
-This first validates all inventory hosts (management CA/tunnel, host identity,
+Once the plan is reviewed, run the same command with `byoh-hosts-register`
+to request a single explicit start confirmation.
+
+The registration command first validates all inventory hosts (management CA/tunnel, host identity,
 active/disabled service, effective `--skip-installation` systemd command,
 permanent-credential absence, and remote credential checksum against the
 current fresh BootstrapKubeconfig), and prints a host-batched digest-bound
