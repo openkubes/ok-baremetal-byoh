@@ -272,3 +272,48 @@ authorizes it should we delete the exact owned BootstrapKubeconfig resources
 (waiting for token finalizers and Secret deletion), then remove only matching
 remote bootstrap files. Do not use the old pre-registration renewal target
 against registered hosts.
+
+## Post-registration bootstrap credential revocation
+
+Only after `byoh-hosts-register-verify` succeeds for **all** inventory hosts,
+run the read-only post-registration cleanup plan:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-hosts-bootstrap-revoke-plan
+```
+
+The plan independently re-verifies issued CSR certificates, active registered
+ByoHosts, the permanent host client certificates and private keys. It requires
+each current BootstrapKubeconfig UID and token-cleanup finalizer to match the
+owned bootstrap-token Secret, and compares the exact remote staged credential
+SHA-256 with the management object.
+
+After reviewing the complete plan, the separately confirmed action is:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-hosts-bootstrap-revoke
+```
+
+One typed `revoke <plan-hash>` authorizes the N-host batch. Before the first
+write, every host is checked again. For each host, the script deletes its
+BootstrapKubeconfig with `--wait=true`, verifies its UID-owned bootstrap
+Secret has disappeared, and only then removes the **exact matching**
+`/root/.byoh/bootstrap.kubeconfig` file. The permanent
+`/root/.byoh/config`, running agents, CSR objects and ByoHosts are preserved.
+A completely revoked host is a read-only no-op on replay.
+
+**Partial failure boundary:** This is not an atomic multi-host operation.
+A failed file removal after successful server-side token revocation leaves a
+staged, now-invalid credential on that host. In this situation the script
+stops, never deletes an unexpected file or recreates a token, and requires
+an explicit recovery review. Avoid blind retries. The 24-hour TTL request
+is a separate lifecycle enhancement.
+
+**Live status:** The two bare-metal host identities were verified in the
+2026-11-19 E2E run. This new revocation workflow has not yet been executed
+against Scaleway. Validate its Python syntax, offline checks and plan before
+the mutation step.
