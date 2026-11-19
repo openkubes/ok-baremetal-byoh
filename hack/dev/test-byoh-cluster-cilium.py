@@ -71,6 +71,20 @@ class CiliumTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             C.helm_list_args("/tmp/workload-test-kubeconfig", "v2.0.0")
 
+    def test_cilium_verifier_allows_only_expected_ready_lab_nodes(self):
+        def node(name, ready=True):
+            return {"metadata": {"name": name},
+                    "status": {"conditions": [
+                        {"type": "Ready", "status": "True" if ready else "False"}]}}
+        C.verify_lab_nodes([node("ok-bm-lab-01")])
+        C.verify_lab_nodes([node("ok-bm-lab-01"), node("ok-bm-lab-02")])
+        for invalid in ([node("ok-bm-lab-02")],
+                        [node("ok-bm-lab-01"), node("unexpected")],
+                        [node("ok-bm-lab-01"), node("ok-bm-lab-01")],
+                        [node("ok-bm-lab-01"), node("ok-bm-lab-02", False)]):
+            with self.subTest(invalid=invalid), self.assertRaises(SystemExit):
+                C.verify_lab_nodes(invalid)
+
     def test_values_pin_kube_proxy_mode(self):
         self.assertIs(C.VALUES["kubeProxyReplacement"], False)
         self.assertEqual(C.VALUES["operator"]["replicas"], 1)
