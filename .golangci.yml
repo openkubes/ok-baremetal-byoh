@@ -131,12 +131,17 @@ linters:
           - dupl
           - goconst
           - gosec
+      # These white-box sandbox tests intentionally exercise unexported CRI
+      # validation and cleanup helpers; do not expand the production API.
+      - path: agent/reconciler/sandbox_(cleanup|cleanup_retry|inventory|network|pre_reset)_test[.]go
+        linters:
+          - testpackage
       # The resources of this provider implement the v1beta1 contract of
       # Cluster API, and use the deprecated v1beta1 types, conditions and patch
       # helper until they move to the v1beta2 contract.
       - linters:
           - staticcheck
-        text: 'SA1019: "sigs.k8s.io/cluster-api/(api/core/v1beta1|util/deprecated/v1beta1/(conditions|patch))" is deprecated'
+        text: 'SA1019:.*sigs[.]k8s[.]io/cluster-api/(api/core/v1beta1|util/deprecated/v1beta1/(conditions|patch))'
 
 formatters:
   enable:

@@ -37,6 +37,9 @@ type HostReconciler struct {
 	TemplateParser      cloudinit.ITemplateParser
 	Recorder            events.EventRecorder
 	SkipK8sInstallation bool
+	// PreResetCleanup overrides the local cleanup for tests.
+	// A nil value uses the production implementation.
+	PreResetCleanup func(context.Context) error
 	// UninstallScriptPath is the file where the agent keeps the uninstall
 	// script of the Kubernetes components that it has installed, until it
 	// resets the host. The file exists only while the components that the
@@ -239,13 +242,8 @@ func (r *HostReconciler) resetHost(ctx context.Context, byoHost *infrastructurev
 		return err
 	}
 
-	if installed || r.SkipK8sInstallation {
-		if err := r.resetNode(ctx, byoHost); err != nil {
-			v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sNodeBootstrapSucceeded, infrastructurev1beta1.K8sNodeResetFailedReason, clusterv1beta1.ConditionSeverityWarning, "%v", err)
-			return err
-		}
-	} else {
-		logger.Info("Skipping kubeadm reset, as the agent has not installed the k8s components")
+	if err := r.resetNodeForAttachment(ctx, byoHost, installed); err != nil {
+		return err
 	}
 	v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sNodeBootstrapSucceeded, infrastructurev1beta1.K8sNodeAbsentReason, clusterv1beta1.ConditionSeverityInfo, "")
 
@@ -269,6 +267,73 @@ func (r *HostReconciler) resetHost(ctx context.Context, byoHost *infrastructurev
 	if err := r.removeSentinelFile(ctx, byoHost); err != nil {
 		v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sNodeBootstrapSucceeded, infrastructurev1beta1.K8sNodeResetFailedReason, clusterv1beta1.ConditionSeverityWarning, "%v", err)
 		return err
+	}
+	// Keep the UID-bound checkpoint until the attachment is released.
+	// If patching status.lastReset fails, the next reconcile must not
+	// repeat a successful kubeadm reset.
+	return nil
+}
+
+// resetNodeForAttachment checks the UID-bound checkpoint before the node reset.
+// A successful reset is checkpointed before the uninstall phase so retries
+// never repeat kubeadm reset for the same ByoMachine attachment.
+func (r *HostReconciler) resetNodeForAttachment(ctx context.Context, byoHost *infrastructurev1beta1.ByoHost, installed bool) error {
+	logger := ctrl.LoggerFrom(ctx)
+	// The checkpoint belongs to a specific ByoMachine attachment.
+	// Unlike a status condition, it survives an agent restart and cannot
+	// accidentally authorize skipping the reset of another Machine.
+	checkpointPath := r.UninstallScriptPath + ".node-reset"
+	uid := string(byoHost.Spec.ByoMachineRef.UID)
+	if uid == "" {
+		return fmt.Errorf("cannot reset host without a ByoMachine UID")
+	}
+	checkpoint, err := os.ReadFile(checkpointPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("reading node reset checkpoint: %w", err)
+	}
+	nodeAlreadyReset := err == nil && string(checkpoint) == uid
+
+	if installed || r.SkipK8sInstallation {
+		if nodeAlreadyReset {
+			logger.Info("Node already reset for this ByoMachine; resuming uninstall")
+		} else {
+			if installed && !r.SkipK8sInstallation {
+				preCleanup := r.PreResetCleanup
+				if preCleanup == nil {
+					preCleanup = func(ctx context.Context) error {
+						return preResetSandboxCleanup(ctx,
+							func(ctx context.Context) error {
+								return r.CmdRunner.RunCmd(ctx, "systemctl stop kubelet")
+							},
+							runCRICommand)
+					}
+				}
+				if err := preCleanup(ctx); err != nil {
+					v1beta1conditions.MarkFalse(
+						byoHost,
+						infrastructurev1beta1.K8sNodeBootstrapSucceeded,
+						infrastructurev1beta1.K8sNodeResetFailedReason,
+						clusterv1beta1.ConditionSeverityWarning,
+						"pre-reset sandbox cleanup: %v", err,
+					)
+					return fmt.Errorf("pre-reset sandbox cleanup: %w", err)
+				}
+			}
+			if err := r.resetNode(ctx, byoHost); err != nil {
+				v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sNodeBootstrapSucceeded, infrastructurev1beta1.K8sNodeResetFailedReason, clusterv1beta1.ConditionSeverityWarning, "%v", err)
+				return err
+			}
+			// Publish the checkpoint atomically only after a successful reset.
+			tmp := checkpointPath + ".tmp"
+			if err := os.WriteFile(tmp, []byte(uid), uninstallScriptMode); err != nil {
+				return fmt.Errorf("writing node reset checkpoint: %w", err)
+			}
+			if err := os.Rename(tmp, checkpointPath); err != nil {
+				return fmt.Errorf("publishing node reset checkpoint: %w", err)
+			}
+		}
+	} else {
+		logger.Info("Skipping kubeadm reset, as the agent has not installed the k8s components")
 	}
 	return nil
 }
