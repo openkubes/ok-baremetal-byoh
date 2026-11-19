@@ -177,9 +177,26 @@ credentials. Helm 4 needs `helm list` **without** the Helm 3
 
 Historical *interactive* E2E proved the second host
 `ok-bm-lab-02` could join using a MachineDeployment with
-`role=scaleway-worker` and reach Ready. The new Make-only
-`byoh-cluster-worker-{plan,apply,verify,arm,status}` flow
+`role=scaleway-worker` and reach Ready. The new Make-only `byoh-cluster-worker-plan` target is now implemented
+but has **not** yet been live tested. It uses the exact historical MD
+template, CAPI/host identity, stopped unit and public API TLS certificate
+identity; it has no write path. The remaining
+`byoh-cluster-worker-{apply,verify,arm,status}` flow
 has **not** yet been implemented/tested.
+
+Worker plan (read-only; requires existing Cilium Ready):
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-worker-plan
+```
+
+The historical helper used `curl -k` and `kubectl label --overwrite`;
+the new worker plan does **neither**. It fails closed on any
+unexpected host state, API certificate drift, pre-existing worker
+MachineDeployment/resources, or template drift. Its actual live
+outcome remains to be established on the current cluster.
 
 Until it exists, do not pretend this is a two-node cluster or execute
 an unreviewed `kubeadm join`. Reuse the existing
