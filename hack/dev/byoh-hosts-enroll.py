@@ -31,7 +31,7 @@ def fail(message):
 def call(argv, *, env=None, confirmation=None):
     try:
         subprocess.run(argv, check=True, cwd=ROOT, env=env,
-                       input=(confirmation + "\\n") if confirmation else None, text=True)
+                       input=(confirmation + "\n") if confirmation else None, text=True)
     except (OSError, subprocess.CalledProcessError) as exc:
         fail("workflow halted (" + argv[0] + "): " + type(exc).__name__)
 
