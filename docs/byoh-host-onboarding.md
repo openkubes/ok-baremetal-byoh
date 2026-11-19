@@ -510,3 +510,31 @@ Explicit foreign `kind`, `apiVersion`, mismatched UID or missing
 Secret still cause STOP. The ByoHost bootstrap Secret reference is
 checked with the same optional-field semantics and against the
 KubeadmConfig Secret name. No secret payload is logged or changed.
+
+## Post-install control-plane health check (read-only)
+
+Once `byoh-cluster-control-plane-install` has started the agent, use:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-control-plane-status
+```
+
+The target validates management/CAPI identity and ByoMachine attachment UID;
+then via SSH checks the BYOH agent state, installed v1.36.6 packages,
+workload API `/readyz`, kubeadm static-Pod manifests, workload Node
+identity and Running/Ready control-plane Pods. It classifies a single
+`NotReady` Node and pending CoreDNS as `WAIT_CNI` rather than treating
+pre-CNI status as a failed kubeadm install. Neither journal output (which
+could include kubeadm join tokens) nor Secret payloads are printed.
+No writes occur on management, workload or Scaleway hosts.
+
+This is a **development-phase status target**, not a production workflow
+or single-command install. A later orchestrator should use these private
+checks under an inventory-driven `ok up` operation; the individual
+`plan`, `verify` and `install` steps remain available for diagnosing
+fail-closed trust boundaries. The superbrothers BYOH provider already
+automates package installation and kubeadm for attached Machines; it
+does not create a remote networking/management infrastructure for the
+operator or install CNI as an all-in-one bare-metal command.
