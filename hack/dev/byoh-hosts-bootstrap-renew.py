@@ -118,6 +118,8 @@ def main():
         obj = lookup(kc, "bootstrapkubeconfig", name, namespace="default")
         if not obj or obj.get("metadata", {}).get("deletionTimestamp"):
             stop("bootstrap request missing/deleting for " + name + "; manual recovery required")
+        if "infrastructure.cluster.x-k8s.io/bootstrap-token-cleanup" not in obj["metadata"].get("finalizers", []):
+            stop("revocation finalizer absent for " + name + "; manual recovery required")
         if (obj.get("spec", {}).get("apiserver") != "https://127.0.0.1:" + str(port)
                 or obj.get("spec", {}).get("certificate-authority-data") != ca):
             stop("bootstrap target mismatch for " + name)
@@ -162,6 +164,8 @@ def main():
         obj = lookup(kc, "bootstrapkubeconfig", name, namespace="default")
         if not obj or obj["metadata"].get("uid") != h["uid"]:
             stop("bootstrap identity changed before revocation: " + name)
+        if obj["metadata"].get("deletionTimestamp") or "infrastructure.cluster.x-k8s.io/bootstrap-token-cleanup" not in obj["metadata"].get("finalizers", []):
+            stop("safe revocation finalizer not present for " + name)
         if remote_info(peer) != h["old_sha256"]:
             stop("remote credential changed before revocation: " + name)
         # Kubernetes deletion waits for token-revocation finalizer.
