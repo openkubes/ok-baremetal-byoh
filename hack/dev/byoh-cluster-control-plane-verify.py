@@ -57,7 +57,6 @@ def verify_objects(kc):
     if cp.get("spec", {}).get("machineTemplate", {}).get("infrastructureRef", {}).get("name") != CLUSTER + "-control-plane":
         stop("KCP machine template reference drift")
 
-    machines = P.fetch(kc, "machines", "-l", NAMESPACE) if False else None
     # Fetch a list via explicit selector; never infer Machine names from a
     # previously observed random suffix.
     raw = P.run(["kubectl", "--kubeconfig", str(kc), "-n", NAMESPACE,
