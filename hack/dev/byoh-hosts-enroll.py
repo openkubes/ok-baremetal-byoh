@@ -112,8 +112,6 @@ def main():
     def transfer_needed(host):
         # Never display the token or credential; compare only its SHA-256.
         # This is evaluated after verifying bootstrap identity and age.
-        import hashlib
-        import base64
         result = subprocess.run(
             ["kubectl", "--kubeconfig", str(kubeconfig), "-n", "default",
              "get", "bootstrapkubeconfig", host["name"], "-o", "json"],
@@ -130,17 +128,23 @@ def main():
             fail("invalid bootstrap status for " + host["name"])
         peer = host["ssh"]["user"] + "@" + host["ssh"]["address"]
         # Nonzero means failed verification, never interpreted as absent.
+        remote = """set -eu
+file=/root/.byoh/bootstrap.kubeconfig
+test ! -L "$file" || exit 10
+if test -e "$file"; then
+  test -f "$file" || exit 11
+  test "$(stat -c '%a %U:%G' "$file")" = '600 root:root' || exit 12
+  sha256sum "$file" | cut -d ' ' -f 1
+else
+  echo ABSENT
+fi
+"""
         probe = subprocess.run(
             ["ssh", "-T", "-o", "BatchMode=yes",
              "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8",
-             peer, "sudo", "-n", "sh", "-c",
-             'if test -L /root/.byoh/bootstrap.kubeconfig; then exit 10; '
-             'elif test -e /root/.byoh/bootstrap.kubeconfig; then '
-             'test -f /root/.byoh/bootstrap.kubeconfig || exit 11; '
-             'test "$(stat -c \'%a %U:%G\' /root/.byoh/bootstrap.kubeconfig)" = "600 root:root" || exit 12; '
-             'sha256sum /root/.byoh/bootstrap.kubeconfig | cut -d " " -f 1; '
-             'else echo ABSENT; fi'],
-            cwd=ROOT, capture_output=True, text=True, timeout=20, check=False)
+             peer, "sudo", "-n", "bash", "-s"],
+            input=remote, cwd=ROOT, capture_output=True,
+            text=True, timeout=20, check=False)
         if probe.returncode != 0:
             fail("remote credential verification failed on " + host["name"])
         actual = probe.stdout.strip()
