@@ -69,7 +69,7 @@ def identity(path):
         "host_resourceVersion": current["metadata"]["resourceVersion"],
         "manifest_sha256": hashlib.sha256(manifest.encode()).hexdigest(),
         "inventory_sha256": hashlib.sha256(raw).hexdigest(),
-        "action": "label control-plane and apply five exact BYOH CAPI KCP objects",
+        "action": "stop CP agent, label host and apply five exact BYOH CAPI KCP objects",
     }
     digest = hashlib.sha256(json.dumps(
         proof, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -85,7 +85,7 @@ def main():
     print("BYOH CAPI CONTROL PLANE APPLY (5 resources, single host)")
     print("Cluster: " + P.CLUSTER + " (" + P.VERSION + ")")
     print("Host: " + cp["name"] + " " + cp["ssh"]["address"] + ":6443")
-    print("Agent start: NO; kubeadm: NO; network/firewall/OpenTofu changes: NO")
+    print("Agent will be STOPPED before binding; kubeadm: NO; firewall/OpenTofu: NO")
     print("Plan SHA-256: " + digest, flush=True)
     phrase = "apply " + digest[:12]
     try:
@@ -99,6 +99,26 @@ def main():
     _, _, _, _, manifest2, digest2 = identity(path)
     if digest2 != digest or manifest2 != manifest:
         P.stop("host, manifest, or management state changed after approval")
+    # Stop the enrollment agent BEFORE creating a ByoMachine: the legacy
+    # --skip-installation switch is not an all-kubeadm-operations lock.
+    # This change is covered by the operator's typed plan confirmation.
+    peer = cp["ssh"]["user"] + "@" + cp["ssh"]["address"]
+    stopped = P.run(
+        ["ssh", "-T", "-o", "BatchMode=yes", "-o",
+         "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8",
+         peer, "sudo", "-n", "bash", "-s"],
+        input_bytes=b"""set -eu
+test "$(systemctl is-active byoh-hostagent.service)" = active
+test "$(systemctl is-enabled byoh-hostagent.service)" = disabled
+systemctl stop byoh-hostagent.service
+test "$(systemctl is-active byoh-hostagent.service || true)" = inactive
+test -s /root/.byoh/config
+test ! -e /root/.byoh/bootstrap.kubeconfig
+echo PASS
+""", timeout=30)
+    if stopped != "PASS":
+        P.stop("CP agent stop not verified; CAPI apply blocked")
+    print("PASS: CP BYOH agent safely stopped before CAPI binding")
     # Labeling is exact, no --overwrite, and a previously correct label
     # must not trigger a needless write or fail the first apply.
     live_host = P.fetch(kc, "byohost", cp["name"], "default")
@@ -119,7 +139,7 @@ def main():
         file.write_text(manifest, encoding="utf-8")
         P.run(["kubectl", "--kubeconfig", str(kc), "-n", "default",
                "apply", "-f", str(file)], timeout=60)
-    print("PASS: CAPI CP desired state submitted. Agent is not armed.")
+    print("PASS: CAPI CP desired state submitted. Agent remains stopped/not armed.")
     print("STOP AT INSTALL BOUNDARY: verify CAPI ByoMachine/Host binding and network path.")
 
 
