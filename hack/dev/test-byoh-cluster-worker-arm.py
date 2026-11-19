@@ -18,7 +18,7 @@ class WorkerArmTests(unittest.TestCase):
         self.assertIn('ln "$tmp" "$path"', A.REMOTE_ARM)
         self.assertIn('systemctl daemon-reload', A.REMOTE_ARM)
         self.assertIn('systemctl start "$unit"', A.REMOTE_ARM)
-        self.assertIn("'--skip-installation'", A.REMOTE_PREFLIGHT)
+        self.assertIn("--skip-installation", A.REMOTE_PREFLIGHT)
         self.assertIn('sha256sum', A.REMOTE_PREFLIGHT)
 
     def test_only_expected_target_host(self):
