@@ -185,7 +185,7 @@ but **not yet live tested**. It re-evaluates and digest-binds the same plan,
 checks the host UID/resourceVersion and agent state again, then adds
 `role=scaleway-worker` only if absent and applies the four reviewed
 MachineDeployment resources. It never starts the BYOH agent or runs kubeadm.
-The `byoh-cluster-worker-verify` target **passed live** on 20 November 2026: worker MachineDeployment 1/1 desired; generated Machine `ok-byoh-scw1-md-0-9dths-vkdnx`; ByoHost UID binding, KubeadmConfig Secret and Ready K8sInstallerConfig/installation Secret all verified; worker agent inactive/disabled. It checks the generated Machine, UID-bound ByoHost/ByoMachine, KubeadmConfig bootstrap Secret, ready K8sInstallerConfig and matching installation Secret without outputting any Secret data; it also requires the worker agent remain stopped/disabled. The `byoh-cluster-worker-install-plan` and `byoh-cluster-worker-install` targets are now implemented but **not yet live tested**. `byoh-cluster-worker-status` remains unimplemented.
+The `byoh-cluster-worker-verify` target **passed live** on 20 November 2026: worker MachineDeployment 1/1 desired; generated Machine `ok-byoh-scw1-md-0-9dths-vkdnx`; ByoHost UID binding, KubeadmConfig Secret and Ready K8sInstallerConfig/installation Secret all verified; worker agent inactive/disabled. It checks the generated Machine, UID-bound ByoHost/ByoMachine, KubeadmConfig bootstrap Secret, ready K8sInstallerConfig and matching installation Secret without outputting any Secret data; it also requires the worker agent remain stopped/disabled. The `byoh-cluster-worker-install-plan` and `byoh-cluster-worker-install` targets **passed their live activation boundary** on 20 November 2026: the stopped worker agent was started after digest-bound approval. Kubernetes Node Ready and MachineDeployment availability remain to be verified. `byoh-cluster-worker-status` remains unimplemented.
 
 Worker plan (read-only; requires existing Cilium Ready):
 
@@ -220,8 +220,7 @@ make BYOH_KIND_NAME=ok-byoh-make-test \
 
 A STOP may mean CAPI reconciliation has not finished; inspect
 the named resources without printing Secrets. The verify target has
-not yet been live run on the new worker rollout. **Do not arm the
-worker until this phase passes.**
+not yet been live run on the new worker rollout. **Do not start worker installation until this phase passes.**
 
 After `byoh-cluster-worker-verify` is green, the next trust boundary is
 separate and **not yet live exercised**:
@@ -231,7 +230,7 @@ make BYOH_KIND_NAME=ok-byoh-make-test \
   BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
   byoh-cluster-worker-install-plan
 
-# ACTION ONLY after independent review of the arm plan and exact host:
+# ACTION ONLY after independent review of the installation plan and exact host:
 make BYOH_KIND_NAME=ok-byoh-make-test \
   BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
   byoh-cluster-worker-install
@@ -249,7 +248,7 @@ intentionally stops rather than replaying kubeadm.
 
 Do not equate a successful systemd start with Node Ready: observe
 kubeadm reconciliation, CAPI MachineDeployment Ready/Available, two
-workload Nodes Ready, and Cilium on both Nodes after arm. Do not share
+workload Nodes Ready, and Cilium on both Nodes after installation. Do not share
 join-token-bearing remote journals or Secret contents.
 
 The historical helper used `curl -k` and `kubectl label --overwrite`;
@@ -265,7 +264,7 @@ an unreviewed `kubeadm join`. Reuse the existing
 new guarded Make orchestration. It must verify registration, bound
 ByoMachine UID, installer Secret, direct worker-to-CP API connectivity,
 version, selector and stopped agent before requiring a single explicit
-approval to arm the worker.
+approval to start worker installation.
 
 After rollout, independently verify two Nodes Ready, MachineDeployment
 1/1, Cilium on both Nodes, cross-node pod connectivity and policy.
