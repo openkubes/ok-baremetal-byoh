@@ -55,21 +55,33 @@ def verify_objects(kc):
     if cp.get("spec", {}).get("version") != VERSION or cp.get("spec", {}).get("replicas") != 1:
         stop("KCP version/replicas drift")
     template = cp.get("spec", {}).get("machineTemplate", {})
-    infra = template.get("infrastructureRef") if isinstance(template, dict) else None
+    api_version = cp.get("apiVersion")
+    if not isinstance(template, dict):
+        stop("KCP machineTemplate missing")
+    if api_version == "controlplane.cluster.x-k8s.io/v1beta2":
+        # v1beta2 moved infrastructureRef under machineTemplate.spec.
+        machine_spec = template.get("spec")
+        infra = machine_spec.get("infrastructureRef") if isinstance(machine_spec, dict) else None
+        expected_path = "spec.machineTemplate.spec.infrastructureRef"
+    elif api_version == "controlplane.cluster.x-k8s.io/v1beta1":
+        infra = template.get("infrastructureRef")
+        expected_path = "spec.machineTemplate.infrastructureRef"
+    else:
+        stop("unexpected KCP API version: " + str(api_version))
     expected_name = CLUSTER + "-control-plane"
-    if not isinstance(infra, dict) or infra.get("name") != expected_name or infra.get("kind") != "ByoMachineTemplate":
-        # Show only non-secret, authoritative API reference fields. Do not
-        # manufacture a fallback path or accept an unchecked reference.
+    if (not isinstance(infra, dict) or
+            infra.get("name") != expected_name or
+            infra.get("kind") != "ByoMachineTemplate"):
         observed = infra if isinstance(infra, dict) else {}
         print("KCP template reference evidence (read-only):")
-        print("  expected path: spec.machineTemplate.infrastructureRef")
+        print("  returned API version: " + api_version)
+        print("  expected path: " + expected_path)
         print("  expected name: " + expected_name)
         print("  expected kind: ByoMachineTemplate")
         print("  observed path exists: " + str(isinstance(infra, dict)))
         print("  observed name: " + str(observed.get("name", "<absent>")))
         print("  observed kind: " + str(observed.get("kind", "<absent>")))
-        print("  observed machineTemplate keys: " + ", ".join(
-            sorted(template)) if isinstance(template, dict) else "  observed machineTemplate: absent")
+        print("  observed machineTemplate keys: " + ", ".join(sorted(template)))
         stop("KCP machine template reference drift; no fallback accepted")
 
     # Fetch a list via explicit selector; never infer Machine names from a
