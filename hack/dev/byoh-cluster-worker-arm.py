@@ -105,11 +105,11 @@ def compute(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inventory", required=True)
-    parser.add_argument("--arm", action="store_true")
+    parser.add_argument("--install", action="store_true")
     args = parser.parse_args()
     path = Path(args.inventory)
     raw, unit_hash, proof, digest = compute(path)
-    print("BYOH WORKER INSTALL " + ("ACTION" if args.arm else "READ-ONLY PLAN"))
+    print("BYOH WORKER INSTALL " + ("ACTION" if args.install else "READ-ONLY PLAN"))
     print("Workload: " + W.CLUSTER + " (" + W.VERSION + ")")
     print("Host: " + HOST + " via " + PEER)
     print("Bound Machine: " + proof["machine"])
@@ -117,11 +117,11 @@ def main():
     print("Agent action: remove enrollment-only flags via verified systemd override, then start once")
     print("Other hosts, Scaleway, OpenTofu, CAPI specs and cluster network: NO CHANGES")
     print("Plan SHA-256: " + digest, flush=True)
-    if not args.arm:
+    if not args.install:
         print("PASS: worker arm plan ready; no changes made")
         return
 
-    phrase = "arm " + digest[:12]
+    phrase = "install " + digest[:12]
     try:
         answer = input("Type '" + phrase + "' to start worker Kubernetes installation: ")
     except EOFError:
