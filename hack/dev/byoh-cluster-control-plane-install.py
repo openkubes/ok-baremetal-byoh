@@ -67,6 +67,11 @@ test ! -e /etc/kubernetes/manifests/kube-apiserver.yaml || exit 29
 test ! -e /etc/systemd/system/byoh-hostagent.service.d/95-ok-byoh-cp-install.conf || exit 30
 test ! -L /etc/systemd/system/byoh-hostagent.service.d/90-ok-byoh-enrollment.conf || exit 31
 test -f /etc/systemd/system/byoh-hostagent.service.d/90-ok-byoh-enrollment.conf || exit 32
+expected="$(printf '%s' '[Service]\nWorkingDirectory=/root\nExecStart=\nExecStart=/usr/local/bin/byoh-hostagent --namespace default --skip-installation --bootstrap-kubeconfig=/root/.byoh/bootstrap.kubeconfig')"
+legacy="$(printf '%s' '[Service]\nWorkingDirectory=/root\nExecStart=\nExecStart=/usr/local/bin/byoh-hostagent --namespace default --skip-installation')"
+actual="$(cat /etc/systemd/system/byoh-hostagent.service.d/90-ok-byoh-enrollment.conf)"
+{ test "$actual" = "$expected" || test "$actual" = "$legacy"; } || exit 35
+test "$(stat -c '%a %U:%G' /etc/systemd/system/byoh-hostagent.service.d/90-ok-byoh-enrollment.conf)" = '644 root:root' || exit 36
 case "$(systemctl show -p ExecStart --value "$unit")" in
   *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation --bootstrap-kubeconfig=/root/.byoh/bootstrap.kubeconfig ;'*) ;;
   *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation ;'*) ;;
@@ -88,7 +93,9 @@ test ! -e /root/.byoh/bootstrap.kubeconfig || exit 27
 test ! -e /etc/kubernetes/admin.conf || exit 28
 test ! -e /etc/kubernetes/manifests/kube-apiserver.yaml || exit 29
 test ! -e "$path" && test ! -L "$path" || exit 30
+test ! -L "$dir/90-ok-byoh-enrollment.conf" || exit 30
 test "$(sha256sum "$dir/90-ok-byoh-enrollment.conf" | cut -d ' ' -f 1)" = "$1" || exit 31
+test "$(stat -c '%a %U:%G' "$dir/90-ok-byoh-enrollment.conf")" = '644 root:root' || exit 36
 case "$(systemctl show -p ExecStart --value "$unit")" in
   *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation --bootstrap-kubeconfig=/root/.byoh/bootstrap.kubeconfig ;'*) ;;
   *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation ;'*) ;;
