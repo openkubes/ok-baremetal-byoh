@@ -96,32 +96,34 @@ test ! -L "$file"
 test -s "$file"
 test "$(stat -c '%a %U:%G' "$file")" = "600 root:root"
 python3 - <<'PY'
-import base64, json, subprocess, sys
-# kubectl client config view validates kubeconfig structure without printing it.
-path = "/root/.byoh/config"
-p = subprocess.run(["kubectl", "--kubeconfig", path, "config", "view",
-                    "--raw", "-o", "json"], capture_output=True, text=True)
-if p.returncode:
-    sys.exit("STOP: cannot inspect permanent kubeconfig safely")
-cfg = json.loads(p.stdout)
-clusters = cfg.get("clusters", [])
-if len(clusters) != 1 or clusters[0].get("cluster", {}).get("insecure-skip-tls-verify"):
-    sys.exit("STOP: unexpected permanent kubeconfig TLS mode")
-users = cfg.get("users", [])
-if len(users) != 1:
-    sys.exit("STOP: unexpected permanent kubeconfig users")
-user = users[0]["user"]
-if "token" in user or "exec" in user or "auth-provider" in user:
-    sys.exit("STOP: unexpected permanent kubeconfig auth mechanism")
-cert = user.get("client-certificate-data")
-key = user.get("client-key-data")
-if not cert or not key:
-    sys.exit("STOP: permanent client cert/key missing")
+import base64, hashlib, pathlib, re, subprocess, sys
+path = pathlib.Path("/root/.byoh/config")
+raw = path.read_text(encoding="utf-8")
+def one(pattern):
+    values = re.findall(pattern, raw, flags=re.MULTILINE)
+    if len(values) != 1:
+        sys.exit("STOP: permanent kubeconfig expected exactly one " + pattern.split(":")[0])
+    return values[0]
+if re.search(r"^\\s*insecure-skip-tls-verify:\\s*true\\s*$", raw, re.MULTILINE):
+    sys.exit("STOP: insecure TLS configuration")
+if re.search(r"^\\s*(?:token|exec|auth-provider):", raw, re.MULTILINE):
+    sys.exit("STOP: unexpected auth mechanism")
+ca = one(r"^\\s*certificate-authority-data:\\s*(\\S+)\\s*$")
+cert = one(r"^\\s*client-certificate-data:\\s*(\\S+)\\s*$")
+key = one(r"^\\s*client-key-data:\\s*(\\S+)\\s*$")
+for data in (ca, cert, key):
+    base64.b64decode(data, validate=True)
 pem = base64.b64decode(cert, validate=True)
-cert_hash = subprocess.run(["openssl", "x509", "-inform", "PEM",
-                            "-outform", "DER"], input=pem, capture_output=True, check=True).stdout
-import hashlib
-print(hashlib.sha256(cert_hash).hexdigest())
+key_pem = base64.b64decode(key, validate=True)
+der = subprocess.run(["openssl", "x509", "-inform", "PEM", "-outform", "DER"],
+                     input=pem, capture_output=True, check=True).stdout
+public_cert = subprocess.run(["openssl", "x509", "-inform", "PEM", "-pubkey", "-noout"],
+                             input=pem, capture_output=True, check=True).stdout
+public_key = subprocess.run(["openssl", "pkey", "-pubout"],
+                            input=key_pem, capture_output=True, check=True).stdout
+if public_cert != public_key:
+    sys.exit("STOP: permanent client cert and key do not match")
+print(hashlib.sha256(der).hexdigest())
 PY
 '''
 
