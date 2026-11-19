@@ -1,3 +1,9 @@
+> **Current Make replay:** See [Make lifecycle runbook](make-lifecycle-runbook.md) for the
+> live-verified management, enrollment, CP, network, and Cilium steps
+> (19 November 2026). The worker Make orchestration is still pending;
+> this page also contains historical manual-E2E evidence and plans,
+> which must not be mistaken for today's complete live replay.
+>
 # OpenKubes BYOH – Manual Scaleway kubeadm E2E → Make → `ok up`
 
 ## Aktueller Stand – 19. November 2026
