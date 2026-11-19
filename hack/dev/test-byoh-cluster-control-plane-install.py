@@ -36,6 +36,40 @@ class CPInstallTests(unittest.TestCase):
     def test_matching_ready_installation(self):
         self.assertEqual(self.check(fixtures())["machine_uid"], UID)
 
+    def test_omitted_optional_secret_reference_fields_accepted(self):
+        data = fixtures()
+        data[("byohost", "ok-bm-lab-01")]["spec"]["installationSecret"] = {
+            "name": "installer-secret", "namespace": "default"}
+        data[("k8sinstallerconfig", MACHINE)]["status"]["installationSecret"] = {
+            "name": "installer-secret", "namespace": "default"}
+        data[("byohost", "ok-bm-lab-01")]["spec"]["bootstrapSecret"] = {
+            "name": MACHINE}
+        self.assertEqual(self.check(data)["installation_secret_uid"], SECRET_UID)
+
+    def test_explicit_wrong_secret_kind_rejected(self):
+        data = fixtures()
+        data[("byohost", "ok-bm-lab-01")]["spec"]["installationSecret"]["kind"] = "ConfigMap"
+        with self.assertRaises(SystemExit):
+            self.check(data)
+
+    def test_explicit_wrong_secret_api_version_rejected(self):
+        data = fixtures()
+        data[("byohost", "ok-bm-lab-01")]["spec"]["installationSecret"]["apiVersion"] = "other/v1"
+        with self.assertRaises(SystemExit):
+            self.check(data)
+
+    def test_wrong_installation_secret_uid_rejected(self):
+        data = fixtures()
+        data[("byohost", "ok-bm-lab-01")]["spec"]["installationSecret"]["uid"] = "foreign-uid"
+        with self.assertRaises(SystemExit):
+            self.check(data)
+
+    def test_wrong_bootstrap_secret_kind_rejected(self):
+        data = fixtures()
+        data[("byohost", "ok-bm-lab-01")]["spec"]["bootstrapSecret"]["kind"] = "ConfigMap"
+        with self.assertRaises(SystemExit):
+            self.check(data)
+
     def test_mismatched_machine_uid_rejected(self):
         data = fixtures()
         data[("byohost", "ok-bm-lab-01")]["spec"]["byoMachineRef"]["uid"] = "other"
