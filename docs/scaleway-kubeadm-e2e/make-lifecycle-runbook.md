@@ -184,7 +184,7 @@ identity; it has no write path. The confirmed `byoh-cluster-worker-apply` **pass
 checks the host UID/resourceVersion and agent state again, then adds
 `role=scaleway-worker` only if absent and applies the four reviewed
 MachineDeployment resources. It never starts the BYOH agent or runs kubeadm.
-The `byoh-cluster-worker-verify` target **passed live** on 20 November 2026: worker MachineDeployment 1/1 desired; generated Machine `ok-byoh-scw1-md-0-9dths-vkdnx`; ByoHost UID binding, KubeadmConfig Secret and Ready K8sInstallerConfig/installation Secret all verified; worker agent inactive/disabled. It checks the generated Machine, UID-bound ByoHost/ByoMachine, KubeadmConfig bootstrap Secret, ready K8sInstallerConfig and matching installation Secret without outputting any Secret data; it also requires the worker agent remain stopped/disabled. The `byoh-cluster-worker-install-plan` and `byoh-cluster-worker-install` targets **passed their live activation boundary** on 20 November 2026: the stopped worker agent was started after digest-bound approval. **Subsequently verified:** both Kubernetes Nodes Ready (v1.36.6), MD `ok-byoh-scw1-md-0` current/ready/available/up-to-date 1/1, both CAPI Machines Ready/Available, Cilium DaemonSet desired/current/ready/available 2/2. `byoh-cluster-worker-status` remains unimplemented.
+The `byoh-cluster-worker-verify` target **passed live** on 20 November 2026: worker MachineDeployment 1/1 desired; generated Machine `ok-byoh-scw1-md-0-9dths-vkdnx`; ByoHost UID binding, KubeadmConfig Secret and Ready K8sInstallerConfig/installation Secret all verified; worker agent inactive/disabled. It checks the generated Machine, UID-bound ByoHost/ByoMachine, KubeadmConfig bootstrap Secret, ready K8sInstallerConfig and matching installation Secret without outputting any Secret data; it also requires the worker agent remain stopped/disabled. The `byoh-cluster-worker-install-plan` and `byoh-cluster-worker-install` targets **passed their live activation boundary** on 20 November 2026: the stopped worker agent was started after digest-bound approval. **Subsequently verified:** both Kubernetes Nodes Ready (v1.36.6), MD `ok-byoh-scw1-md-0` current/ready/available/up-to-date 1/1, both CAPI Machines Ready/Available, Cilium DaemonSet desired/current/ready/available 2/2. `byoh-cluster-worker-status` is now implemented but **not yet live tested**.
 
 Worker plan (read-only; requires existing Cilium Ready):
 
@@ -266,8 +266,18 @@ approval to start worker installation.
 Live post-install verification (20 November 2026): two Nodes Ready,
 MachineDeployment 1/1 Ready/Available, Cilium DaemonSet 2/2 Ready/Available.
 This does **not** yet prove cross-node pod connectivity or network policy.
-Use a dedicated worker post-install status target and a separate cross-node
-E2E before claiming full data-plane validation.
+The new dedicated post-install Make target is read-only:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-worker-status
+```
+
+It checks the real CAPI MD, two Machine NodeRefs and BYOH UID bindings,
+TLS-validated workload API, both Kubernetes Nodes, Cilium 2/2, Operator
+1/1 and CoreDNS. **Not yet live tested**; no installation replay. A
+separate cross-node E2E is still needed to claim full data-plane validation.
 
 ## 6. Upgrade, KubeVirt, HA, pivot and cleanup – separate milestones
 
