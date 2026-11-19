@@ -8,6 +8,11 @@ import (
 	"fmt"
 )
 
+const (
+	sandboxNetworkPOD = "POD"
+	sandboxNetworkNODE = "NODE"
+)
+
 // sandboxNetworkMode reads the CRI PodSandboxStatus network namespace
 // mode. Unknown or missing modes must never be treated as safe.
 func sandboxNetworkMode(data []byte) (string, error) {
@@ -32,7 +37,7 @@ func sandboxNetworkMode(data []byte) (string, error) {
 	}
 
 	switch status.Status.Linux.Namespaces.Options.Network {
-	case "POD", "NODE":
+	case sandboxNetworkPOD, sandboxNetworkNODE:
 		return status.Status.Linux.Namespaces.Options.Network, nil
 	default:
 		return "", fmt.Errorf(
