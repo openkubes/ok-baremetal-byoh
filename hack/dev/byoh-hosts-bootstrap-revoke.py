@@ -98,19 +98,34 @@ def inspect(kc, host):
         stop("missing bootstrap UID/finalizer or deletion pending: " + name)
     token_id = hashlib.sha256(uid.encode()).hexdigest()[:6]
     token = resource(kc, "secret", "bootstrap-token-" + token_id, "kube-system")
-    if token is None:
-        stop("bootstrap Secret missing; manual review: " + name)
-    if token.get("metadata", {}).get("annotations", {}).get(
-            "byoh.openkubes.io/bootstrap-request-uid") != uid:
-        stop("bootstrap Secret owner mismatch: " + name)
+    # Kubernetes tokencleaner may expire and remove a 30-minute token
+    # before post-registration cleanup. The controller treats NotFound as
+    # revoked; it still validates the request UID/finalizer before deleting.
+    if token is not None:
+        if token.get("type") != "bootstrap.kubernetes.io/token":
+            stop("bootstrap Secret type mismatch: " + name)
+        if token.get("metadata", {}).get("annotations", {}).get(
+                "byoh.openkubes.io/bootstrap-request-uid") != uid:
+            stop("bootstrap Secret owner mismatch: " + name)
+        token_data = token.get("data", {}).get("token-id")
+        if token_data is None:
+            stop("bootstrap Secret token ID absent: " + name)
+        import base64
+        try:
+            decoded = base64.b64decode(token_data, validate=True).decode("ascii")
+        except (ValueError, UnicodeError):
+            stop("invalid bootstrap Secret token ID: " + name)
+        if decoded != token_id:
+            stop("bootstrap Secret token ID differs: " + name)
     credential = obj.get("status", {}).get("bootstrapKubeconfigData")
     if not credential or not isinstance(credential, str):
         stop("bootstrap credential status missing: " + name)
     expected = hashlib.sha256(credential.encode()).hexdigest()
     if remote_sha != expected:
         stop("remote bootstrap checksum differs from API credential: " + name)
-    return {"name": name, "peer": peer, "action": "revoke", "bootstrap_uid": uid,
-            "token_id": token_id, "credential_sha256": expected}
+    return {"name": name, "peer": peer,
+            "action": "revoke" if token is not None else "finish-expired-token-cleanup",
+            "bootstrap_uid": uid, "token_id": token_id, "credential_sha256": expected}
 
 
 def main():
