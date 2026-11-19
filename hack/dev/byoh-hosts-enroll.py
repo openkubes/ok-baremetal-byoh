@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Prepare verified BYOH host bootstrap credentials using the existing E2E helper.
 
-Phase 1 only: create and securely transfer per-host bootstrap credentials.
+Phase 1 only: create and securely transfer bootstrap credentials for inventory hosts.
 Never start agents or approve CSRs; stop before the identity trust boundary.
 """
 import argparse
+import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -25,9 +27,9 @@ def fail(message):
     sys.exit("STOP: " + message)
 
 
-def call(argv, *, env=None):
+def call(argv, *, env=None, confirmation=None):
     try:
-        subprocess.run(argv, check=True, cwd=ROOT, env=env)
+        subprocess.run(argv, check=True, cwd=ROOT, env=env,\n                       input=(confirmation + "\\n") if confirmation else None, text=True)
     except (OSError, subprocess.CalledProcessError) as exc:
         fail("workflow halted (" + argv[0] + "): " + type(exc).__name__)
 
@@ -115,8 +117,36 @@ def main():
         fail("bootstrap status not populated after 90s for " + host +
              "; inspect controller logs and existing object, do not recreate automatically")
 
-    print("Enrollment preparation: two hosts; no agent start or CSR approval.", flush=True)
-    print("Each bootstrap creation and transfer requires confirmation.", flush=True)
+    # One operator decision authorizes the exact plan, never an unknown host.
+    # The existing helper still performs its own pre-write checks and confirmation;
+    # its expected phrase is supplied only after explicit plan authorization.
+    actions = [{"host": h["name"], "role": h["role"],
+                "ssh": h["ssh"]["user"] + "@" + h["ssh"]["address"],
+                "bootstrap": ("resume" if exists(h["name"]) else "create")}
+               for h in hosts]
+    plan = {"management": kind, "api_port": port, "inventory": str(inventory),
+            "hosts": actions, "operations": ["create-if-absent", "transfer-if-absent"],
+            "agent_start": False, "csr_approval": False}
+    fingerprint = hashlib.sha256(
+        json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    print("BYOH bootstrap plan (" + str(len(hosts)) + " hosts):", flush=True)
+    for action in actions:
+        print("  " + action["host"] + " " + action["role"] + " " +
+              action["ssh"] + " bootstrap=" + action["bootstrap"], flush=True)
+    print("Plan sha256: " + fingerprint, flush=True)
+    print("Changes: create missing BootstrapKubeconfigs and securely transfer credentials.", flush=True)
+    print("Agent start: NO; CSR approval: NO; Kubernetes installation: NO.", flush=True)
+    expected_phrase = "ok " + fingerprint[:12]
+    try:
+        approved = input("Type '" + expected_phrase + "' to approve this exact plan: ")
+    except EOFError:
+        fail("interactive confirmation required")
+    if approved != expected_phrase:
+        fail("plan not authorized; no bootstrap changes")
+    # No inventory edits may be accepted between authorization and writes.
+    if yaml.safe_load(inventory.read_text(encoding="utf-8")) != data:
+        fail("inventory changed since plan approval")
+
     for host in hosts:
         env = dict(os.environ)
         env.update({
@@ -130,15 +160,15 @@ def main():
             verify_existing(host["name"])
             print("Resuming existing bootstrap object for " + host["name"], flush=True)
         else:
-            call(["bash", str(SCRIPT), "enroll-create"], env=env)
+            call(["bash", str(SCRIPT), "enroll-create"], env=env,\n                 confirmation="create-bootstrap-" + host["name"])
             verify_existing(host["name"])
         wait_for_credential(host["name"])
         # Reuse the existing secure transfer helper, which refuses to overwrite
         # preexisting remote credentials and requires a typed confirmation.
-        call(["bash", str(SCRIPT), "enroll-transfer"], env=env)
+        call(["bash", str(SCRIPT), "enroll-transfer"], env=env,\n             confirmation="transfer-bootstrap-" + host["name"])
         print("PASS: staged bootstrap credential for " + host["name"], flush=True)
 
-    print("STOP AT TRUST BOUNDARY: Both credentials staged, agents remain disabled.", flush=True)
+    print("STOP AT TRUST BOUNDARY: Bootstrap credentials staged for " + str(len(hosts)) +\n          " hosts, agents remain disabled.", flush=True)
     print("Next: independently validate agent unit flags, CSR identities and authorization", flush=True)
     print("before manually starting enrollment agents. No CSR was approved.", flush=True)
 
