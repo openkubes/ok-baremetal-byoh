@@ -106,7 +106,7 @@ case "$cmd" in
     [ -n "$ca" ] || fail 'management CA data absent'
     confirm "create-bootstrap-$HOST_WORKER"
     printf 'apiVersion: infrastructure.cluster.x-k8s.io/v1beta1\nkind: BootstrapKubeconfig\nmetadata:\n  name: %s\n  namespace: %s\nspec:\n  apiserver: %s\n  certificate-authority-data: %s\n' \
-      "$HOST_WORKER" "$NAMESPACE" "$MGMT_FORWARD_URL" "$ca" | mgmt create -f -
+      "$HOST_WORKER" "$NAMESPACE" "$MGMT_FORWARD_URL" "$ca" | mgmt create -f - || fail 'bootstrap creation failed'
     unset ca
     say 'Bootstrap credential created; valid for a limited time. Never share status output.'
     ;;
@@ -178,47 +178,9 @@ case "$cmd" in
     say 'Approve only after confirming identity, usages, signer, bootstrap group and requestor.'
     ;;
   approve-csr)
-    requirements
-    need openssl
-    need base64
-    need jq
-
-    csr="byoh-csr-$NAMESPACE.$HOST_WORKER"
-
-    # Validate CSR metadata without exposing credentials.
-    mgmt get csr "$csr" -o json |
-      jq -e \
-        --arg namespace "$NAMESPACE" \
-        --arg host "$HOST_WORKER" '
-        .spec.signerName == "kubernetes.io/kube-apiserver-client"
-        and (.spec.usages == ["client auth"])
-        and (.spec.groups | index("system:bootstrappers:byoh") != null)
-        and (.spec.username | startswith("system:bootstrap:"))
-        and ((.status.conditions // []) | length == 0)
-      ' >/dev/null || fail 'CSR metadata validation failed'
-
-    subject=$(
-      mgmt get csr "$csr" -o jsonpath='{.spec.request}' |
-        base64 -d |
-        openssl req -inform PEM -noout -subject -nameopt RFC2253
-    ) || fail 'CSR subject parsing failed'
-
-    expected="CN=byoh:host:$NAMESPACE:$HOST_WORKER,O=byoh:hosts"
-
-    case "$subject" in
-      "subject=$expected"|"subject= $expected")
-        ;;
-      *)
-        fail "Unexpected CSR subject: $subject"
-        ;;
-    esac
-
-    say "CSR validated: $csr"
-    say "Subject: $subject"
-    say "Signer, usages, bootstrap group and pending state validated."
-
-    confirm "approve-$HOST_WORKER"
-    mgmt certificate approve "$csr" || fail 'CSR approval failed'
+    # Do not approve with an incomplete requester/token identity contract.
+    # Inspect the CSR and use an independently authorized manual procedure.
+    fail 'scripted CSR approval disabled: requester/token binding and full subject validation are not established'
     ;;
   enroll-revoke)
     requirements
@@ -251,8 +213,23 @@ case "$cmd" in
       test ! -e /root/.byoh/bootstrap.kubeconfig
     '"'"'' || fail 'agent installation target changed'
     scp "$AGENT_BINARY" "$WORKER_SSH:/tmp/byoh-hostagent" || fail 'scp failed'
-    ssh "$WORKER_SSH" 'sudo install -m 755 /tmp/byoh-hostagent /usr/local/bin/byoh-hostagent && rm /tmp/byoh-hostagent' || fail 'binary install failed'
-    ssh "$WORKER_SSH" 'sudo install -d -m 755 /etc/systemd/system; sudo tee /etc/systemd/system/byoh-hostagent.service >/dev/null <<"UNIT"
+    ssh "$WORKER_SSH" 'sudo -n sh -c '"'"'
+      set -eu
+      test ! -e /usr/local/bin/byoh-hostagent
+      install -m 755 /tmp/byoh-hostagent /usr/local/bin/byoh-hostagent
+      rm -f -- /tmp/byoh-hostagent
+    '"'"'' || fail 'binary install failed'
+    # Remote shell stops on the first failed command; never enable after a
+    # failed unit write. No existing unit may be overwritten.
+    ssh "$WORKER_SSH" 'sudo -n sh -c '"'"'
+      set -eu
+      install -d -m 755 /etc/systemd/system
+      test ! -e /etc/systemd/system/byoh-hostagent.service
+      umask 077
+      unit=$(mktemp /etc/systemd/system/.byoh-hostagent.XXXXXX)
+      cleanup() { rm -f -- "$unit"; }
+      trap cleanup EXIT
+      cat > "$unit" <<"UNIT"
 [Unit]
 Description=OpenKubes BYOH Host Agent
 After=network-online.target
@@ -267,7 +244,13 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 UNIT
-sudo systemctl daemon-reload; sudo systemctl enable byoh-hostagent.service' || fail 'unit install failed'
+      chmod 644 "$unit"
+      ln "$unit" /etc/systemd/system/byoh-hostagent.service
+      rm -f -- "$unit"
+      trap - EXIT
+      systemctl daemon-reload
+      systemctl enable byoh-hostagent.service
+    '"'"'' || fail 'unit install failed'
     say 'Agent binary and stopped enrollment-phase unit installed. No agent started.'
     ;;
   agent-arm-worker)
