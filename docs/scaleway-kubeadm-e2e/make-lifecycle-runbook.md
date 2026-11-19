@@ -185,7 +185,7 @@ but **not yet live tested**. It re-evaluates and digest-binds the same plan,
 checks the host UID/resourceVersion and agent state again, then adds
 `role=scaleway-worker` only if absent and applies the four reviewed
 MachineDeployment resources. It never starts the BYOH agent or runs kubeadm.
-The new `byoh-cluster-worker-verify` target is implemented but **not yet live tested**. It checks the generated Machine, UID-bound ByoHost/ByoMachine, KubeadmConfig bootstrap Secret, ready K8sInstallerConfig and matching installation Secret without outputting any Secret data; it also requires the worker agent remain stopped/disabled. The remaining `byoh-cluster-worker-{arm,status}` steps are **not yet implemented/tested**.
+The `byoh-cluster-worker-verify` target **passed live** on 20 November 2026: worker MachineDeployment 1/1 desired; generated Machine `ok-byoh-scw1-md-0-9dths-vkdnx`; ByoHost UID binding, KubeadmConfig Secret and Ready K8sInstallerConfig/installation Secret all verified; worker agent inactive/disabled. It checks the generated Machine, UID-bound ByoHost/ByoMachine, KubeadmConfig bootstrap Secret, ready K8sInstallerConfig and matching installation Secret without outputting any Secret data; it also requires the worker agent remain stopped/disabled. The `byoh-cluster-worker-arm-plan` and `byoh-cluster-worker-arm` targets are now implemented but **not yet live tested**. `byoh-cluster-worker-status` remains unimplemented.
 
 Worker plan (read-only; requires existing Cilium Ready):
 
@@ -222,6 +222,35 @@ A STOP may mean CAPI reconciliation has not finished; inspect
 the named resources without printing Secrets. The verify target has
 not yet been live run on the new worker rollout. **Do not arm the
 worker until this phase passes.**
+
+After `byoh-cluster-worker-verify` is green, the next trust boundary is
+separate and **not yet live exercised**:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-worker-arm-plan
+
+# ACTION ONLY after independent review of the arm plan and exact host:
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-worker-arm
+```
+
+The arm plan re-verifies UID-bound CAPI resources, both Secret identities,
+the worker's stopped+disabled state, exact original enrollment systemd
+unit, and the absence of previous installation markers. The plan hash
+binds the inventory, agent drop-in checksum and CAPI resource identities.
+The action needs an exact `arm <digest-prefix>` confirmation, then uses a
+non-overwriting worker-specific systemd drop-in to remove enrollment
+flags and starts the agent once. **It does not enable the service**.
+If the agent is already active or an arm drop-in exists, the plan
+intentionally stops rather than replaying kubeadm.
+
+Do not equate a successful systemd start with Node Ready: observe
+kubeadm reconciliation, CAPI MachineDeployment Ready/Available, two
+workload Nodes Ready, and Cilium on both Nodes after arm. Do not share
+join-token-bearing remote journals or Secret contents.
 
 The historical helper used `curl -k` and `kubectl label --overwrite`;
 the new worker plan does **neither**. It fails closed on any
