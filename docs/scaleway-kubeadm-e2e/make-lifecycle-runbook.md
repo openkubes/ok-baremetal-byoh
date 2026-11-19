@@ -180,8 +180,12 @@ Historical *interactive* E2E proved the second host
 `role=scaleway-worker` and reach Ready. The new Make-only `byoh-cluster-worker-plan` target is now implemented
 but has **not** yet been live tested. It uses the exact historical MD
 template, CAPI/host identity, stopped unit and public API TLS certificate
-identity; it has no write path. The remaining
-`byoh-cluster-worker-{apply,verify,arm,status}` flow
+identity; it has no write path. The confirmed `byoh-cluster-worker-apply` has now been implemented
+but **not yet live tested**. It re-evaluates and digest-binds the same plan,
+checks the host UID/resourceVersion and agent state again, then adds
+`role=scaleway-worker` only if absent and applies the four reviewed
+MachineDeployment resources. It never starts the BYOH agent or runs kubeadm.
+The remaining `byoh-cluster-worker-{verify,arm,status}` flow
 has **not** yet been implemented/tested.
 
 Worker plan (read-only; requires existing Cilium Ready):
@@ -191,6 +195,20 @@ make BYOH_KIND_NAME=ok-byoh-make-test \
   BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
   byoh-cluster-worker-plan
 ```
+
+After a successful `byoh-cluster-worker-plan`, **only after review
+of its digest and the target host**, the apply boundary is:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-worker-apply
+```
+
+The action requests `apply <digest-prefix>`; it stops immediately after
+the CAPI desired state is submitted, with the agent stopped. Any partial
+write must be inspected before retry because the plan intentionally
+refuses existing CAPI objects.
 
 The historical helper used `curl -k` and `kubectl label --overwrite`;
 the new worker plan does **neither**. It fails closed on any
