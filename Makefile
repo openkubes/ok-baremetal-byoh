@@ -363,6 +363,18 @@ byoh-hosts-preflight: ## Read-only inventory, SSH, agent and management-tunnel i
 byoh-hosts-enroll: ## One approved N-host plan: bootstrap credentials and stopped agent-unit preparation.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-enroll.py --inventory '$(BYOH_HOSTS_INVENTORY)'
 
+.PHONY: byoh-cluster-control-plane-apply
+byoh-cluster-control-plane-apply: ## Confirmed lab CAPI CP manifest apply, no kubeadm/agent activation.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-control-plane-apply.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-network-plan
+byoh-cluster-network-plan: ## Read-only workload API SSH tunnel and isolated kind NAT preflight.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-network.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-network-up
+byoh-cluster-network-up: ## Confirmed SSH workload API forwarding plus isolated kind NAT (API must already be serving).
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-network.py --inventory '$(BYOH_HOSTS_INVENTORY)' --up
+
 .PHONY: byoh-cluster-control-plane-plan
 byoh-cluster-control-plane-plan: ## Read-only Scaleway CAPI v1.36.6 control-plane manifest preflight and server dry-run.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-control-plane-plan.py --inventory '$(BYOH_HOSTS_INVENTORY)'
