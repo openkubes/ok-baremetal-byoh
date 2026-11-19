@@ -339,6 +339,14 @@ byoh-capi-init: ## Install CAPI v1.14.4 to a fresh verified BYOH Kind cluster.
 byoh-capi-verify: ## Read-only rollout and provider version verification.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-kind.sh capi-verify
 
+##@ BYOH host onboarding (inventory-driven)
+
+BYOH_HOSTS_INVENTORY ?= config/hosts/scaleway.yaml
+
+.PHONY: byoh-hosts-preflight
+byoh-hosts-preflight: ## Read-only inventory, SSH, agent and management-tunnel identity checks.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' python3 hack/dev/byoh-hosts-preflight.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
 ##@ Safe local BYOH controller lifecycle
 
 # These targets only target allow-listed kind clusters through their dedicated
