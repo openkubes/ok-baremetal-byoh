@@ -2,9 +2,10 @@
 
 **Live evidence:** 19 November 2026, local Mac (Colima) and two existing
 Scaleway Ubuntu 24.04.5 amd64 hosts. **Scope: disposable lab only.**
-Status is **partial live replay**: management, host enrollment, CP kubeadm,
-workload API routing and Cilium have been exercised successfully using
-Make targets; the worker has **not** been re-provisioned in this replay.
+Status is **two-node provisioning replay complete**: management, host enrollment,
+CP kubeadm, workload API routing, Cilium and worker installation were
+exercised using Make targets. CAPI MD 1/1, Nodes 2/2 Ready and Cilium
+DaemonSet 2/2 are live verified; cross-node data-plane/policy E2E remains open.
 A previous *interactive* E2E did provision both nodes and perform an
 in-place v1.36.6 → v1.37.2 upgrade; it is distinct from this replay.
 
@@ -173,19 +174,17 @@ workload-specific kubeconfig. Never silently overwrite mismatching
 credentials. Helm 4 needs `helm list` **without** the Helm 3
 `--all` flag; the code now selects by Helm major version.
 
-## 5. Worker CAPI rollout – NOT done in this replay
+## 5. Worker CAPI rollout – COMPLETE; cross-node E2E pending
 
 Historical *interactive* E2E proved the second host
 `ok-bm-lab-02` could join using a MachineDeployment with
-`role=scaleway-worker` and reach Ready. The new Make-only `byoh-cluster-worker-plan` target is now implemented
-but has **not** yet been live tested. It uses the exact historical MD
+`role=scaleway-worker` and reach Ready. The new Make-only `byoh-cluster-worker-plan` target **passed live** in this replay. It uses the exact historical MD
 template, CAPI/host identity, stopped unit and public API TLS certificate
-identity; it has no write path. The confirmed `byoh-cluster-worker-apply` has now been implemented
-but **not yet live tested**. It re-evaluates and digest-binds the same plan,
+identity; it has no write path. The confirmed `byoh-cluster-worker-apply` **passed live**, creating four CAPI objects and setting the host role label. It re-evaluates and digest-binds the same plan,
 checks the host UID/resourceVersion and agent state again, then adds
 `role=scaleway-worker` only if absent and applies the four reviewed
 MachineDeployment resources. It never starts the BYOH agent or runs kubeadm.
-The `byoh-cluster-worker-verify` target **passed live** on 20 November 2026: worker MachineDeployment 1/1 desired; generated Machine `ok-byoh-scw1-md-0-9dths-vkdnx`; ByoHost UID binding, KubeadmConfig Secret and Ready K8sInstallerConfig/installation Secret all verified; worker agent inactive/disabled. It checks the generated Machine, UID-bound ByoHost/ByoMachine, KubeadmConfig bootstrap Secret, ready K8sInstallerConfig and matching installation Secret without outputting any Secret data; it also requires the worker agent remain stopped/disabled. The `byoh-cluster-worker-install-plan` and `byoh-cluster-worker-install` targets **passed their live activation boundary** on 20 November 2026: the stopped worker agent was started after digest-bound approval. Kubernetes Node Ready and MachineDeployment availability remain to be verified. `byoh-cluster-worker-status` remains unimplemented.
+The `byoh-cluster-worker-verify` target **passed live** on 20 November 2026: worker MachineDeployment 1/1 desired; generated Machine `ok-byoh-scw1-md-0-9dths-vkdnx`; ByoHost UID binding, KubeadmConfig Secret and Ready K8sInstallerConfig/installation Secret all verified; worker agent inactive/disabled. It checks the generated Machine, UID-bound ByoHost/ByoMachine, KubeadmConfig bootstrap Secret, ready K8sInstallerConfig and matching installation Secret without outputting any Secret data; it also requires the worker agent remain stopped/disabled. The `byoh-cluster-worker-install-plan` and `byoh-cluster-worker-install` targets **passed their live activation boundary** on 20 November 2026: the stopped worker agent was started after digest-bound approval. **Subsequently verified:** both Kubernetes Nodes Ready (v1.36.6), MD `ok-byoh-scw1-md-0` current/ready/available/up-to-date 1/1, both CAPI Machines Ready/Available, Cilium DaemonSet desired/current/ready/available 2/2. `byoh-cluster-worker-status` remains unimplemented.
 
 Worker plan (read-only; requires existing Cilium Ready):
 
@@ -219,11 +218,10 @@ make BYOH_KIND_NAME=ok-byoh-make-test \
 ```
 
 A STOP may mean CAPI reconciliation has not finished; inspect
-the named resources without printing Secrets. The verify target has
-not yet been live run on the new worker rollout. **Do not start worker installation until this phase passes.**
+the named resources without printing Secrets. The verify target passed live before worker installation. **Do not start worker installation until this phase passes.**
 
 After `byoh-cluster-worker-verify` is green, the next trust boundary is
-separate and **not yet live exercised**:
+separate and **live exercised on this replay**:
 
 ```sh
 make BYOH_KIND_NAME=ok-byoh-make-test \
@@ -254,11 +252,10 @@ join-token-bearing remote journals or Secret contents.
 The historical helper used `curl -k` and `kubectl label --overwrite`;
 the new worker plan does **neither**. It fails closed on any
 unexpected host state, API certificate drift, pre-existing worker
-MachineDeployment/resources, or template drift. Its actual live
-outcome remains to be established on the current cluster.
+MachineDeployment/resources, or template drift. Its live read-only plan and confirmed apply both passed on the current cluster.
 
-Until it exists, do not pretend this is a two-node cluster or execute
-an unreviewed `kubeadm join`. Reuse the existing
+This is now a verified two-node cluster. Do not execute
+an unreviewed or repeated `kubeadm join`. Reuse the existing
 [`e2e-results.md`](e2e-results.md) and
 `scripts/scaleway-e2e/byoh-e2e.sh` only as source material for the
 new guarded Make orchestration. It must verify registration, bound
@@ -266,9 +263,11 @@ ByoMachine UID, installer Secret, direct worker-to-CP API connectivity,
 version, selector and stopped agent before requiring a single explicit
 approval to start worker installation.
 
-After rollout, independently verify two Nodes Ready, MachineDeployment
-1/1, Cilium on both Nodes, cross-node pod connectivity and policy.
-These are **not** established by today's CP-only status checks.
+Live post-install verification (20 November 2026): two Nodes Ready,
+MachineDeployment 1/1 Ready/Available, Cilium DaemonSet 2/2 Ready/Available.
+This does **not** yet prove cross-node pod connectivity or network policy.
+Use a dedicated worker post-install status target and a separate cross-node
+E2E before claiming full data-plane validation.
 
 ## 6. Upgrade, KubeVirt, HA, pivot and cleanup – separate milestones
 
