@@ -363,6 +363,10 @@ byoh-hosts-preflight: ## Read-only inventory, SSH, agent and management-tunnel i
 byoh-hosts-enroll: ## One approved N-host plan: bootstrap credentials and stopped agent-unit preparation.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-enroll.py --inventory '$(BYOH_HOSTS_INVENTORY)'
 
+.PHONY: byoh-hosts-bootstrap-renew
+byoh-hosts-bootstrap-renew: ## Confirmed renewal of unconsumed bootstrap credentials on inventory hosts.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-bootstrap-renew.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
 .PHONY: byoh-hosts-idempotency-test
 byoh-hosts-idempotency-test: ## Offline regression tests for BYOH token replay and systemd idempotency.
 	@PYTHONDONTWRITEBYTECODE=1 python3 -B hack/dev/test-byoh-hosts-idempotency.py
