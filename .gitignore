@@ -42,3 +42,7 @@ _artifacts
 # Local BYOH host inventories: version the template, not actual host addresses
 /config/hosts/*.yaml
 /config/hosts/*.yml
+
+# Project-local isolated Python tooling
+/.tools/python-venv/
+/.venv/
