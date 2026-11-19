@@ -363,6 +363,10 @@ byoh-hosts-preflight: ## Read-only inventory, SSH, agent and management-tunnel i
 byoh-hosts-enroll: ## One approved N-host plan: bootstrap credentials and stopped agent-unit preparation.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-enroll.py --inventory '$(BYOH_HOSTS_INVENTORY)'
 
+.PHONY: byoh-hosts-register-plan
+byoh-hosts-register-plan: ## Read-only all-host registration preflight and digest-bound start plan.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-register.py --inventory '$(BYOH_HOSTS_INVENTORY)' --plan-only
+
 .PHONY: byoh-hosts-register
 byoh-hosts-register: ## Confirmed N-host enrollment-only agent start; CSR inspection, never approval.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-register.py --inventory '$(BYOH_HOSTS_INVENTORY)'
