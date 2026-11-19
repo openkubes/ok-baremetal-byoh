@@ -113,6 +113,9 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Offline BYOH E2E security regression
+      run: bash tests/offline/test-byoh-e2e.sh
+
     - name: turn off swap
       run: sudo swapoff -a
     
