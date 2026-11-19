@@ -46,6 +46,17 @@ class CiliumTests(unittest.TestCase):
         self.assertFalse(C.kcp_initialized(kcp))
         self.assertFalse(C.kcp_initialized({"status": {}}))
 
+    def test_helm_failure_classifies_tls_without_disclosing_stderr(self):
+        err = b"x509: certificate signed by unknown authority secret-token=fake"
+        self.assertEqual(C.safe_helm_error(err), "TLS CA verification failed")
+
+    def test_helm_failure_classifies_auth_and_connection(self):
+        self.assertEqual(C.safe_helm_error(b"Error: Forbidden"), "workload Kubernetes authorization denied")
+        self.assertEqual(C.safe_helm_error(b"connection refused"), "workload API tunnel/connectivity failed")
+
+    def test_helm_failure_unknown_is_redacted(self):
+        self.assertEqual(C.safe_helm_error(b"secret=private-data"), "unclassified Helm failure; stderr withheld for credential safety")
+
     def test_values_pin_kube_proxy_mode(self):
         self.assertIs(C.VALUES["kubeProxyReplacement"], False)
         self.assertEqual(C.VALUES["operator"]["replicas"], 1)
