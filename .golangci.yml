@@ -141,7 +141,7 @@ linters:
       # helper until they move to the v1beta2 contract.
       - linters:
           - staticcheck
-        text: 'SA1019: sigs[.]k8s[.]io/cluster-api/(api/core/v1beta1|util/deprecated/v1beta1/(conditions|patch)) is deprecated'
+        text: 'SA1019:.*sigs[.]k8s[.]io/cluster-api/(api/core/v1beta1|util/deprecated/v1beta1/(conditions|patch))'
 
 formatters:
   enable:
