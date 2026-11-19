@@ -20,7 +20,7 @@ TEMPLATE = ROOT / "test/e2e/data/infrastructure-provider-byoh/v1beta1/templates/
 CLUSTER = "ok-byoh-scw1"
 VERSION = "v1.36.6"
 NAMESPACE = "default"
-ROLE_LABEL = "scaleway-control-plane"
+ROLE_LABEL = "control-plane"
 
 
 def stop(why):
