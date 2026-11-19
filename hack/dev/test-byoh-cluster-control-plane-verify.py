@@ -21,12 +21,16 @@ def fixtures():
             "apiVersion": "controlplane.cluster.x-k8s.io/v1beta2",
             "metadata": {}, "spec": {"version": "v1.36.6", "replicas": 1,
             "machineTemplate": {"spec": {"infrastructureRef": {"name": "ok-byoh-scw1-control-plane", "kind": "ByoMachineTemplate"}}}}},
-        ("byomachine", NAME): {"metadata": {}, "spec": {}},
+        ("byomachine", NAME): {"metadata": {}, "spec": {
+            "installerRef": {"kind": "K8sInstallerConfigTemplate",
+                             "name": "ok-byoh-scw1-control-plane",
+                             "namespace": "default"}}},
         ("byohost", "ok-bm-lab-01"): {"metadata": {"labels": {"role": "control-plane"}},
             "spec": {"byoMachineRef": {"name": NAME}}},
         ("kubeadmconfig", NAME): {"metadata": {}, "status": {"dataSecretName": NAME}},
         ("secret", NAME): {"metadata": {}, "data": {"value": "omitted"}},
-        ("k8sinstallerconfig", NAME): {"metadata": {}, "spec": {}},
+        ("k8sinstallerconfig", NAME): {"kind": "K8sInstallerConfig", "metadata": {"name": NAME}, "spec": {}},
+        ("k8sinstallerconfigtemplate", "ok-byoh-scw1-control-plane"): {"metadata": {}, "spec": {}},
     }
     machine = {"metadata": {"name": NAME}, "spec": {
         "clusterName": "ok-byoh-scw1", "version": "v1.36.6",
@@ -71,6 +75,24 @@ class BindingTests(TestCase):
     def test_missing_kcp_template_reference_rejected(self):
         data, machines = fixtures()
         del data[("kubeadmcontrolplane", "ok-byoh-scw1-control-plane")]["spec"]["machineTemplate"]["spec"]["infrastructureRef"]
+        with self.assertRaises(SystemExit):
+            self.call_verify(data, machines)
+
+    def test_installer_reference_points_to_template(self):
+        data, machines = fixtures()
+        self.assertEqual(data[("byomachine", NAME)]["spec"]["installerRef"]["name"],
+                         "ok-byoh-scw1-control-plane")
+        self.assertEqual(self.call_verify(data, machines), (NAME, NAME))
+
+    def test_wrong_installer_template_ref_rejected(self):
+        data, machines = fixtures()
+        data[("byomachine", NAME)]["spec"]["installerRef"]["name"] = NAME
+        with self.assertRaises(SystemExit):
+            self.call_verify(data, machines)
+
+    def test_missing_installer_template_ref_rejected(self):
+        data, machines = fixtures()
+        data[("byomachine", NAME)]["spec"]["installerRef"] = None
         with self.assertRaises(SystemExit):
             self.call_verify(data, machines)
 
