@@ -538,3 +538,62 @@ fail-closed trust boundaries. The superbrothers BYOH provider already
 automates package installation and kubeadm for attached Machines; it
 does not create a remote networking/management infrastructure for the
 operator or install CNI as an all-in-one bare-metal command.
+
+## Workload Cilium 1.19.6 (Scaleway lab only)
+
+The existing E2E Cilium guidance is in
+`docs/scaleway-kubeadm-e2e/cilium.md`. To avoid manual Helm commands
+against an ambiguous context, these Make targets use the existing
+management CAPI identity and a freshly obtained **workload** admin
+credential from the verified control-plane host:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-cilium-plan
+```
+
+The read-only plan requires the exact chart at
+`~/temp/kubernauts/ok/ok-cluster/.tools/cilium-1.19.6.tgz` with
+SHA-256 `21c43cf53841f9ab0375047d95aa4c64051ea52bbd2c679416e6408f5f1c9179`.
+It validates the initialized CAPI v1.36.6 KCP, that the local
+`127.0.0.1:16444` tunnel is present, retrieves the *current*
+`/etc/kubernetes/admin.conf` over checked SSH and uses a temporary
+mode-0600 kubeconfig with `tls-server-name=51.158.62.217` to validate
+workload API TLS trust and exact Node identity. No kubeconfig, keys,
+tokens or Secret contents appear in output.
+
+If an existing `~/.config/ok/byoh-scw1/kubeconfig-tunnel` does not
+match the current CP credential and CA **exactly**, the operation
+fails closed: archive and inspect that stale file manually rather than
+silently overwrite it. Similarly, a pre-existing or partial Cilium
+release is **not** automatically upgraded or repaired.
+
+Only after an explicit review and typed confirmation:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-cilium-install
+```
+
+The installer re-evaluates its digest-bound plan, stores the fresh
+workload-specific kubeconfig with private permissions, then uses
+`helm install` (not `upgrade --install`) with
+`kubeProxyReplacement=false`, `operator.replicas=1`,
+`k8sServiceHost=51.158.62.217`, `k8sServicePort=6443`
+and `--wait --timeout 5m`. The target is not yet live-tested.
+
+Read-only post-install check:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-cilium-verify
+```
+
+This checks the Helm release/values, Cilium DaemonSet and Operator
+Deployment, and Node/CoreDNS readiness. It does **not** replace a
+cross-node data-plane/policy test after the worker joins. A real
+cluster needs stable private management networking; the local
+SSH+kind-NAT workaround remains disposable lab-only infrastructure.
