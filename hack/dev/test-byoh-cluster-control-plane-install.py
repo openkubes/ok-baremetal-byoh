@@ -94,6 +94,13 @@ class CPInstallTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.check(data)
 
+    def test_enrollment_dropin_comparison_uses_real_newlines(self):
+        expected_segment = mod.REMOTE_PREFLIGHT.split(
+            'expected="$(printf', 1)[1].split('actual="$(cat', 1)[0]
+        self.assertIn("[Service]\\nWorkingDirectory=/root\\nExecStart=", expected_segment)
+        self.assertNotIn("[Service]\\\\nWorkingDirectory", expected_segment)
+        self.assertIn('test "$actual" = "$expected"', mod.REMOTE_PREFLIGHT)
+
     def test_remote_action_never_enables_agent(self):
         self.assertNotIn("systemctl enable ", mod.REMOTE_INSTALL)
         self.assertIn("systemctl start", mod.REMOTE_INSTALL)
