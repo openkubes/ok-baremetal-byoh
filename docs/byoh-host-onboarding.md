@@ -192,3 +192,52 @@ with an outstanding CSR without an explicit recovery review.
 
 Run `make byoh-hosts-idempotency-test` for offline CSR/identity regressions;
 these tests are not live E2E approval evidence.
+
+## CSR approval: SSH private-key challenge and optimistic concurrency
+
+After `byoh-hosts-csr-verify` passes, the independent approval proof uses the
+agent's temporary private key at `/root/byoh-client.key.tmp`, created by
+`agent/registration/csr.go` while the agent waits for a certificate.
+
+Run the read-only plan first:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-hosts-csr-approve-plan
+```
+
+For every inventoried host this checks the previous CSR/token/Secret bindings,
+the pending CSR UID/resourceVersion and a fresh random nonce signed on the
+SSH host, verified against the public key in the CSR. The private key never
+leaves the host, and token/CSR payloads are not displayed. A successful SSH
+challenge proves possession of the matching key on the authenticated SSH
+endpoint, **not** a hardware-backed attestation of the bare-metal machine.
+
+Once the owner has independently confirmed SSH host provenance, inventory,
+management CA and plan contents, the mutating command is:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-hosts-csr-approve
+```
+
+This asks once for `approve <plan-hash>`, then rechecks all host keys,
+credential bindings and CSR identity. Each approval PUT targets the Kubernetes
+`certificatesigningrequests/<name>/approval` subresource with the **exact
+CSR UID and resourceVersion** from that final read. Replacement, approval or
+another status update causes a fail-closed conflict. A multi-host approval is
+not transactional: if one later host fails, inspect already-approved CSRs
+before retrying. Never approve unmatched or unexpectedly changed CSRs.
+
+The approval target does not start agents or provision Kubernetes. After
+successful approval, separately verify certificate issuance, permanent
+`/root/.byoh/config` and ByoHost registration before revoking bootstrap
+tokens. Existing bootstrap TTL remains 30 minutes. Do not rotate tokens of
+running agents with pending CSRs merely because the TTL has expired.
+
+**Testing status:** Newly implemented and unverified against live Scaleway
+until the offline tests and the read-only approval plan have passed. Use
+`make byoh-hosts-idempotency-test` for the regression suite before executing
+the mutating approval target.
