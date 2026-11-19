@@ -363,6 +363,10 @@ byoh-hosts-preflight: ## Read-only inventory, SSH, agent and management-tunnel i
 byoh-hosts-enroll: ## One approved N-host plan: bootstrap credentials and stopped agent-unit preparation.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-enroll.py --inventory '$(BYOH_HOSTS_INVENTORY)'
 
+.PHONY: byoh-cluster-worker-status
+byoh-cluster-worker-status: ## Read-only post-install: both CAPI Machines/Nodes Ready and Cilium 2/2.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-worker-status.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
 .PHONY: byoh-cluster-worker-install-plan
 byoh-cluster-worker-install-plan: ## Read-only, UID/digest-bound worker install readiness and systemd preflight.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-worker-arm.py --inventory '$(BYOH_HOSTS_INVENTORY)'
@@ -479,6 +483,7 @@ byoh-hosts-idempotency-test: ## Offline regression tests for BYOH token replay a
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-worker-apply.py
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-worker-verify.py
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-worker-arm.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-worker-status.py
 
 .PHONY: byoh-hosts-agent-prepare
 byoh-hosts-agent-prepare: ## Safely prepare existing stopped agent units for enrollment only.
