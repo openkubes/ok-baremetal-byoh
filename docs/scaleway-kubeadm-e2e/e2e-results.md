@@ -127,6 +127,20 @@ These tests do not establish that all provisioning,
 enrollment, agent activation or recovery paths are
 fully idempotent.
 
+### Security review decision (PR #19)
+
+- The scripted `approve-csr` command is intentionally fail-closed/disabled.
+  Use an independently authorized manual CSR review and approval procedure;
+  do not treat `inspect-csr` as proof of requester or token identity.
+- The `agent-install` command is for dedicated, initially clean lab hosts
+  only. Existing installations are rejected. SSH loss or partial remote
+  installation requires manual inspection and recovery before retrying.
+- The new offline tests run in CI and verify simulated failure paths only.
+  They do not prove safe concurrent installation, complete cluster identity
+  pinning, or a successful live replay.
+- `render-worker` / `apply-worker` use server-side dry-run; admission
+  webhooks may execute, so this is not a zero-side-effect offline plan.
+
 ### Current limitations
 
 - Automated worker onboarding supports one worker.
