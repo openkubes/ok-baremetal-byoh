@@ -20,7 +20,7 @@ The `BYOH_ENROLL=true` path first establishes/verifies local management via `byo
 
 **Scope limitation:** This is *bootstrap preparation*, **not completed BYOH registration**. No BYOH agent is started. No CSR is approved. The agent unit and exact requester/token identity must be independently inspected before continuing with enrollment. The command stops at that trust boundary.
 
-The workflow is deliberately fail-closed and not resumable after partial success: if one host is staged and another fails, inspect existing BootstrapKubeconfig resources and local credential files, and use an explicitly authorized recovery procedure. Do not simply retry or delete resources to bypass this protection.
+The workflow resumes an existing BootstrapKubeconfig only if it matches the current management CA and forwarded API endpoint and is younger than 20 minutes. It waits up to 90 seconds for the controller to populate the status. Remote transfer still refuses to overwrite an existing credential. On expired, mismatched or partially transferred state, stop for an explicit recovery/revocation review; do not automatically recreate tokens or delete resources.
 
 A direct entrypoint, useful after management is already up:
 
