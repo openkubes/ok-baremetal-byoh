@@ -118,7 +118,8 @@ case "$cmd" in
       || fail 'bootstrap credential lookup failed'
     [ "$ready" = ready ] || fail 'bootstrap credential not populated'
 
-    ssh -T "$WORKER_SSH" \
+    # -n: this check must not consume the following confirmation from stdin.
+    ssh -n -T "$WORKER_SSH" \
       'sudo -n test ! -e /root/.byoh/bootstrap.kubeconfig' \
       || fail 'remote credential exists or preflight failed'
 
@@ -143,7 +144,7 @@ case "$cmd" in
     esac
     [ "${#checksum}" -eq 64 ] || fail 'invalid bootstrap checksum length'
 
-    ssh -T "$WORKER_SSH" \
+    ssh -n -T "$WORKER_SSH" \
       'sudo -n install -d -m 700 /root/.byoh' \
       || fail 'remote directory creation failed'
 
