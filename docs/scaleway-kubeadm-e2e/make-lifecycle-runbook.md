@@ -185,8 +185,7 @@ but **not yet live tested**. It re-evaluates and digest-binds the same plan,
 checks the host UID/resourceVersion and agent state again, then adds
 `role=scaleway-worker` only if absent and applies the four reviewed
 MachineDeployment resources. It never starts the BYOH agent or runs kubeadm.
-The remaining `byoh-cluster-worker-{verify,arm,status}` flow
-has **not** yet been implemented/tested.
+The new `byoh-cluster-worker-verify` target is implemented but **not yet live tested**. It checks the generated Machine, UID-bound ByoHost/ByoMachine, KubeadmConfig bootstrap Secret, ready K8sInstallerConfig and matching installation Secret without outputting any Secret data; it also requires the worker agent remain stopped/disabled. The remaining `byoh-cluster-worker-{arm,status}` steps are **not yet implemented/tested**.
 
 Worker plan (read-only; requires existing Cilium Ready):
 
@@ -209,6 +208,20 @@ The action requests `apply <digest-prefix>`; it stops immediately after
 the CAPI desired state is submitted, with the agent stopped. Any partial
 write must be inspected before retry because the plan intentionally
 refuses existing CAPI objects.
+
+After the CAPI apply, wait for CAPI to reconcile the generated
+Machine/ByoMachine, then run this **read-only** install gate:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-worker-verify
+```
+
+A STOP may mean CAPI reconciliation has not finished; inspect
+the named resources without printing Secrets. The verify target has
+not yet been live run on the new worker rollout. **Do not arm the
+worker until this phase passes.**
 
 The historical helper used `curl -k` and `kubectl label --overwrite`;
 the new worker plan does **neither**. It fails closed on any
