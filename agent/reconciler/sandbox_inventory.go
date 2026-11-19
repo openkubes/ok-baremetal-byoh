@@ -41,6 +41,7 @@ func podNetworkSandboxes(
 	ctx context.Context,
 	run sandboxCommand,
 ) ([]string, error) {
+
 	output, err := run(ctx, "pods", "-o", "json")
 	if err != nil {
 		return nil, fmt.Errorf("list CRI sandboxes: %w", err)
@@ -83,8 +84,8 @@ func podNetworkSandboxes(
 				ID string `json:"id"`
 			} `json:"status"`
 		}
-		if err := json.Unmarshal(details, &identity); err != nil {
-			return nil, fmt.Errorf("decode sandbox identity: %w", err)
+		if decodeErr := json.Unmarshal(details, &identity); decodeErr != nil {
+			return nil, fmt.Errorf("decode sandbox identity: %w", decodeErr)
 		}
 		if identity.Status.ID != id {
 			return nil, fmt.Errorf(
@@ -98,7 +99,7 @@ func podNetworkSandboxes(
 			return nil, err
 		}
 
-		if mode == "POD" {
+		if mode == sandboxNetworkPOD {
 			selected = append(selected, id)
 		}
 	}
