@@ -80,8 +80,12 @@ case "$cmd" in
     say 'Checking worker API path (TLS reachability only; not a credential test)'
     ssh "$WORKER_SSH" "curl -ksSf --connect-timeout 5 --max-time 8 https://$WORKER_ENDPOINT/readyz" || fail 'worker cannot reach workload API'
     say; say 'Checking agent is stopped before binding'
-    current=$(ssh "$WORKER_SSH" 'systemctl is-active byoh-hostagent.service 2>/dev/null || true')
-    [ "$current" != 'active' ] || fail 'worker agent must be stopped before applying'
+    current=$(ssh -T "$WORKER_SSH"       'sudo -n systemctl is-active byoh-hostagent.service') || {
+      [ "$current" = inactive ] ||
+        fail 'cannot confirm worker agent is inactive'
+    }
+    [ "$current" = inactive ] ||
+      fail "worker agent must be inactive (current: $current)"
     mgmt get byohost "$HOST_WORKER" >/dev/null || fail 'worker not enrolled'
     mgmt apply --dry-run=server -f "$WORKER_MANIFEST" || fail 'dry-run failed'
     say "Planned changes:"
