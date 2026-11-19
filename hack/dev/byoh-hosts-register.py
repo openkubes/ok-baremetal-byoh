@@ -129,6 +129,7 @@ def verify_host(kc_path, ca, port, h):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inventory", required=True)
+    parser.add_argument("--plan-only", action="store_true", help="Check all hosts and print plan without starting agents")
     args = parser.parse_args()
     path = Path(args.inventory)
     if not path.is_file() or path.is_symlink():
@@ -158,6 +159,9 @@ def main():
         print("  " + h["name"] + " (" + h["role"] + ") " + h["peer"] +
               " -> start --skip-installation", flush=True)
     print("Plan SHA-256: " + digest, flush=True)
+    if args.plan_only:
+        print("PASS: read-only registration plan verified; agents remain stopped.", flush=True)
+        return
     phrase = "start " + digest[:12]
     try:
         entered = input("Type '" + phrase + "' to start all checked agents: ")
