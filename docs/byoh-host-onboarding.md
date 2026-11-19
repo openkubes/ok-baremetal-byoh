@@ -41,3 +41,23 @@ make BYOH_KIND_NAME=ok-byoh-make-test \
 ```
 
 This command verifies the stopped/disabled services, matching management context and bootstrap target, checks freshness, and asks for two explicit host-specific confirmations before applying systemd drop-ins. It does not start or enable services. After 20 minutes from creation the bootstrap resources are considered stale for this workflow; do not override this guard. Perform an explicit revocation/reissue review instead.
+
+## Idempotency test gate
+
+Run `make byoh-hosts-idempotency-test` for deterministic offline tests of request
+freshness, management CA/endpoint binding, transfer checksum replay decisions,
+host-inventory plan fingerprints and systemd unit drift/no-op decisions.
+
+**This is not a live end-to-end idempotency guarantee.** The actual enrollment
+and existing transfer helper still require additional state-aware integration
+and simulated interruption tests. In particular, the clean-host preflight
+rejects staged bootstrap files, the existing transfer helper refuses even
+matching preexisting credentials, and systemd currently reloads on repeated
+successful preparation. Therefore **do not rerun BYOH_ENROLL=true ok-up on
+already-staged hosts**. The offline tests intentionally establish the
+decision contracts before those changes; real remote retries remain gated.
+
+A full E2E idempotency acceptance test must demonstrate unchanged bootstrap
+Secret/token identity, unchanged credential checksum, unchanged systemd drop-in
+and service state, no new CSR issuance and no unintended writes on a second
+run. Stale credentials require explicit revocation/reissue authorization.
