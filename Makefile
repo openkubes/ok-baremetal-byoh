@@ -382,6 +382,7 @@ byoh-hosts-bootstrap-renew: ## Confirmed renewal of unconsumed bootstrap credent
 .PHONY: byoh-hosts-idempotency-test
 byoh-hosts-idempotency-test: ## Offline regression tests for BYOH token replay and systemd idempotency.
 	@PYTHONDONTWRITEBYTECODE=1 python3 -B hack/dev/test-byoh-hosts-idempotency.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-hosts-csr-verify.py
 
 .PHONY: byoh-hosts-agent-prepare
 byoh-hosts-agent-prepare: ## Safely prepare existing stopped agent units for enrollment only.
