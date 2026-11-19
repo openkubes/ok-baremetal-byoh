@@ -47,10 +47,24 @@ def stop(reason):
 
 
 def ssh(peer, script):
-    return P.run(["ssh", "-T", "-o", "BatchMode=yes",
-                  "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8",
-                  peer, "sudo", "-n", "bash", "-s"], input_bytes=script.encode(),
-                 timeout=35)
+    import subprocess
+    command = ["ssh", "-T", "-o", "BatchMode=yes", "-o",
+               "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8",
+               peer, "sudo", "-n", "bash", "-s"]
+    try:
+        result = subprocess.run(command, input=script.encode(),
+                                capture_output=True, timeout=35, cwd=ROOT)
+    except (OSError, subprocess.TimeoutExpired):
+        stop("SSH preflight failed or timed out; no host write confirmed")
+    if result.returncode:
+        # Remote preflight uses documented exit codes 21-36. No command
+        # stderr/stdout is echoed: avoid accidental credential disclosure.
+        if 21 <= result.returncode <= 36:
+            stop("remote systemd preflight check failed (exit " +
+                 str(result.returncode) + "); agent remains stopped")
+        stop("SSH/sudo preflight failed (exit " + str(result.returncode) +
+             "); inspect SSH authentication and remote unit safely")
+    return result.stdout.decode().strip()
 
 
 REMOTE_PREFLIGHT = r'''set -eu
