@@ -363,6 +363,14 @@ byoh-hosts-preflight: ## Read-only inventory, SSH, agent and management-tunnel i
 byoh-hosts-enroll: ## One approved N-host plan: bootstrap credentials and stopped agent-unit preparation.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-enroll.py --inventory '$(BYOH_HOSTS_INVENTORY)'
 
+.PHONY: byoh-cluster-control-plane-install-plan
+byoh-cluster-control-plane-install-plan: ## Read-only CP install readiness: exact binding, installer Secret and stopped unit.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-control-plane-install.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-control-plane-install
+byoh-cluster-control-plane-install: ## Confirmed CP install: verified systemd override and one-time agent start.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-control-plane-install.py --inventory '$(BYOH_HOSTS_INVENTORY)' --install
+
 .PHONY: byoh-cluster-control-plane-verify
 byoh-cluster-control-plane-verify: ## Read-only CAPI CP binding, kubeadm data Secret, installer, and stopped agent checks.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-control-plane-verify.py --inventory '$(BYOH_HOSTS_INVENTORY)'
@@ -428,6 +436,7 @@ byoh-hosts-idempotency-test: ## Offline regression tests for BYOH token replay a
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-control-plane-plan.py
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-control-plane-lifecycle.py
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-control-plane-verify.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-control-plane-install.py
 
 .PHONY: byoh-hosts-agent-prepare
 byoh-hosts-agent-prepare: ## Safely prepare existing stopped agent units for enrollment only.
