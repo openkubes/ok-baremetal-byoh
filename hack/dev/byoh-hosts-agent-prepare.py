@@ -35,6 +35,7 @@ test -f /etc/systemd/system/byoh-hostagent.service
 test ! -L /etc/systemd/system/byoh-hostagent.service
 case "$(systemctl show -p ExecStart --value "$unit")" in
   *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation ;'*) ;;
+  *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation --bootstrap-kubeconfig=/root/.byoh/bootstrap.kubeconfig ;'*) ;;
   *'argv[]=/usr/local/bin/byoh-hostagent --namespace default ;'*) ;;
   *) echo 'STOP: unrecognized ExecStart' >&2; exit 1 ;;
 esac
@@ -42,10 +43,16 @@ path=/etc/systemd/system/byoh-hostagent.service.d/90-ok-byoh-enrollment.conf
 if test -e "$path" || test -L "$path"; then
   test ! -L "$path"
   test -f "$path"
-  test "$(cat "$path")" = "$(printf '%s' '[Service]
+  current="$(cat "$path")"
+  wanted="$(printf '%s' '[Service]
+WorkingDirectory=/root
+ExecStart=
+ExecStart=/usr/local/bin/byoh-hostagent --namespace default --skip-installation --bootstrap-kubeconfig=/root/.byoh/bootstrap.kubeconfig')"
+  legacy="$(printf '%s' '[Service]
 WorkingDirectory=/root
 ExecStart=
 ExecStart=/usr/local/bin/byoh-hostagent --namespace default --skip-installation')"
+  test "$current" = "$wanted" || test "$current" = "$legacy"
 fi
 echo 'PASS: stopped agent and bootstrap credential; unit safely modifiable'
 '''
@@ -67,37 +74,51 @@ dir=/etc/systemd/system/byoh-hostagent.service.d
 path="$dir/90-ok-byoh-enrollment.conf"
 install -d -m 755 "$dir"
 test ! -L "$path"
-if test -e "$path"; then
-  test -f "$path"
-  test "$(cat "$path")" = "$(printf '%s' '[Service]
+desired="$(printf '%s' '[Service]
+WorkingDirectory=/root
+ExecStart=
+ExecStart=/usr/local/bin/byoh-hostagent --namespace default --skip-installation --bootstrap-kubeconfig=/root/.byoh/bootstrap.kubeconfig')"
+legacy="$(printf '%s' '[Service]
 WorkingDirectory=/root
 ExecStart=
 ExecStart=/usr/local/bin/byoh-hostagent --namespace default --skip-installation')"
-  effective="$(systemctl show -p ExecStart --value "$unit")"
-  case "$effective" in
-    *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation ;'*) ;;
-    *) echo 'STOP: existing unit effective arguments differ' >&2; exit 1 ;;
-  esac
-  test "$(systemctl show -p WorkingDirectory --value "$unit")" = /root
-  echo 'PASS: enrollment systemd drop-in unchanged; no reload'
-  exit 0
+if test -e "$path"; then
+  test -f "$path"
+  actual="$(cat "$path")"
+  if test "$actual" = "$desired"; then
+    effective="$(systemctl show -p ExecStart --value "$unit")"
+    case "$effective" in
+      *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation --bootstrap-kubeconfig=/root/.byoh/bootstrap.kubeconfig ;'*) ;;
+      *) echo 'STOP: effective unit differs' >&2; exit 1 ;;
+    esac
+    test "$(systemctl show -p WorkingDirectory --value "$unit")" = /root
+    test "$(systemctl is-active "$unit" || true)" = inactive
+    test "$(systemctl is-enabled "$unit" || true)" = disabled
+    echo 'PASS: configured bootstrap enrollment unchanged; no reload'
+    exit 0
+  fi
+  test "$actual" = "$legacy" || { echo 'STOP: unknown existing enrollment drop-in' >&2; exit 1; }
+  test "$(stat -c '%a %U:%G' "$path")" = '644 root:root'
+fi
+if ! /usr/local/bin/byoh-hostagent --help 2>&1 | grep -q -- '--bootstrap-kubeconfig'; then
+  echo 'STOP: agent binary does not support bootstrap flag' >&2; exit 1
+fi
+tmp="$(mktemp "$dir/.90-ok-byoh-enrollment.XXXXXXXX")"
+trap 'rm -f "$tmp"' EXIT
+printf '%s\n' "$desired" >"$tmp"
+chmod 644 "$tmp"
+chown root:root "$tmp"
+if test -e "$path"; then
+  mv -f -- "$tmp" "$path"
 else
-  tmp="$(mktemp "$dir/.90-ok-byoh-enrollment.XXXXXXXX")"
-  trap 'rm -f "$tmp"' EXIT
-  printf '%s' '[Service]
-WorkingDirectory=/root
-ExecStart=
-ExecStart=/usr/local/bin/byoh-hostagent --namespace default --skip-installation
-' >"$tmp"
-  chmod 644 "$tmp"
   ln "$tmp" "$path"
   rm -f "$tmp"
-  trap - EXIT
 fi
+trap - EXIT
 systemctl daemon-reload
 effective="$(systemctl show -p ExecStart --value "$unit")"
 case "$effective" in
-  *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation ;'*) ;;
+  *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation --bootstrap-kubeconfig=/root/.byoh/bootstrap.kubeconfig ;'*) ;;
   *) echo 'STOP: effective enrollment ExecStart not verified' >&2; exit 1 ;;
 esac
 test "$(systemctl show -p WorkingDirectory --value "$unit")" = /root
