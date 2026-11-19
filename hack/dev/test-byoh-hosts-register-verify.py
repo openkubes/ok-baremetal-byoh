@@ -33,7 +33,7 @@ users:
                                 ("client-certificate-data", "Y2VydA=="),
                                 ("client-key-data", "a2V5")):
             matches = re.findall(
-                r"^\\s*" + re.escape(field) + r":\\s*(\\S+)\\s*$",
+                r"^\s*" + re.escape(field) + r":\s*(\S+)\s*$",
                 sample, flags=re.MULTILINE)
             self.assertEqual(matches, [expected])
 
@@ -41,7 +41,7 @@ users:
         for unsafe in ("    token: secret", "  exec:", "  auth-provider:",
                        "    insecure-skip-tls-verify: true"):
             self.assertTrue(re.search(
-                r"^\\s*(?:token|exec|auth-provider):|^\\s*insecure-skip-tls-verify:\\s*true\\s*$",
+                r"^\s*(?:token|exec|auth-provider):|^\s*insecure-skip-tls-verify:\s*true\s*$",
                 unsafe, re.MULTILINE))
 
 
