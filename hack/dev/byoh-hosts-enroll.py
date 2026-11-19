@@ -160,15 +160,18 @@ def main():
             verify_existing(host["name"])
             print("Resuming existing bootstrap object for " + host["name"], flush=True)
         else:
-            call(["bash", str(SCRIPT), "enroll-create"], env=env,\n                 confirmation="create-bootstrap-" + host["name"])
+            call(["bash", str(SCRIPT), "enroll-create"], env=env,
+                 confirmation="create-bootstrap-" + host["name"])
             verify_existing(host["name"])
         wait_for_credential(host["name"])
         # Reuse the existing secure transfer helper, which refuses to overwrite
         # preexisting remote credentials and requires a typed confirmation.
-        call(["bash", str(SCRIPT), "enroll-transfer"], env=env,\n             confirmation="transfer-bootstrap-" + host["name"])
+        call(["bash", str(SCRIPT), "enroll-transfer"], env=env,
+             confirmation="transfer-bootstrap-" + host["name"])
         print("PASS: staged bootstrap credential for " + host["name"], flush=True)
 
-    print("STOP AT TRUST BOUNDARY: Bootstrap credentials staged for " + str(len(hosts)) +\n          " hosts, agents remain disabled.", flush=True)
+    print("STOP AT TRUST BOUNDARY: Bootstrap credentials staged for " + str(len(hosts)) +
+          " hosts, agents remain disabled.", flush=True)
     print("Next: independently validate agent unit flags, CSR identities and authorization", flush=True)
     print("before manually starting enrollment agents. No CSR was approved.", flush=True)
 
