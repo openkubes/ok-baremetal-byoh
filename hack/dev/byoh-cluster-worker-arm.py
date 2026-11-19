@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Guarded one-worker BYOH installation arm.
+"""Guarded one-worker BYOH installation activation.
 
-Default read-only. --arm is one explicit, digest-bound systemd drop-in write
+Default read-only. --install is one explicit, digest-bound systemd drop-in write
 and service start on the verified worker only. Never replays kubeadm.
 """
 import argparse
@@ -55,7 +55,7 @@ def ssh(peer, script):
              peer, "sudo", "-n", "bash", "-s"],
             input=script.encode(), capture_output=True, timeout=38, cwd=ROOT)
     except (OSError, subprocess.TimeoutExpired):
-        stop("worker SSH preflight or arm timed out; inspect worker service before retry")
+        stop("worker SSH preflight or installation timed out; inspect worker service before retry")
     if proc.returncode:
         # stdout/stderr may reveal kubeadm tokens; never echo them.
         stop("worker SSH operation failed (exit " + str(proc.returncode) +
@@ -71,7 +71,7 @@ def compute(path):
     machine, bootstrap, installer, byom_uid = V.verify_objects(kc)
     V.remote_worker()
     # No past test output can authorize a fresh write; verify exact service
-    # drop-in bytes and ensure no prior arm attempt was performed.
+    # drop-in bytes and ensure no prior installation attempt was performed.
     unit_digest = ssh(PEER, REMOTE_PREFLIGHT)
     if not re.fullmatch(r"[a-f0-9]{64}", unit_digest):
         stop("unexpected enrollment drop-in digest")
@@ -118,14 +118,14 @@ def main():
     print("Other hosts, Scaleway, OpenTofu, CAPI specs and cluster network: NO CHANGES")
     print("Plan SHA-256: " + digest, flush=True)
     if not args.install:
-        print("PASS: worker arm plan ready; no changes made")
+        print("PASS: worker installation plan ready; no changes made")
         return
 
     phrase = "install " + digest[:12]
     try:
         answer = input("Type '" + phrase + "' to start worker Kubernetes installation: ")
     except EOFError:
-        stop("interactive worker arm confirmation required")
+        stop("interactive worker installation confirmation required")
     if answer != phrase:
         stop("worker installation not authorized")
 
@@ -140,7 +140,7 @@ def main():
     if ssh(PEER, script) != "PASS":
         stop("worker agent activation was not verified; inspect remote unit state")
     print("PASS: worker BYOH agent started; CAPI-managed kubeadm join may now execute")
-    print("STOP AT OBSERVATION BOUNDARY: verify Machine/Node Ready; do not run arm twice")
+    print("STOP AT OBSERVATION BOUNDARY: verify Machine/Node Ready; do not run install twice")
 
 
 if __name__ == "__main__":
