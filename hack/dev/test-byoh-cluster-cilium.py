@@ -25,6 +25,27 @@ def config():
 
 
 class CiliumTests(unittest.TestCase):
+    def test_kcp_v1beta2_initialization_field(self):
+        kcp = {"apiVersion": "controlplane.cluster.x-k8s.io/v1beta2",
+               "status": {"initialization": {"controlPlaneInitialized": True}}}
+        self.assertTrue(C.kcp_initialized(kcp))
+
+    def test_kcp_v1beta2_old_field_does_not_bypass_gate(self):
+        kcp = {"apiVersion": "controlplane.cluster.x-k8s.io/v1beta2",
+               "status": {"initialized": True}}
+        self.assertFalse(C.kcp_initialized(kcp))
+
+    def test_kcp_v1beta1_legacy_status(self):
+        kcp = {"apiVersion": "controlplane.cluster.x-k8s.io/v1beta1",
+               "status": {"initialized": True}}
+        self.assertTrue(C.kcp_initialized(kcp))
+
+    def test_kcp_v1beta2_uninitialized_rejected(self):
+        kcp = {"apiVersion": "controlplane.cluster.x-k8s.io/v1beta2",
+               "status": {"initialization": {"controlPlaneInitialized": False}}}
+        self.assertFalse(C.kcp_initialized(kcp))
+        self.assertFalse(C.kcp_initialized({"status": {}}))
+
     def test_values_pin_kube_proxy_mode(self):
         self.assertIs(C.VALUES["kubeProxyReplacement"], False)
         self.assertEqual(C.VALUES["operator"]["replicas"], 1)
