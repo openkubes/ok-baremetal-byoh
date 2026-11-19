@@ -27,8 +27,19 @@ def call(args, input_data=None):
         return subprocess.run(args, input=input_data, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, check=True, timeout=30,
                               cwd=ROOT).stdout
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        stop("read-only check failed: " + args[0])
+    except subprocess.CalledProcessError as exc:
+        if args[0] == "ssh":
+            # Only display deliberate diagnostic lines, never arbitrary
+            # remote stdout/stderr containing credential material.
+            lines = exc.stderr.decode("utf-8", errors="replace").splitlines()
+            safe = [line.strip() for line in lines if line.strip().startswith("STOP: ")]
+            detail = safe[-1][:160] if safe else "remote validation failed"
+            stop("SSH validation failed: " + detail + " (exit=" + str(exc.returncode) + ")")
+        stop("read-only check failed: " + args[0] + " (exit=" + str(exc.returncode) + ")")
+    except subprocess.TimeoutExpired:
+        stop("read-only check timed out: " + args[0])
+    except OSError:
+        stop("read-only command unavailable: " + args[0])
 
 
 def load(relative, label):
@@ -90,11 +101,16 @@ def issued_certificate(csr, name):
 
 
 REMOTE = r'''set -eu
-test "$(systemctl is-active byoh-hostagent.service)" = active
+if test "$(systemctl is-active byoh-hostagent.service)" != active; then
+  echo 'STOP: agent service not active' >&2; exit 21
+fi
 file=/root/.byoh/config
-test ! -L "$file"
-test -s "$file"
-test "$(stat -c '%a %U:%G' "$file")" = "600 root:root"
+if test -L "$file" || ! test -s "$file"; then
+  echo 'STOP: permanent kubeconfig missing, empty or symlink' >&2; exit 22
+fi
+if test "$(stat -c '%a %U:%G' "$file")" != "600 root:root"; then
+  echo 'STOP: permanent kubeconfig ownership or mode mismatch' >&2; exit 23
+fi
 python3 - <<'PY'
 import base64, hashlib, pathlib, re, subprocess, sys
 path = pathlib.Path("/root/.byoh/config")
@@ -104,13 +120,13 @@ def one(pattern):
     if len(values) != 1:
         sys.exit("STOP: permanent kubeconfig expected exactly one " + pattern.split(":")[0])
     return values[0]
-if re.search(r"^\\s*insecure-skip-tls-verify:\\s*true\\s*$", raw, re.MULTILINE):
+if re.search(r"^\s*insecure-skip-tls-verify:\s*true\s*$", raw, re.MULTILINE):
     sys.exit("STOP: insecure TLS configuration")
-if re.search(r"^\\s*(?:token|exec|auth-provider):", raw, re.MULTILINE):
+if re.search(r"^\s*(?:token|exec|auth-provider):", raw, re.MULTILINE):
     sys.exit("STOP: unexpected auth mechanism")
-ca = one(r"^\\s*certificate-authority-data:\\s*(\\S+)\\s*$")
-cert = one(r"^\\s*client-certificate-data:\\s*(\\S+)\\s*$")
-key = one(r"^\\s*client-key-data:\\s*(\\S+)\\s*$")
+ca = one(r"^\s*certificate-authority-data:\s*(\S+)\s*$")
+cert = one(r"^\s*client-certificate-data:\s*(\S+)\s*$")
+key = one(r"^\s*client-key-data:\s*(\S+)\s*$")
 for data in (ca, cert, key):
     base64.b64decode(data, validate=True)
 pem = base64.b64decode(cert, validate=True)
