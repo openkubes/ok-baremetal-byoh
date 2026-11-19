@@ -1,5 +1,64 @@
 # OpenKubes BYOH – Manual Scaleway kubeadm E2E → Make → `ok up`
 
+## Aktueller Stand – 19. November 2026
+
+**Status: Scaleway BYOH E2E erfolgreich – Automatisierung in Vorbereitung.**
+
+Der ursprünglich geplante Provisionierungsweg wurde erfolgreich
+auf zwei vorhandenen Scaleway-Bare-Metal-Servern validiert:
+
+- Management: lokaler kind-Cluster `ok-byoh-make-test`
+- Workload-Cluster: `ok-byoh-scw1`
+- Control Plane: `ok-bm-lab-01`, Kubernetes Ready
+- Worker: `ok-bm-lab-02`, Kubernetes Ready
+- Kubernetes: `v1.36.6`
+- Cilium: `v1.19.6`
+- containerd: `2.3.7`
+- CAPI Cluster: `Available=True`
+- MachineDeployment: `1/1 Ready`
+
+Der erfolgreiche Test belegt Provisionierung, Host-Registrierung,
+kubeadm-Bootstrap und grundlegende Cluster-Readiness.
+
+**Nicht nachgewiesen:** HA, vollständige Cilium-Konnektivität,
+Failure-Recovery, produktionsreife Netzwerkarchitektur und
+unbeaufsichtigte Host-Provisionierung.
+
+### Betriebsgrenzen der bestehenden Testumgebung
+
+Die laufende Umgebung verwendet temporäre SSH-Tunnel und
+DNAT-Regeln für die Kommunikation zwischen Management-Cluster,
+BYOH-Hosts und Workload-Cluster.
+
+Diese Verbindungen dürfen nicht automatisch beendet oder
+verändert werden, solange die Testumgebung verwendet wird.
+
+**Keine Änderungen an Scaleway, OpenTofu oder den laufenden
+Cluster-Ressourcen im Rahmen der Automatisierungsintegration.**
+
+### Dokumentation
+
+- [Erfolgreicher E2E und Automatisierung](e2e-results.md)
+- [Netzwerkpfade und temporäre Tunnel](network-paths.md)
+- [Cilium-Installation und Voraussetzungen](cilium.md)
+
+### Automatisierung
+
+Die Skripte unter `scripts/scaleway-e2e/` bilden die
+kontrollierten Schritte des erfolgreichen E2E ab.
+
+Die Automatisierung befindet sich weiterhin in Entwicklung.
+Mutation Commands dürfen nicht ohne gesonderte Prüfung und
+Freigabe gegen den bestehenden Cluster ausgeführt werden.
+
+Worker-Replikate sind beim Manifest-Rendering konfigurierbar.
+Das automatisierte Multi-Worker-Onboarding ist noch nicht
+freigegeben. Control-Plane-HA und ClusterClass bleiben
+separate spätere Erweiterungen.
+
+---
+
+
 **Status:** Plan / Vorbereitung · **Stand:** 2026-11-18  
 **Repositories:** [`openkubes/ok-baremetal-byoh`](https://github.com/openkubes/ok-baremetal-byoh) und [`openkubes/ok-cluster`](https://github.com/openkubes/ok-cluster)  
 **Vorgeschlagener Ablageort:** `ok-baremetal-byoh/docs/scaleway-kubeadm-e2e/README.md`  
