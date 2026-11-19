@@ -317,8 +317,15 @@ endef
 
 # Single entry point for the existing, guarded Kind -> CAPI -> BYOH workflow.
 # BYOH_KIND_NAME must be an allow-listed disposable local Kind environment.
+BYOH_ENROLL ?= false
+
 .PHONY: ok-up
-ok-up: byoh-kind-up ## Create or verify local Kind, install CAPI and BYOH provider.
+ok-up: byoh-kind-up ## Bootstrap local BYOH; with BYOH_ENROLL=true stage host enrollment.
+	@case '$(BYOH_ENROLL)' in \
+	  false|'') ;; \
+	  true) $(MAKE) --no-print-directory BYOH_KIND_NAME='$(BYOH_KIND_NAME)' BYOH_HOSTS_INVENTORY='$(BYOH_HOSTS_INVENTORY)' byoh-hosts-enroll ;; \
+	  *) echo 'STOP: BYOH_ENROLL must be true or false' >&2; exit 1 ;; \
+	esac
 
 BYOH_KIND_NAME ?= ok-byoh-dev
 
@@ -351,6 +358,10 @@ BYOH_HOSTS_INVENTORY ?= config/hosts/scaleway.yaml
 .PHONY: byoh-hosts-preflight
 byoh-hosts-preflight: ## Read-only inventory, SSH, agent and management-tunnel identity checks.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-preflight.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-hosts-enroll
+byoh-hosts-enroll: ## Stage confirmed host bootstrap credentials; never start agents or approve CSRs.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-enroll.py --inventory '$(BYOH_HOSTS_INVENTORY)'
 
 ##@ Safe local BYOH controller lifecycle
 
