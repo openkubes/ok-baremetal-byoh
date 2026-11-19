@@ -366,3 +366,48 @@ workload kubeconfigs, or NAT addresses without checking this cluster.
 
 The separate Scaleway WireGuard/Private Network design and CAPI pivot test
 remain deferred.
+
+## CAPI CP apply and workload API network automation (experimental lab)
+
+The pre-existing `byoh-cluster-control-plane-plan` must pass first.
+Two Make commands are now available, but **neither has been live tested**
+and they MUST NOT be combined with `ok-up`:
+
+```sh
+# Explicitly confirmed CAPI control-plane desired state; does not arm agent.
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-control-plane-apply
+
+# Read-only inspection of old SSH/DNAT workaround.
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-network-plan
+```
+
+The apply command requires one typed `apply <plan-hash>` confirmation,
+rechecks the same target and render digest, labels ONLY the selected
+unbound BYOH CP host `role=control-plane` (without overwrite), then
+submits the five objects from the existing v1.36.6 KCP template.
+It does not change systemd, install packages, or run kubeadm. If it
+partially succeeds, it refuses automatic replay; inspect CAPI resource
+state before any manual recovery.
+
+The experimental `byoh-cluster-network-up` target requires another
+typed `network <plan-hash>` confirmation. It is restricted to the
+`ok-byoh-make-test-control-plane` container and expected Colima context.
+It starts a local SSH `127.0.0.1:16444` workload API forward and installs
+exact DNAT rules ONLY if the workload API already answers a
+kind-to-Mac connectivity probe. **Do not run it before the workload API
+exists.** Because the SSH tunnel is started before the TCP probe, an
+API-not-ready failure deliberately leaves a local tunnel for manual review,
+but does not install DNAT. A foreign port listener, a conflicting DNAT rule,
+or a different network identity causes an immediate STOP. This is a
+temporary test workaround, not the WireGuard/Private Network design.
+
+The next safety-gated step to implement is a separate CP host
+`--skip-installation` release/activation target, conditioned on
+ByoMachine binding and an installer Secret; we must NOT simply remove
+the agent's bootstrap flags in the current enrolled service. After
+kubeadm starts, set up verified workload API access and then Cilium.
+No automatic CAPI pivot or unattended cleanup is part of this milestone.
