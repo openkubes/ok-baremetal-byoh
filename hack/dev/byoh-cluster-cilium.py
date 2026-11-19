@@ -235,7 +235,7 @@ def validate_workload(cfg):
 def helm_list_args(kc, version):
     """Preserve all-status release inventory on Helm 3 and Helm 4."""
     import re
-    match = re.match(r"^v?([34])\\.", version.strip())
+    match = re.match(r"^v?([34])\.", version.strip())
     if not match:
         stop("unsupported Helm version for release inventory")
     args = ["helm", "list", "--kubeconfig", str(kc), "-n", "kube-system"]
