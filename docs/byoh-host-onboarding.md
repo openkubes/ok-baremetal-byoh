@@ -413,3 +413,32 @@ kubeadm starts, set up verified workload API access and then Cilium.
 No automatic CAPI pivot or unattended cleanup is part of this milestone.
 
 The confirmed CP apply intentionally stops `ok-bm-lab-01`'s agent first, since `--skip-installation` does not guarantee a complete kubeadm block. This means a partial apply requires reviewing the stopped service state; do not attempt to replay the original preflight against an already-created Cluster. Workload API network-up requires the API to be serving and is *not* the next command immediately after apply. A separate verified host-installation arm workflow is still required.
+
+## CAPI control-plane binding and installer verify (read-only)
+
+Following a successful `byoh-cluster-control-plane-apply`, do not repeat
+the original create preflight (it intentionally rejects an existing cluster).
+Instead, verify the post-apply state without printing bootstrap data:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-control-plane-verify
+```
+
+The target discovers the generated CAPI Machine name (no hardcoded random
+suffix), asserts the Cluster/KCP/Machine references and v1.36.6 version,
+checks the selected ByoHost role and bound ByoMachine, requires the
+KubeadmConfig data Secret and corresponding K8sInstallerConfig to exist,
+and independently verifies over SSH that the CP agent is inactive and
+disabled, with a permanent credential and without pre-existing kubeadm
+control-plane state. It performs no writes. Secret *content is never printed*.
+
+Use `make byoh-hosts-idempotency-test` to run associated offline regression
+tests for wrong host binding, foreign Machine and missing bootstrap Secret.
+The target is a post-apply read-only pre-installation gate, not an installer
+and not proof that the network path from management to workload API is ready.
+
+A missing ByoMachine binding or installer may be a controller reconciliation
+delay; inspect the precise failing state and controller logs rather than
+starting the agent, changing finalizers, or recreating resources.
