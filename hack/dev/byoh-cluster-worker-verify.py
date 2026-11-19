@@ -164,7 +164,7 @@ def main():
     print("PASS: Ready K8sInstallerConfig and matching installation Secret: " + installer + " (contents withheld)")
     print("PASS: worker agent remains inactive/disabled with --skip-installation")
     print("PASS: worker pre-installation checks read-only; no writes")
-    print("STOP AT INSTALL BOUNDARY: verify an independent worker arm plan before starting kubeadm join")
+    print("STOP AT INSTALL BOUNDARY: verify an independent worker arm plan before authorizing Kubernetes installation")
 
 
 if __name__ == "__main__":
