@@ -21,6 +21,7 @@ from importlib.util import module_from_spec, spec_from_loader
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/scaleway-e2e/byoh-e2e.sh"
 PREFLIGHT = ROOT / "hack/dev/byoh-hosts-preflight.py"
+AGENT_PREP = ROOT / "hack/dev/byoh-hosts-agent-prepare.py"
 
 
 def fail(message):
@@ -126,7 +127,7 @@ def main():
                 "bootstrap": ("resume" if exists(h["name"]) else "create")}
                for h in hosts]
     plan = {"management": kind, "api_port": port, "inventory": str(inventory),
-            "hosts": actions, "operations": ["create-if-absent", "transfer-if-absent"],
+            "hosts": actions, "operations": ["create-if-absent", "transfer-if-absent", "prepare-agent-systemd"],
             "agent_start": False, "csr_approval": False}
     fingerprint = hashlib.sha256(
         json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -135,7 +136,7 @@ def main():
         print("  " + action["host"] + " " + action["role"] + " " +
               action["ssh"] + " bootstrap=" + action["bootstrap"], flush=True)
     print("Plan sha256: " + fingerprint, flush=True)
-    print("Changes: create missing BootstrapKubeconfigs and securely transfer credentials.", flush=True)
+    print("Changes: create missing BootstrapKubeconfigs, transfer credentials, prepare stopped agent units.", flush=True)
     print("Agent start: NO; CSR approval: NO; Kubernetes installation: NO.", flush=True)
     expected_phrase = "ok " + fingerprint[:12]
     try:
@@ -170,6 +171,15 @@ def main():
         call(["bash", str(SCRIPT), "enroll-transfer"], env=env,
              confirmation="transfer-bootstrap-" + host["name"])
         print("PASS: staged bootstrap credential for " + host["name"], flush=True)
+
+    # The single approval also covered agent-unit preparation. Import the
+    # existing checked implementation directly; never expose a bypass flag.
+    agent_loader = SourceFileLoader("byoh_hosts_agent_prepare", str(AGENT_PREP))
+    agent_spec = spec_from_loader(agent_loader.name, agent_loader)
+    agent_module = module_from_spec(agent_spec)
+    agent_loader.exec_module(agent_module)
+    agent_module.prepare_hosts(str(inventory), authorized_inventory=data,
+                               authorized_hosts=hosts)
 
     print("STOP AT TRUST BOUNDARY: Bootstrap credentials staged for " + str(len(hosts)) +
           " hosts, agents remain disabled.", flush=True)
