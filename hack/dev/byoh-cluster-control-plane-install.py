@@ -158,13 +158,27 @@ def ready_installation(kc, machine_name):
     host_ref = host.get("spec", {}).get("installationSecret")
     if not isinstance(desired_ref, dict) or not isinstance(host_ref, dict):
         stop("installation Secret not published to ByoHost")
-    if (host_ref.get("name") != desired_ref.get("name") or
-            host_ref.get("namespace", V.NAMESPACE) != V.NAMESPACE or
-            desired_ref.get("namespace", V.NAMESPACE) != V.NAMESPACE or
-            host_ref.get("kind") != "Secret"):
-        # ObjectReference fields are non-secret. Print only the exact
-        # attributes needed to distinguish API conversion, namespace drift,
-        # and a genuinely foreign Secret before any host action.
+    # The BYOH controller copies installer.status.installationSecret into
+    # ByoHost.spec.installationSecret as a corev1.ObjectReference. The API can
+    # legitimately omit optional kind/apiVersion fields on both objects.
+    # Missing means "unspecified", NOT permission to ignore contradictory
+    # explicit values. Independently fetch the actual core Secret below.
+    def exact_secret_ref(reference, expected_name):
+        return (
+            isinstance(reference, dict) and
+            reference.get("name") == expected_name and
+            reference.get("namespace", V.NAMESPACE) == V.NAMESPACE and
+            reference.get("kind", "Secret") == "Secret" and
+            reference.get("apiVersion", "v1") == "v1"
+        )
+
+    name = desired_ref.get("name")
+    if (not isinstance(name, str) or
+            not re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", name) or
+            not exact_secret_ref(desired_ref, name) or
+            not exact_secret_ref(host_ref, name) or
+            (desired_ref.get("uid") and host_ref.get("uid") and
+             desired_ref["uid"] != host_ref["uid"])):
         print("Installation Secret reference evidence (read-only):")
         for field in ("name", "kind", "namespace", "apiVersion", "uid"):
             print("  installer.status.installationSecret." + field + ": " +
@@ -172,15 +186,18 @@ def ready_installation(kc, machine_name):
             print("  byohost.spec.installationSecret." + field + ": " +
                   str(host_ref.get(field, "<absent>")))
         stop("installation Secret reference mismatch; no fallback accepted")
-    name = host_ref.get("name")
-    if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", name):
-        stop("unexpected installation Secret name")
     secret = P.fetch(kc, "secret", name, V.NAMESPACE)
     if secret["metadata"].get("deletionTimestamp") or not secret.get("data"):
         stop("installation Secret deleting or empty")
+    if ((desired_ref.get("uid") and desired_ref["uid"] != secret["metadata"].get("uid")) or
+            (host_ref.get("uid") and host_ref["uid"] != secret["metadata"].get("uid"))):
+        stop("installation Secret UID reference mismatch")
     bootstrap = host.get("spec", {}).get("bootstrapSecret")
-    if not isinstance(bootstrap, dict) or bootstrap.get("kind") != "Secret":
-        stop("bound ByoHost bootstrap Secret ref missing")
+    # The controller also stores a core ObjectReference for the bootstrap
+    # Secret. Check the name against the KubeadmConfig secret in compute().
+    if not isinstance(bootstrap, dict) or not exact_secret_ref(
+            bootstrap, machine_name):
+        stop("bound ByoHost bootstrap Secret ref missing or mismatched")
     return {"host_uid": host["metadata"]["uid"], "host_rv": host["metadata"]["resourceVersion"],
             "machine_uid": byom["metadata"]["uid"],
             "installation_secret_name": name,
