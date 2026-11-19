@@ -315,6 +315,11 @@ endef
 
 ##@ Local BYOH management bootstrap
 
+# Single entry point for the existing, guarded Kind -> CAPI -> BYOH workflow.
+# BYOH_KIND_NAME must be an allow-listed disposable local Kind environment.
+.PHONY: ok-up
+ok-up: byoh-kind-up ## Create or verify local Kind, install CAPI and BYOH provider.
+
 BYOH_KIND_NAME ?= ok-byoh-dev
 
 # Replays only the manually verified Kind -> CAPI steps. Existing Kind clusters
