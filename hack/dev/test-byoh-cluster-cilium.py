@@ -57,6 +57,20 @@ class CiliumTests(unittest.TestCase):
     def test_helm_failure_unknown_is_redacted(self):
         self.assertEqual(C.safe_helm_error(b"secret=private-data"), "unclassified Helm failure; stderr withheld for credential safety")
 
+    def test_helm3_lists_all_statuses(self):
+        args = C.helm_list_args("/tmp/workload-test-kubeconfig", "v3.19.1+g1234")
+        self.assertIn("--all", args)
+        self.assertEqual(args[:2], ["helm", "list"])
+
+    def test_helm4_uses_default_all_status_inventory(self):
+        args = C.helm_list_args("/tmp/workload-test-kubeconfig", "v4.0.0+g1234")
+        self.assertNotIn("--all", args)
+        self.assertIn("--kubeconfig", args)
+
+    def test_unknown_helm_version_rejected(self):
+        with self.assertRaises(SystemExit):
+            C.helm_list_args("/tmp/workload-test-kubeconfig", "v2.0.0")
+
     def test_values_pin_kube_proxy_mode(self):
         self.assertIs(C.VALUES["kubeProxyReplacement"], False)
         self.assertEqual(C.VALUES["operator"]["replicas"], 1)
