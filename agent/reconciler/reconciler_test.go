@@ -57,6 +57,7 @@ var _ = Describe("Byohost Agent Tests", func() {
 			TemplateParser:      fakeTemplateParser,
 			Recorder:            recorder,
 			SkipK8sInstallation: false,
+			PreResetCleanup:     func(context.Context) error { return nil },
 			UninstallScriptPath: uninstallScriptPath,
 		}
 	})
@@ -602,6 +603,47 @@ runCmd:
 					Expect(fakeCommandRunner.RunCmdCallCount()).To(Equal(2))
 				})
 
+				It("runs pre-reset cleanup before kubeadm reset and uninstall", func() {
+					cleanupCalled := false
+
+					hostReconciler.PreResetCleanup = func(context.Context) error {
+						// No reset or uninstall command may have run yet.
+						Expect(fakeCommandRunner.RunCmdCallCount()).To(Equal(0))
+						cleanupCalled = true
+						return nil
+					}
+
+					_, err := hostReconciler.Reconcile(ctx, controllerruntime.Request{
+						NamespacedName: byoHostLookupKey,
+					})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(cleanupCalled).To(BeTrue())
+					Expect(fakeCommandRunner.RunCmdCallCount()).To(Equal(2))
+
+					_, first := fakeCommandRunner.RunCmdArgsForCall(0)
+					_, second := fakeCommandRunner.RunCmdArgsForCall(1)
+
+					Expect(first).To(Equal(reconciler.KubeadmResetCommand))
+					Expect(second).To(Equal(uninstallScript))
+				})
+
+				It("must not run kubeadm reset if pre-reset cleanup fails", func() {
+					hostReconciler.PreResetCleanup = func(context.Context) error {
+						return errors.New("CNI DEL failed")
+					}
+
+					_, err := hostReconciler.Reconcile(ctx, controllerruntime.Request{
+						NamespacedName: byoHostLookupKey,
+					})
+					Expect(err).To(MatchError(ContainSubstring("CNI DEL failed")))
+					Expect(fakeCommandRunner.RunCmdCallCount()).To(Equal(0))
+					Expect(uninstallScriptPath).To(BeAnExistingFile())
+
+					updated := &infrastructurev1beta1.ByoHost{}
+					Expect(k8sClient.Get(ctx, byoHostLookupKey, updated)).To(Succeed())
+					Expect(updated.Status.LastReset).To(BeNil())
+				})
+
 				It("should report the failure of kubeadm reset, and not report the reset", func() {
 					fakeCommandRunner.RunCmdReturnsOnCall(0, errors.New("failed to reset"))
 
@@ -627,6 +669,67 @@ runCmd:
 					Expect(events).Should(ConsistOf([]string{
 						"Warning ResetK8sNodeFailed k8s Node Reset failed",
 					}))
+				})
+
+				It("should retry uninstall without repeating a successful kubeadm reset", func() {
+					fakeCommandRunner.RunCmdReturnsOnCall(1, errors.New("failed to uninstall"))
+
+					request := controllerruntime.Request{
+						NamespacedName: byoHostLookupKey,
+					}
+
+					_, err := hostReconciler.Reconcile(ctx, request)
+					Expect(err).To(MatchError("failed to uninstall"))
+					Expect(fakeCommandRunner.RunCmdCallCount()).To(Equal(2))
+					Expect(uninstallScriptPath).To(BeAnExistingFile())
+
+					intermediate := &infrastructurev1beta1.ByoHost{}
+					Expect(k8sClient.Get(ctx, byoHostLookupKey, intermediate)).To(Succeed())
+					Expect(intermediate.Status.LastReset).To(BeNil())
+
+					// The second reconcile resumes at uninstall, not kubeadm reset.
+					_, err = hostReconciler.Reconcile(ctx, request)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(fakeCommandRunner.RunCmdCallCount()).To(Equal(3))
+
+					_, command := fakeCommandRunner.RunCmdArgsForCall(2)
+					Expect(command).To(Equal(uninstallScript))
+					Expect(uninstallScriptPath).NotTo(BeAnExistingFile())
+
+					updated := &infrastructurev1beta1.ByoHost{}
+					Expect(k8sClient.Get(ctx, byoHostLookupKey, updated)).To(Succeed())
+					Expect(updated.Status.LastReset).NotTo(BeNil())
+					Expect(updated.Status.LastReset.ByoMachineUID).To(Equal(byoMachine.UID))
+				})
+
+				It("should not trust a checkpoint from another ByoMachine", func() {
+					checkpointPath := uninstallScriptPath + ".node-reset"
+					Expect(os.WriteFile(checkpointPath, []byte("old-machine-uid"), 0o600)).To(Succeed())
+
+					_, err := hostReconciler.Reconcile(ctx, controllerruntime.Request{
+						NamespacedName: byoHostLookupKey,
+					})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(fakeCommandRunner.RunCmdCallCount()).To(Equal(2))
+
+					_, command := fakeCommandRunner.RunCmdArgsForCall(0)
+					Expect(command).To(Equal(reconciler.KubeadmResetCommand))
+					checkpoint, err := os.ReadFile(checkpointPath)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(string(checkpoint)).To(Equal(string(byoMachine.UID)))
+				})
+
+				It("should keep the UID checkpoint after an uninstall failure", func() {
+					fakeCommandRunner.RunCmdReturnsOnCall(1, errors.New("failed to uninstall"))
+
+					_, err := hostReconciler.Reconcile(ctx, controllerruntime.Request{
+						NamespacedName: byoHostLookupKey,
+					})
+					Expect(err).To(MatchError("failed to uninstall"))
+
+					checkpoint, err := os.ReadFile(uninstallScriptPath + ".node-reset")
+					Expect(err).NotTo(HaveOccurred())
+					Expect(string(checkpoint)).To(Equal(string(byoMachine.UID)))
 				})
 
 				It("should report the failure of the uninstall script, keep the script, and not report the reset", func() {
