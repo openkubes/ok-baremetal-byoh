@@ -16,14 +16,15 @@ func cleanupPodNetworkSandboxes(
 	ctx context.Context,
 	run sandboxCommand,
 ) error {
+
 	ids, err := podNetworkSandboxes(ctx, run)
 	if err != nil {
 		return fmt.Errorf("pre-reset sandbox inventory: %w", err)
 	}
 
 	for _, id := range ids {
-		if _, err := run(ctx, "rmp", "--force", id); err != nil {
-			return fmt.Errorf("remove POD-network sandbox %s: %w", id, err)
+		if _, removeErr := run(ctx, "rmp", "--force", id); removeErr != nil {
+			return fmt.Errorf("remove POD-network sandbox %s: %w", id, removeErr)
 		}
 	}
 
@@ -48,6 +49,7 @@ func preResetSandboxCleanup(
 	stopKubelet func(context.Context) error,
 	run sandboxCommand,
 ) error {
+
 	if err := stopKubelet(ctx); err != nil {
 		return fmt.Errorf("stop kubelet: %w", err)
 	}
