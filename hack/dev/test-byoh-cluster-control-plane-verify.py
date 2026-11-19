@@ -19,7 +19,7 @@ def fixtures():
             "infrastructureRef": {"name": "ok-byoh-scw1"}}},
         ("kubeadmcontrolplane", "ok-byoh-scw1-control-plane"): {
             "metadata": {}, "spec": {"version": "v1.36.6", "replicas": 1,
-            "machineTemplate": {"infrastructureRef": {"name": "ok-byoh-scw1-control-plane"}}}},
+            "machineTemplate": {"infrastructureRef": {"name": "ok-byoh-scw1-control-plane", "kind": "ByoMachineTemplate"}}}},
         ("byomachine", NAME): {"metadata": {}, "spec": {}},
         ("byohost", "ok-bm-lab-01"): {"metadata": {"labels": {"role": "control-plane"}},
             "spec": {"byoMachineRef": {"name": NAME}}},
