@@ -315,6 +315,18 @@ endef
 
 ##@ Local BYOH management bootstrap
 
+# Single entry point for the existing, guarded Kind -> CAPI -> BYOH workflow.
+# BYOH_KIND_NAME must be an allow-listed disposable local Kind environment.
+BYOH_ENROLL ?= false
+
+.PHONY: ok-up
+ok-up: byoh-kind-up ## Bootstrap local BYOH; with BYOH_ENROLL=true stage host enrollment.
+	@case '$(BYOH_ENROLL)' in \
+	  false|'') ;; \
+	  true) $(MAKE) --no-print-directory BYOH_KIND_NAME='$(BYOH_KIND_NAME)' BYOH_HOSTS_INVENTORY='$(BYOH_HOSTS_INVENTORY)' byoh-hosts-enroll ;; \
+	  *) echo 'STOP: BYOH_ENROLL must be true or false' >&2; exit 1 ;; \
+	esac
+
 BYOH_KIND_NAME ?= ok-byoh-dev
 
 # Replays only the manually verified Kind -> CAPI steps. Existing Kind clusters
@@ -333,6 +345,149 @@ byoh-capi-init: ## Install CAPI v1.14.4 to a fresh verified BYOH Kind cluster.
 
 byoh-capi-verify: ## Read-only rollout and provider version verification.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-kind.sh capi-verify
+
+##@ BYOH host onboarding (inventory-driven)
+
+.PHONY: byoh-python-check
+byoh-python-check: ## Prepare and verify isolated Python dependencies for BYOH tooling.
+	@bash hack/dev/python-toolchain.sh --check
+
+
+BYOH_HOSTS_INVENTORY ?= config/hosts/scaleway.yaml
+
+.PHONY: byoh-hosts-preflight
+byoh-hosts-preflight: ## Read-only inventory, SSH, agent and management-tunnel identity checks.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-preflight.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-hosts-enroll
+byoh-hosts-enroll: ## One approved N-host plan: bootstrap credentials and stopped agent-unit preparation.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-enroll.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-worker-status
+byoh-cluster-worker-status: ## Read-only post-install: both CAPI Machines/Nodes Ready and Cilium 2/2.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-worker-status.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-worker-install-plan
+byoh-cluster-worker-install-plan: ## Read-only, UID/digest-bound worker install readiness and systemd preflight.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-worker-arm.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-worker-install
+byoh-cluster-worker-install: ## Confirmed one-time worker agent activation for CAPI-managed kubeadm join.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-worker-arm.py --inventory '$(BYOH_HOSTS_INVENTORY)' --install
+
+.PHONY: byoh-cluster-worker-verify
+byoh-cluster-worker-verify: ## Read-only worker Machine/ByoHost UID binding and ready kubeadm/installer Secret verification.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-worker-verify.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-worker-apply
+byoh-cluster-worker-apply: ## Confirmed four-object worker MD apply; preserves stopped agent.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-worker-apply.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-worker-plan
+byoh-cluster-worker-plan: ## Read-only MD worker plan: CAPI template, stopped agent, and worker-to-CP certificate identity.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-worker-plan.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-cilium-plan
+byoh-cluster-cilium-plan: ## Read-only pinned chart, fresh workload TLS identity and Helm target checks.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-cilium.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-cilium-install
+byoh-cluster-cilium-install: ## Confirmed Cilium 1.19.6 installation on TLS-validated workload only.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-cilium.py --inventory '$(BYOH_HOSTS_INVENTORY)' --install
+
+.PHONY: byoh-cluster-cilium-verify
+byoh-cluster-cilium-verify: ## Read-only Cilium Helm values, daemon/operator pods, Node and CoreDNS readiness.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-cilium.py --inventory '$(BYOH_HOSTS_INVENTORY)' --verify
+
+.PHONY: byoh-cluster-control-plane-status
+byoh-cluster-control-plane-status: ## Read-only live CP API, CAPI binding, kubeadm components, and pre-CNI readiness status.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-control-plane-status.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-control-plane-install-plan
+byoh-cluster-control-plane-install-plan: ## Read-only CP install readiness: exact binding, installer Secret and stopped unit.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-control-plane-install.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-control-plane-install
+byoh-cluster-control-plane-install: ## Confirmed CP install: verified systemd override and one-time agent start.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-control-plane-install.py --inventory '$(BYOH_HOSTS_INVENTORY)' --install
+
+.PHONY: byoh-cluster-control-plane-verify
+byoh-cluster-control-plane-verify: ## Read-only CAPI CP binding, kubeadm data Secret, installer, and stopped agent checks.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-control-plane-verify.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-control-plane-apply
+byoh-cluster-control-plane-apply: ## Confirmed lab CAPI CP manifest apply, no kubeadm/agent activation.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-control-plane-apply.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-network-plan
+byoh-cluster-network-plan: ## Read-only workload API SSH tunnel and isolated kind NAT preflight.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-network.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-network-up
+byoh-cluster-network-up: ## Confirmed SSH workload API forwarding plus isolated kind NAT (API must already be serving).
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-network.py --inventory '$(BYOH_HOSTS_INVENTORY)' --up
+
+.PHONY: byoh-cluster-control-plane-plan
+byoh-cluster-control-plane-plan: ## Read-only Scaleway CAPI v1.36.6 control-plane manifest preflight and server dry-run.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-control-plane-plan.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-hosts-bootstrap-revoke-plan
+byoh-hosts-bootstrap-revoke-plan: ## Read-only revocation plan after verifying permanent host registration.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-bootstrap-revoke.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-hosts-bootstrap-revoke
+byoh-hosts-bootstrap-revoke: ## Explicitly revoke owned tokens and matching staged host files after registration.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-bootstrap-revoke.py --inventory '$(BYOH_HOSTS_INVENTORY)' --revoke
+
+.PHONY: byoh-hosts-register-verify
+byoh-hosts-register-verify: ## Read-only N-host check: issued CSR, ByoHost and permanent host certificate/key.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-register-verify.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-hosts-csr-approve-plan
+byoh-hosts-csr-approve-plan: ## Read-only N-host CSR approval evidence including SSH private-key challenge.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-csr-approve.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-hosts-csr-approve
+byoh-hosts-csr-approve: ## Explicit UID/RV-bound approval of verified host CSRs (one plan confirmation).
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-csr-approve.py --inventory '$(BYOH_HOSTS_INVENTORY)' --approve
+
+.PHONY: byoh-hosts-csr-verify
+byoh-hosts-csr-verify: ## Read-only N-host CSR subject, signer, bootstrap token-UID ownership and host checksum validation.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-csr-verify.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-hosts-register-plan
+byoh-hosts-register-plan: ## Read-only all-host registration preflight and digest-bound start plan.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-register.py --inventory '$(BYOH_HOSTS_INVENTORY)' --plan-only
+
+.PHONY: byoh-hosts-register
+byoh-hosts-register: ## Confirmed N-host enrollment-only agent start; CSR inspection, never approval.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-register.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-hosts-bootstrap-renew
+byoh-hosts-bootstrap-renew: ## Confirmed renewal of unconsumed bootstrap credentials on inventory hosts.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-bootstrap-renew.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-hosts-idempotency-test
+byoh-hosts-idempotency-test: ## Offline regression tests for BYOH token replay and systemd idempotency.
+	@PYTHONDONTWRITEBYTECODE=1 python3 -B hack/dev/test-byoh-hosts-idempotency.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-hosts-csr-verify.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-hosts-csr-approve.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-hosts-register-verify.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-control-plane-plan.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-control-plane-lifecycle.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-control-plane-verify.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-control-plane-install.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-control-plane-status.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-cilium.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-worker-plan.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-worker-apply.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-worker-verify.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-worker-arm.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-worker-status.py
+
+.PHONY: byoh-hosts-agent-prepare
+byoh-hosts-agent-prepare: ## Safely prepare existing stopped agent units for enrollment only.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-agent-prepare.py --inventory '$(BYOH_HOSTS_INVENTORY)'
 
 ##@ Safe local BYOH controller lifecycle
 

@@ -1,3 +1,11 @@
+> **Verified two-node E2E baseline (20 November 2026):** [Reproducible baseline and explicit limitations](two-node-e2e-baseline-2026-11-20.md). Control-plane + worker Kubernetes v1.36.6 Ready, MD 1/1 and Cilium 2/2; cross-node policy tests and generalized orchestration remain open.
+>
+> **Current Make replay:** See [Make lifecycle runbook](make-lifecycle-runbook.md) for the
+> live-verified management, enrollment, CP, network, and Cilium steps
+> (19 November 2026). The worker Make orchestration is still pending;
+> this page also contains historical manual-E2E evidence and plans,
+> which must not be mistaken for today's complete live replay.
+>
 # OpenKubes BYOH – Manual Scaleway kubeadm E2E → Make → `ok up`
 
 ## Aktueller Stand – 19. November 2026

@@ -1,0 +1,2 @@
+# Local BYOH automation Python runtime. Install only inside .tools/python-venv.
+PyYAML==6.0.3

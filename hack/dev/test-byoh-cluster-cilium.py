@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""Offline Cilium plan safety regressions: never mutate a live cluster."""
+import importlib.util
+from pathlib import Path
+import unittest
+from unittest.mock import patch
+
+spec = importlib.util.spec_from_file_location(
+    "cilium_module", Path(__file__).with_name("byoh-cluster-cilium.py"))
+C = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(C)
+
+
+def config():
+    return {"apiVersion": "v1", "kind": "Config",
+            "clusters": [{"name": "kubernetes", "cluster": {
+                "server": "https://51.158.62.217:6443",
+                "certificate-authority-data": "BASE64-CA"}}],
+            "users": [{"name": "admin", "user": {
+                "client-certificate-data": "BASE64-CERT",
+                "client-key-data": "BASE64-KEY"}}],
+            "contexts": [{"name": "admin@kubernetes", "context": {
+                "cluster": "kubernetes", "user": "admin"}}],
+            "current-context": "admin@kubernetes"}
+
+
+class CiliumTests(unittest.TestCase):
+    def test_kcp_v1beta2_initialization_field(self):
+        kcp = {"apiVersion": "controlplane.cluster.x-k8s.io/v1beta2",
+               "status": {"initialization": {"controlPlaneInitialized": True}}}
+        self.assertTrue(C.kcp_initialized(kcp))
+
+    def test_kcp_v1beta2_old_field_does_not_bypass_gate(self):
+        kcp = {"apiVersion": "controlplane.cluster.x-k8s.io/v1beta2",
+               "status": {"initialized": True}}
+        self.assertFalse(C.kcp_initialized(kcp))
+
+    def test_kcp_v1beta1_legacy_status(self):
+        kcp = {"apiVersion": "controlplane.cluster.x-k8s.io/v1beta1",
+               "status": {"initialized": True}}
+        self.assertTrue(C.kcp_initialized(kcp))
+
+    def test_kcp_v1beta2_uninitialized_rejected(self):
+        kcp = {"apiVersion": "controlplane.cluster.x-k8s.io/v1beta2",
+               "status": {"initialization": {"controlPlaneInitialized": False}}}
+        self.assertFalse(C.kcp_initialized(kcp))
+        self.assertFalse(C.kcp_initialized({"status": {}}))
+
+    def test_helm_failure_classifies_tls_without_disclosing_stderr(self):
+        err = b"x509: certificate signed by unknown authority secret-token=fake"
+        self.assertEqual(C.safe_helm_error(err), "TLS CA verification failed")
+
+    def test_helm_failure_classifies_auth_and_connection(self):
+        self.assertEqual(C.safe_helm_error(b"Error: Forbidden"), "workload Kubernetes authorization denied")
+        self.assertEqual(C.safe_helm_error(b"connection refused"), "workload API tunnel/connectivity failed")
+
+    def test_helm_failure_unknown_is_redacted(self):
+        self.assertEqual(C.safe_helm_error(b"secret=private-data"), "unclassified Helm failure; stderr withheld for credential safety")
+
+    def test_helm3_lists_all_statuses(self):
+        args = C.helm_list_args("/tmp/workload-test-kubeconfig", "v3.19.1+g1234")
+        self.assertIn("--all", args)
+        self.assertEqual(args[:2], ["helm", "list"])
+
+    def test_helm4_uses_default_all_status_inventory(self):
+        args = C.helm_list_args("/tmp/workload-test-kubeconfig", "v4.0.0+g1234")
+        self.assertNotIn("--all", args)
+        self.assertIn("--kubeconfig", args)
+
+    def test_unknown_helm_version_rejected(self):
+        with self.assertRaises(SystemExit):
+            C.helm_list_args("/tmp/workload-test-kubeconfig", "v2.0.0")
+
+    def test_cilium_verifier_allows_only_expected_ready_lab_nodes(self):
+        def node(name, ready=True):
+            return {"metadata": {"name": name},
+                    "status": {"conditions": [
+                        {"type": "Ready", "status": "True" if ready else "False"}]}}
+        C.verify_lab_nodes([node("ok-bm-lab-01")])
+        C.verify_lab_nodes([node("ok-bm-lab-01"), node("ok-bm-lab-02")])
+        for invalid in ([node("ok-bm-lab-02")],
+                        [node("ok-bm-lab-01"), node("unexpected")],
+                        [node("ok-bm-lab-01"), node("ok-bm-lab-01")],
+                        [node("ok-bm-lab-01"), node("ok-bm-lab-02", False)]):
+            with self.subTest(invalid=invalid), self.assertRaises(SystemExit):
+                C.verify_lab_nodes(invalid)
+
+    def test_values_pin_kube_proxy_mode(self):
+        self.assertIs(C.VALUES["kubeProxyReplacement"], False)
+        self.assertEqual(C.VALUES["operator"]["replicas"], 1)
+        self.assertEqual(C.VALUES["k8sServiceHost"], C.CP)
+        self.assertEqual(C.VERSION, "1.19.6")
+
+    def test_existing_kubeconfig_identical_only(self):
+        cfg = config()
+        with patch.object(C, "TARGET", Path("/nonexistent/byoh-test-kubeconfig")):
+            self.assertEqual(C.verify_existing(cfg), "new")
+
+    def test_kubeconfig_server_requires_exact_cp(self):
+        # Safe-mode tests patch the remote command, never reach SSH.
+        import yaml
+        broken = config()
+        broken["clusters"][0]["cluster"]["server"] = "https://127.0.0.1:6443"
+        with patch.object(C, "command") as cmd:
+            cmd.return_value.stdout = yaml.safe_dump(broken).encode()
+            with self.assertRaises(SystemExit):
+                C.remote_config({"ssh": {"user": "ubuntu", "address": C.CP}})
+
+    def test_remote_config_uses_verified_sni(self):
+        import yaml
+        with patch.object(C, "command") as cmd:
+            cmd.return_value.stdout = yaml.safe_dump(config()).encode()
+            updated = C.remote_config({"ssh": {"user": "ubuntu", "address": C.CP}})
+        self.assertEqual(updated["clusters"][0]["cluster"]["server"],
+                         "https://127.0.0.1:16444")
+        self.assertEqual(updated["clusters"][0]["cluster"]["tls-server-name"], C.CP)
+
+    def test_helm_never_uses_management_kubeconfig(self):
+        script = Path(C.__file__).read_text()
+        self.assertIn('"--kubeconfig", str(TARGET)', script)
+        self.assertNotIn('"upgrade", "--install"', script)
+        self.assertIn('if releases or daemon or operator:', script)
+        self.assertIn('"--wait", "--timeout", "5m"', script)
+
+    def test_plan_hash_binds_inventory_and_fresh_credentials(self):
+        d1 = C.plan_digest(b"inventory1", config(), C.EXPECTED_CHART_SHA, "new")
+        d2 = C.plan_digest(b"inventory2", config(), C.EXPECTED_CHART_SHA, "new")
+        cfg = config()
+        cfg["users"][0]["user"]["client-key-data"] = "DIFFERENT"
+        d3 = C.plan_digest(b"inventory1", cfg, C.EXPECTED_CHART_SHA, "new")
+        self.assertNotEqual(d1, d2)
+        self.assertNotEqual(d1, d3)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
