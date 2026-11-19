@@ -62,6 +62,7 @@ test "$(systemctl is-enabled "$unit" || true)" = disabled
 test ! -e /root/.byoh/config
 file=/root/.byoh/bootstrap.kubeconfig
 test ! -L "$file"
+if test ! -e "$file"; then echo ABSENT; exit 0; fi
 test -f "$file"
 test "$(stat -c '%a %U:%G' "$file")" = '600 root:root'
 sha256sum "$file" | cut -d ' ' -f 1
@@ -131,13 +132,27 @@ def main():
         if lookup(kc, "csr", "byoh-csr-default." + name):
             stop("host has a CSR; inspect enrollment before renewal: " + name)
         digest = hashlib.sha256(status.encode()).hexdigest()
-        if remote_info(peer) != digest:
-            stop("remote credential does not match management object: " + name)
+        remote = remote_info(peer)
+        if remote not in (digest, "ABSENT"):
+            stop("remote credential differs from management; manual review: " + name)
+        created = obj.get("metadata", {}).get("creationTimestamp")
+        try:
+            from datetime import datetime, timezone
+            age = (datetime.now(timezone.utc) -
+                   datetime.fromisoformat(created.replace("Z", "+00:00"))).total_seconds()
+        except (AttributeError, ValueError, TypeError):
+            stop("invalid bootstrap creation timestamp: " + name)
+        if age < -60:
+            stop("bootstrap timestamp in future: " + name)
+        # New request that failed transfer may be resumed without token rotation.
+        # An aged request is revoked first, regardless of whether transfer began.
+        action = "renew" if age >= 20 * 60 else ("transfer" if remote == "ABSENT" else "keep")
         uid = obj.get("metadata", {}).get("uid")
         if not uid:
             stop("bootstrap object UID missing for " + name)
         plan.append({"name": name, "role": host["role"], "peer": peer,
-                     "uid": uid, "old_sha256": digest})
+                     "uid": uid, "old_sha256": digest,
+                     "remote": remote, "action": action})
 
     approval_plan = {"management": kind, "port": port, "hosts": plan,
                      "operation": "revoke-old-then-issue-new",
@@ -146,7 +161,7 @@ def main():
     print("BYOH bootstrap renewal plan: " + str(len(plan)) + " hosts", flush=True)
     for h in plan:
         print("  " + h["name"] + " (" + h["role"] + ") " + h["peer"] +
-              " -> revoke old / install new", flush=True)
+              " -> " + h["action"], flush=True)
     print("Plan SHA-256: " + digest, flush=True)
     print("Agent start: NO; CSR approval: NO; cluster provisioning: NO.", flush=True)
     phrase = "renew " + digest[:12]
@@ -166,15 +181,24 @@ def main():
             stop("bootstrap identity changed before revocation: " + name)
         if obj["metadata"].get("deletionTimestamp") or "infrastructure.cluster.x-k8s.io/bootstrap-token-cleanup" not in obj["metadata"].get("finalizers", []):
             stop("safe revocation finalizer not present for " + name)
-        if remote_info(peer) != h["old_sha256"]:
-            stop("remote credential changed before revocation: " + name)
-        # Kubernetes deletion waits for token-revocation finalizer.
-        kc_cmd(kc, "-n", "default", "delete", "bootstrapkubeconfig", name,
-               "--wait=true", "--timeout=120s")
-        if lookup(kc, "bootstrapkubeconfig", name, namespace="default"):
-            stop("old bootstrap object not fully removed: " + name)
-        # Atomic comparison / unlink; no credential contents leave the host.
-        delete = r'''set -eu
+        if remote_info(peer) != h["remote"]:
+            stop("remote credential changed before action: " + name)
+        action = h["action"]
+        if action == "keep":
+            print("PASS: unchanged valid credential for " + name, flush=True)
+            continue
+        env = dict(os.environ)
+        env.update({"HOST_WORKER": name, "WORKER_SSH": peer,
+                    "MGMT_KUBECONFIG": str(kc), "NAMESPACE": "default",
+                    "MGMT_FORWARD_URL": "https://127.0.0.1:" + str(port)})
+        if action == "renew":
+            # Kubernetes deletion waits for the persisted revocation finalizer.
+            kc_cmd(kc, "-n", "default", "delete", "bootstrapkubeconfig", name,
+                   "--wait=true", "--timeout=120s")
+            if lookup(kc, "bootstrapkubeconfig", name, namespace="default"):
+                stop("old bootstrap object not fully removed: " + name)
+            if h["remote"] != "ABSENT":
+                delete = r'''set -eu
 test "$(systemctl is-active byoh-hostagent.service || true)" = inactive
 test "$(systemctl is-enabled byoh-hostagent.service || true)" = disabled
 test ! -e /root/.byoh/config
@@ -186,24 +210,32 @@ test "$(sha256sum "$file" | cut -d ' ' -f 1)" = "$1"
 rm -- "$file"
 test ! -e "$file"
 '''
-        # Explicit quoted digest; only SHA-256 hex values from Python.
-        if len(h["old_sha256"]) != 64 or not all(c in "0123456789abcdef" for c in h["old_sha256"]):
-            stop("invalid credential digest")
-        ssh(peer, "set -- " + h["old_sha256"] + "\n" + delete)
-        env = dict(os.environ)
-        env.update({"HOST_WORKER": name, "WORKER_SSH": peer,
-                    "MGMT_KUBECONFIG": str(kc), "NAMESPACE": "default",
-                    "MGMT_FORWARD_URL": "https://127.0.0.1:" + str(port)})
-        confirm_helper("enroll-create", env, "create-bootstrap-" + name)
-        new = wait_ready(kc, name)
-        if new["metadata"]["uid"] == h["uid"]:
-            stop("new bootstrap UID unchanged: " + name)
+                if len(h["old_sha256"]) != 64 or not all(c in "0123456789abcdef" for c in h["old_sha256"]):
+                    stop("invalid credential digest")
+                ssh(peer, "set -- " + h["old_sha256"] + "\n" + delete)
+            else:
+                if remote_info(peer) != "ABSENT":
+                    stop("unexpected remote credential appeared after revocation: " + name)
+            confirm_helper("enroll-create", env, "create-bootstrap-" + name)
+            new = wait_ready(kc, name)
+            if new["metadata"]["uid"] == h["uid"]:
+                stop("new bootstrap UID unchanged: " + name)
+        elif action == "transfer":
+            # Reverify the same request and no remote credential before installing.
+            if remote_info(peer) != "ABSENT":
+                stop("unexpected credential appeared before transfer: " + name)
+            new = lookup(kc, "bootstrapkubeconfig", name, namespace="default")
+            if not new or new["metadata"]["uid"] != h["uid"]:
+                stop("bootstrap object changed before recovery transfer: " + name)
+        else:
+            stop("unexpected renewal plan action")
+        # The transfer helper never overwrites existing files.
         confirm_helper("enroll-transfer", env, "transfer-bootstrap-" + name)
         new_sha = hashlib.sha256(new["status"]["bootstrapKubeconfigData"].encode()).hexdigest()
         if remote_info(peer) != new_sha:
             stop("new credential verification failed: " + name)
-        print("PASS: renewed bootstrap credential for " + name, flush=True)
-    print("PASS: all bootstrap credentials renewed; agents remain disabled.", flush=True)
+        print("PASS: " + action + " completed for " + name, flush=True)
+    print("PASS: bootstrap recovery plan completed; agents remain disabled.", flush=True)
     print("STOP AT TRUST BOUNDARY: no agent start or CSR approval.", flush=True)
 
 if __name__ == "__main__":
