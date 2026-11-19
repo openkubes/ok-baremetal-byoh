@@ -111,15 +111,13 @@ case "$cmd" in
     say 'Bootstrap credential created; valid for a limited time. Never share status output.'
     ;;
   enroll-transfer)
-    requirements; need ssh
+    requirements; need ssh; need shasum; need awk
 
-    # Check readiness without retrieving or displaying the credential.
     ready=$(mgmt get bootstrapkubeconfig "$HOST_WORKER" \
       -o go-template='{{if .status.bootstrapKubeconfigData}}ready{{end}}') \
       || fail 'bootstrap credential lookup failed'
     [ "$ready" = ready ] || fail 'bootstrap credential not populated'
 
-    # Never replace an existing remote bootstrap credential.
     ssh -T "$WORKER_SSH" \
       'sudo -n test ! -e /root/.byoh/bootstrap.kubeconfig' \
       || fail 'remote credential exists or preflight failed'
@@ -128,35 +126,49 @@ case "$cmd" in
     say "Credential destination: /root/.byoh/bootstrap.kubeconfig"
     confirm "transfer-bootstrap-$HOST_WORKER"
 
+    # Never stream a potentially failing kubectl output into remote installation.
+    local_credential=$(umask 077; mktemp "${TMPDIR:-/tmp}/ok-byoh-bootstrap.XXXXXXXX") \
+      || fail 'cannot create private temporary credential'
+    cleanup_local_credential() { rm -f -- "$local_credential"; }
+    trap cleanup_local_credential EXIT
+
+    mgmt get bootstrapkubeconfig "$HOST_WORKER" \
+      -o jsonpath='{.status.bootstrapKubeconfigData}' > "$local_credential" \
+      || fail 'bootstrap credential read failed; nothing transferred'
+    [ -s "$local_credential" ] || fail 'bootstrap credential empty'
+    checksum=$(shasum -a 256 "$local_credential" | awk '{print $1}') \
+      || fail 'cannot hash bootstrap credential'
+    case "$checksum" in
+      *[!0-9a-f]*|'') fail 'invalid bootstrap checksum' ;;
+    esac
+    [ "${#checksum}" -eq 64 ] || fail 'invalid bootstrap checksum length'
+
     ssh -T "$WORKER_SSH" \
       'sudo -n install -d -m 700 /root/.byoh' \
       || fail 'remote directory creation failed'
 
-    # Stream directly; never keep credentials in a shell variable.
-    # pipefail ensures kubectl and SSH errors are propagated.
-    mgmt get bootstrapkubeconfig "$HOST_WORKER" \
-      -o jsonpath='{.status.bootstrapKubeconfigData}' |
-      ssh -T "$WORKER_SSH" 'sudo -n sh -c '"'"'
-        set -eu
-        umask 077
-        dir=/root/.byoh
-        test ! -e "$dir/bootstrap.kubeconfig"
-        tmp=$(mktemp "$dir/.bootstrap.kubeconfig.XXXXXX")
-        cleanup() {
-          rm -f -- "$tmp"
-        }
-        trap cleanup EXIT
-        cat > "$tmp"
-        test -s "$tmp"
-        chmod 600 "$tmp"
-        # Atomic no-clobber creation on the same filesystem.
-        # ln fails if the destination already exists.
-        ln "$tmp" "$dir/bootstrap.kubeconfig"
-        rm -f "$tmp" || exit 1
-        trap - EXIT
-      '"'"'' || fail 'credential transfer failed'
+    ssh -T "$WORKER_SSH" 'sudo -n sh -c '"'"'
+      set -eu
+      umask 077
+      dir=/root/.byoh
+      expected=$1
+      test ! -e "$dir/bootstrap.kubeconfig"
+      tmp=$(mktemp "$dir/.bootstrap.kubeconfig.XXXXXX")
+      cleanup() { rm -f -- "$tmp"; }
+      trap cleanup EXIT
+      cat > "$tmp"
+      test -s "$tmp"
+      actual=$(sha256sum "$tmp")
+      actual=${actual%% *}
+      [ "$actual" = "$expected" ] || exit 1
+      chmod 600 "$tmp"
+      ln "$tmp" "$dir/bootstrap.kubeconfig"
+      rm -f -- "$tmp"
+      trap - EXIT
+    '"'"' sh '"$checksum" < "$local_credential" \
+      || fail 'credential transfer or checksum verification failed'
 
-    say 'Credential installed with restricted permissions.'
+    say 'Credential verified and installed with restricted permissions.'
     ;;
   inspect-csr)
     requirements; need openssl; need base64
