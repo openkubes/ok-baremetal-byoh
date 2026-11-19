@@ -93,7 +93,11 @@ test "$(systemctl is-active byoh-hostagent.service || true)" = inactive
 test "$(systemctl is-enabled byoh-hostagent.service || true)" = disabled
 sudo -n test -x /usr/local/bin/byoh-hostagent
 sudo -n test ! -e /root/.byoh/config
-sudo -n test ! -e /root/.byoh/bootstrap.kubeconfig
+if test "$2" = staged; then
+  sudo -n sh -c 'test ! -L /root/.byoh/bootstrap.kubeconfig; if test -e /root/.byoh/bootstrap.kubeconfig; then test -s /root/.byoh/bootstrap.kubeconfig && test "$(stat -c "%a %U:%G" /root/.byoh/bootstrap.kubeconfig)" = "600 root:root"; fi'
+else
+  sudo -n test ! -e /root/.byoh/bootstrap.kubeconfig
+fi
 sudo -n sh -c 'set -- /root/.byoh/config.pre-reenroll-*; test -f "$1"'
 curl --silent --show-error --insecure --fail --connect-timeout 5 --max-time 8 "https://127.0.0.1:$1/readyz" >/dev/null
 openssl s_client -connect "127.0.0.1:$1" </dev/null 2>/dev/null | openssl x509 -outform DER | sha256sum | cut -d' ' -f1
@@ -103,6 +107,7 @@ openssl s_client -connect "127.0.0.1:$1" </dev/null 2>/dev/null | openssl x509 -
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inventory", required=True)
+    parser.add_argument("--allow-staged", action="store_true", help="Read-only: allow existing protected bootstrap credential")
     args = parser.parse_args()
     path = Path(args.inventory)
     if not path.is_file() or path.is_symlink():
@@ -140,12 +145,13 @@ def main():
     for h in hosts:
         peer = h["ssh"]["user"] + "@" + h["ssh"]["address"]
         digest = run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-                      "-o", "ConnectTimeout=8", peer, "bash", "-s", "--", str(port)],
+                      "-o", "ConnectTimeout=8", peer, "bash", "-s", "--", str(port),
+                      "staged" if args.allow_staged else "clean"],
                      input=REMOTE, timeout=25)
         if digest.lower() != fingerprint:
             stop("tunnel endpoint certificate mismatch on " + h["name"])
         print("PASS: " + h["name"] + " (" + h["role"] + "): agent disabled, old credentials retired, API tunnel matches management")
-    print("PASS: BYOH hosts preflight; no cluster or host writes")
+    print("PASS: BYOH hosts preflight (" + ("staged" if args.allow_staged else "clean") + "); no cluster or host writes")
 
 
 if __name__ == "__main__":
