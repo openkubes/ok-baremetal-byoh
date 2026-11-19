@@ -118,6 +118,14 @@ exit 99
     assert "scp" not in log.read_text()
     print("PASS: existing agent blocks installation and scp")
 
+    # The scripted CSR approval is deliberately disabled until identity
+    # and token binding can be established.
+    result = run("approve-csr", "approve-ok-bm-lab-02\n")
+    assert result.returncode != 0
+    assert "scripted CSR approval disabled" in result.stderr
+    assert "certificate approve" not in log.read_text()
+    print("PASS: scripted CSR approval denied")
+
     result = run("enroll-transfer", confirm, MOCK_BAD_DIGEST="1")
     assert result.returncode != 0, (result.stdout, result.stderr)
     assert not (remote_dir / "bootstrap.kubeconfig").exists()
