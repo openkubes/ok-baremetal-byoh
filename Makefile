@@ -363,13 +363,13 @@ byoh-hosts-preflight: ## Read-only inventory, SSH, agent and management-tunnel i
 byoh-hosts-enroll: ## One approved N-host plan: bootstrap credentials and stopped agent-unit preparation.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-enroll.py --inventory '$(BYOH_HOSTS_INVENTORY)'
 
-.PHONY: byoh-cluster-worker-arm-plan
-byoh-cluster-worker-arm-plan: ## Read-only, UID/digest-bound worker install readiness and systemd preflight.
+.PHONY: byoh-cluster-worker-install-plan
+byoh-cluster-worker-install-plan: ## Read-only, UID/digest-bound worker install readiness and systemd preflight.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-worker-arm.py --inventory '$(BYOH_HOSTS_INVENTORY)'
 
-.PHONY: byoh-cluster-worker-arm
-byoh-cluster-worker-arm: ## Confirmed one-time worker agent activation for CAPI-managed kubeadm join.
-	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-worker-arm.py --inventory '$(BYOH_HOSTS_INVENTORY)' --arm
+.PHONY: byoh-cluster-worker-install
+byoh-cluster-worker-install: ## Confirmed one-time worker agent activation for CAPI-managed kubeadm join.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-worker-arm.py --inventory '$(BYOH_HOSTS_INVENTORY)' --install
 
 .PHONY: byoh-cluster-worker-verify
 byoh-cluster-worker-verify: ## Read-only worker Machine/ByoHost UID binding and ready kubeadm/installer Secret verification.
