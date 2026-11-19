@@ -64,3 +64,38 @@ expiration, remote credential hashes, systemd drop-in timestamps, effective
 systemd state, and CSR count before and after a second run. Partial failure
 replay, simulated interruptions and multi-host failure isolation still need
 integration tests. No CSR auto-approval or agent start has been introduced.
+
+## Bootstrap renewal before initial host registration
+
+If the previous 30-minute bootstrap tokens have expired before the agents
+were started, use the separate **pre-registration-only** renewal workflow:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-hosts-bootstrap-renew
+```
+
+The command checks the complete inventory and kind-API tunnel identity,
+requires stopped/disabled agents, no permanent kubeconfigs, no registered
+ByoHost, no enrollment CSRs, matching current BootstrapKubeconfig API/CA,
+matching remote credential SHA-256, and a persisted token revocation finalizer.
+
+A plan listing all hosts and the operation is displayed before any changes.
+One `renew <plan-hash>` confirmation authorizes old object deletion (waits
+for token revocation finalizer), removal of that host's exact matching staged
+credential, and fresh bootstrap creation/transfer using the existing helper.
+New credentials are checksum-verified on each host. No CSR is approved and
+no agent is started. Existing host agent systemd settings remain unchanged.
+
+**Recovery limit:** Renewal is not yet a transactional multi-host operation.
+After partial success, do not blindly rerun: some hosts may already have new
+tokens. Inspect each BootstrapKubeconfig UID and created time, remote
+credential SHA-256, and token Secret/finalizer state before choosing an
+explicit recovery action. The command does not renew already-registered hosts.
+The token TTL is still 30 minutes; changing it to a configurable 24 hours is
+a separate planned change.
+
+**Testing status:** Newly implemented; syntax, sandbox tests, and the actual
+Scaleway renewal still require validation before treating this as a proven
+unattended runbook.
