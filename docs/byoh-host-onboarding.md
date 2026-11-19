@@ -317,3 +317,21 @@ is a separate lifecycle enhancement.
 2026-11-19 E2E run. This new revocation workflow has not yet been executed
 against Scaleway. Validate its Python syntax, offline checks and plan before
 the mutation step.
+
+### Expired Kubernetes bootstrap token Secret
+
+The Kubernetes bootstrap token cleaner can remove a token Secret when its
+30-minute expiration is reached, even while the BootstrapKubeconfig request
+and staged host bootstrap file still exist. In this state the post-registration
+revocation plan reports `finish-expired-token-cleanup`, not a hard failure.
+The controller's `revokeBootstrapTokenSecret` deliberately treats an absent
+Secret as already revoked.
+
+The cleanup still requires the exact request UID, revocation finalizer,
+registered host certificate, live agent, and byte-for-byte matching remote
+bootstrap credential SHA-256. Deletion waits for the request's finalizer
+before removing the exact remote bootstrap file. Unexpected or foreign
+existing token Secrets still cause a fail-closed STOP.
+
+This exception must **never** be used to renew bootstrap tokens for already
+registered hosts.
