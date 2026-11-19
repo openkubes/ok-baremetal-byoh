@@ -163,3 +163,32 @@ The next live test must **not** reuse the previous `byoh-hosts-register`
 result. Review the token age, perform an authorized bootstrap renewal if
 needed, and then re-run the read-only registration plan before a fresh start.
 CSR issuance, identity and authorization remain separate safety gates.
+
+## Read-only N-host CSR identity verification
+
+Once the agents are running and the CSRs have appeared, execute:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-hosts-csr-verify
+```
+
+The validator checks each CSR's name, requester, signer, groups, usages,
+pending state, X.509 request signature and precise subject. It independently
+derives the expected bootstrap token ID from the BootstrapKubeconfig UID
+(the first six hexadecimal characters of SHA-256), checks the matching
+`kube-system/bootstrap-token-<ID>` Secret and request UID annotation,
+verifies unexpired token data matches the bootstrap kubeconfig, and compares
+its SHA-256 to the credential file on the corresponding SSH host. It prints
+only non-secret host identifiers, token IDs and CSR UIDs, **not credentials**.
+
+The derived UID/token relationship is necessary but not sufficient proof of
+physical host identity: access to an enrollment token could allow a claimant
+to submit a CSR. Independent SSH/host provenance and an authorized approver
+remain required. The tool never approves or signs certificates. If a token
+expires, the check stops; do not renew tokens for an agent already running
+with an outstanding CSR without an explicit recovery review.
+
+Run `make byoh-hosts-idempotency-test` for offline CSR/identity regressions;
+these tests are not live E2E approval evidence.
