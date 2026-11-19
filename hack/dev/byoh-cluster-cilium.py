@@ -66,6 +66,20 @@ def output(argv, *, timeout=25):
     return command(argv, timeout=timeout).stdout.decode().strip()
 
 
+def kcp_initialized(kcp):
+    """Use only the initialization field defined by the returned CAPI version."""
+    version = kcp.get("apiVersion")
+    status = kcp.get("status", {})
+    if not isinstance(status, dict):
+        return False
+    if version == "controlplane.cluster.x-k8s.io/v1beta2":
+        init = status.get("initialization", {})
+        return isinstance(init, dict) and init.get("controlPlaneInitialized") is True
+    if version == "controlplane.cluster.x-k8s.io/v1beta1":
+        return status.get("initialized") is True
+    return False
+
+
 def validate_management(inventory):
     if inventory.is_symlink() or not inventory.is_file():
         stop("inventory missing or symlink")
@@ -91,7 +105,7 @@ def validate_management(inventory):
         stop("CAPI Cluster/KCP deleting")
     if (kcp.get("spec", {}).get("version") != "v1.36.6" or
             kcp.get("spec", {}).get("replicas") != 1 or
-            kcp.get("status", {}).get("initialized") is not True):
+            not kcp_initialized(kcp)):
         stop("expected initialized v1.36.6 singleton KCP")
     return raw, cps[0]
 
