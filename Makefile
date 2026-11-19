@@ -363,6 +363,18 @@ byoh-hosts-preflight: ## Read-only inventory, SSH, agent and management-tunnel i
 byoh-hosts-enroll: ## One approved N-host plan: bootstrap credentials and stopped agent-unit preparation.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-enroll.py --inventory '$(BYOH_HOSTS_INVENTORY)'
 
+.PHONY: byoh-cluster-cilium-plan
+byoh-cluster-cilium-plan: ## Read-only pinned chart, fresh workload TLS identity and Helm target checks.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-cilium.py --inventory '$(BYOH_HOSTS_INVENTORY)'
+
+.PHONY: byoh-cluster-cilium-install
+byoh-cluster-cilium-install: ## Confirmed Cilium 1.19.6 installation on TLS-validated workload only.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-cilium.py --inventory '$(BYOH_HOSTS_INVENTORY)' --install
+
+.PHONY: byoh-cluster-cilium-verify
+byoh-cluster-cilium-verify: ## Read-only Cilium Helm values, daemon/operator pods, Node and CoreDNS readiness.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-cilium.py --inventory '$(BYOH_HOSTS_INVENTORY)' --verify
+
 .PHONY: byoh-cluster-control-plane-status
 byoh-cluster-control-plane-status: ## Read-only live CP API, CAPI binding, kubeadm components, and pre-CNI readiness status.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-control-plane-status.py --inventory '$(BYOH_HOSTS_INVENTORY)'
@@ -442,6 +454,7 @@ byoh-hosts-idempotency-test: ## Offline regression tests for BYOH token replay a
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-control-plane-verify.py
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-control-plane-install.py
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-control-plane-status.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-cilium.py
 
 .PHONY: byoh-hosts-agent-prepare
 byoh-hosts-agent-prepare: ## Safely prepare existing stopped agent units for enrollment only.
