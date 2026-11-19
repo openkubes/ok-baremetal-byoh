@@ -5,6 +5,7 @@ Run only after staged bootstrap credentials have been transferred. Every host
 write requires an explicit host-specific confirmation.
 """
 import argparse
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import subprocess
@@ -145,6 +146,33 @@ def main():
     if actual != expected["clusters"][0]["cluster"]["server"]:
         fail("management API identity mismatch")
     module.run(["kubectl", "--kubeconfig", str(kc), "get", "--raw=/readyz"])
+
+    # Bootstrap tokens are issued with a 30-minute TTL. Stop before any
+    # remote write when either request is stale or bound to a different API.
+    current_ca = module.run([
+        "kubectl", "--kubeconfig", str(kc), "config", "view",
+        "--raw", "--minify", "-o",
+        "jsonpath={.clusters[0].cluster.certificate-authority-data}",
+    ])
+    port = inventory["spec"]["management"]["remoteAPIPort"]
+    for h in hosts:
+        name = h["name"]
+        try:
+            raw = module.run(["kubectl", "--kubeconfig", str(kc), "-n", "default",
+                              "get", "bootstrapkubeconfig", name, "-o", "json"])
+            obj = __import__("json").loads(raw)
+            spec = obj["spec"]
+            created = datetime.fromisoformat(
+                obj["metadata"]["creationTimestamp"].replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - created).total_seconds()
+            if age < -60 or age >= 20 * 60:
+                fail("bootstrap token too old to prepare agent safely for " + name)
+            if (spec.get("apiserver") != "https://127.0.0.1:" + str(port) or
+                    spec.get("certificate-authority-data") != current_ca or
+                    not obj.get("status", {}).get("bootstrapKubeconfigData")):
+                fail("bootstrap target, CA, or status not verified for " + name)
+        except (KeyError, ValueError, TypeError):
+            fail("malformed bootstrap resource for " + name)
 
     peers = [(h["name"], h["ssh"]["user"] + "@" + h["ssh"]["address"]) for h in hosts]
     for name, peer in peers:
