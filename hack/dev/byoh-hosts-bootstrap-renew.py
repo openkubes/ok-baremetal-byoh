@@ -221,12 +221,22 @@ test ! -e "$file"
             if new["metadata"]["uid"] == h["uid"]:
                 stop("new bootstrap UID unchanged: " + name)
         elif action == "transfer":
-            # Reverify the same request and no remote credential before installing.
+            # Reverify same request, CA, endpoint, freshness and remote absence.
             if remote_info(peer) != "ABSENT":
                 stop("unexpected credential appeared before transfer: " + name)
             new = lookup(kc, "bootstrapkubeconfig", name, namespace="default")
             if not new or new["metadata"]["uid"] != h["uid"]:
                 stop("bootstrap object changed before recovery transfer: " + name)
+            from datetime import datetime, timezone
+            created_at = datetime.fromisoformat(
+                new["metadata"]["creationTimestamp"].replace("Z", "+00:00"))
+            age_now = (datetime.now(timezone.utc) - created_at).total_seconds()
+            if not (-60 <= age_now < 20 * 60):
+                stop("recovery transfer token stale; renew after explicit review: " + name)
+            if (new.get("spec", {}).get("apiserver") != "https://127.0.0.1:" + str(port)
+                    or new.get("spec", {}).get("certificate-authority-data") != ca
+                    or not new.get("status", {}).get("bootstrapKubeconfigData")):
+                stop("bootstrap target/status changed before recovery transfer: " + name)
         else:
             stop("unexpected renewal plan action")
         # The transfer helper never overwrites existing files.
