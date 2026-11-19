@@ -20,43 +20,6 @@ DROPIN = "/etc/systemd/system/byoh-hostagent.service.d/90-ok-byoh-enrollment.con
 
 # No unsanitized shell arguments. Invocation is via ssh -T with a literal sudo
 # bash -s command, sending only our constant, versioned script on stdin.
-CHECK = r'''set -eu
-unit=byoh-hostagent.service
-test "$(systemctl is-active "$unit" || true)" = inactive
-test "$(systemctl is-enabled "$unit" || true)" = disabled
-test -x /usr/local/bin/byoh-hostagent
-test ! -e /root/.byoh/config
-test -s /root/.byoh/bootstrap.kubeconfig
-test "$(stat -c '%a %U:%G' /root/.byoh/bootstrap.kubeconfig)" = '600 root:root'
-test -f /etc/systemd/system/byoh-hostagent.service
-test ! -L /etc/systemd/system/byoh-hostagent.service
-# Reject surprising ExecStart overrides; checked against the effective unit.
-current="$(systemctl show -p ExecStart --value "$unit")"
-case "$current" in
-  *'/usr/local/bin/byoh-hostagent --namespace default --skip-installation'*)
-    echo 'READY' ;;
-  *'/usr/local/bin/byoh-hostagent --namespace default'*)
-    echo 'NEEDS_UPDATE' ;;
-  *) echo 'STOP: unexpected effective ExecStart' >&2; exit 1 ;;
-esac
-path=/etc/systemd/system/byoh-hostagent.service.d/90-ok-byoh-enrollment.conf
-if test -e "$path" || test -L "$path"; then
-  test ! -L "$path"
-  cmp -s "$path" /dev/stdin
-else
-  # Consume the desired drop-in even when it is absent.
-  cat >/dev/null
-fi
-'''
-# Both SSH checks/updates use a constant desired drop-in. It is not executable.
-DESIRED = """[Service]
-WorkingDirectory=/root
-ExecStart=
-ExecStart=/usr/local/bin/byoh-hostagent --namespace default --skip-installation
-"""
-# CHECK receives no user data; the expected drop-in is appended to its stdin.
-# Bash 'cmp /dev/stdin' consumes the appended file; CHECK above is provided
-# separately from the drop-in.
 PREFLIGHT_REMOTE = r'''set -eu
 unit=byoh-hostagent.service
 test "$(systemctl is-active "$unit" || true)" = inactive
@@ -68,8 +31,8 @@ test "$(stat -c '%a %U:%G' /root/.byoh/bootstrap.kubeconfig)" = '600 root:root'
 test -f /etc/systemd/system/byoh-hostagent.service
 test ! -L /etc/systemd/system/byoh-hostagent.service
 case "$(systemctl show -p ExecStart --value "$unit")" in
-  *'/usr/local/bin/byoh-hostagent --namespace default --skip-installation'*) ;;
-  *'/usr/local/bin/byoh-hostagent --namespace default'*) ;;
+  *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation ;'*) ;;
+  *'argv[]=/usr/local/bin/byoh-hostagent --namespace default ;'*) ;;
   *) echo 'STOP: unrecognized ExecStart' >&2; exit 1 ;;
 esac
 path=/etc/systemd/system/byoh-hostagent.service.d/90-ok-byoh-enrollment.conf
@@ -123,7 +86,7 @@ fi
 systemctl daemon-reload
 effective="$(systemctl show -p ExecStart --value "$unit")"
 case "$effective" in
-  *'/usr/local/bin/byoh-hostagent --namespace default --skip-installation'*) ;;
+  *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation ;'*) ;;
   *) echo 'STOP: effective enrollment ExecStart not verified' >&2; exit 1 ;;
 esac
 test "$(systemctl show -p WorkingDirectory --value "$unit")" = /root
