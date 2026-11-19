@@ -18,8 +18,9 @@ def fixtures():
             "metadata": {}, "spec": {"controlPlaneRef": {"name": "ok-byoh-scw1-control-plane"},
             "infrastructureRef": {"name": "ok-byoh-scw1"}}},
         ("kubeadmcontrolplane", "ok-byoh-scw1-control-plane"): {
+            "apiVersion": "controlplane.cluster.x-k8s.io/v1beta2",
             "metadata": {}, "spec": {"version": "v1.36.6", "replicas": 1,
-            "machineTemplate": {"infrastructureRef": {"name": "ok-byoh-scw1-control-plane", "kind": "ByoMachineTemplate"}}}},
+            "machineTemplate": {"spec": {"infrastructureRef": {"name": "ok-byoh-scw1-control-plane", "kind": "ByoMachineTemplate"}}}}},
         ("byomachine", NAME): {"metadata": {}, "spec": {}},
         ("byohost", "ok-bm-lab-01"): {"metadata": {"labels": {"role": "control-plane"}},
             "spec": {"byoMachineRef": {"name": NAME}}},
@@ -47,9 +48,23 @@ class BindingTests(TestCase):
         data, machines = fixtures()
         self.assertEqual(self.call_verify(data, machines), (NAME, NAME))
 
+    def test_v1beta1_legacy_reference_path(self):
+        data, machines = fixtures()
+        cp = data[("kubeadmcontrolplane", "ok-byoh-scw1-control-plane")]
+        cp["apiVersion"] = "controlplane.cluster.x-k8s.io/v1beta1"
+        cp["spec"]["machineTemplate"] = cp["spec"]["machineTemplate"]["spec"]
+        self.assertEqual(self.call_verify(data, machines), (NAME, NAME))
+
+    def test_v1beta2_legacy_path_rejected(self):
+        data, machines = fixtures()
+        cp = data[("kubeadmcontrolplane", "ok-byoh-scw1-control-plane")]
+        cp["spec"]["machineTemplate"] = cp["spec"]["machineTemplate"]["spec"]
+        with self.assertRaises(SystemExit):
+            self.call_verify(data, machines)
+
     def test_wrong_kcp_template_reference_rejected(self):
         data, machines = fixtures()
-        data[("kubeadmcontrolplane", "ok-byoh-scw1-control-plane")]["spec"]["machineTemplate"]["infrastructureRef"]["name"] = "unexpected-template"
+        data[("kubeadmcontrolplane", "ok-byoh-scw1-control-plane")]["spec"]["machineTemplate"]["spec"]["infrastructureRef"]["name"] = "unexpected-template"
         with self.assertRaises(SystemExit):
             self.call_verify(data, machines)
 
