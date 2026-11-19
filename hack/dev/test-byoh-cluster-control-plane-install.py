@@ -97,7 +97,7 @@ class CPInstallTests(unittest.TestCase):
     def test_enrollment_dropin_comparison_uses_real_newlines(self):
         expected_segment = mod.REMOTE_PREFLIGHT.split(
             'expected="$(printf', 1)[1].split('actual="$(cat', 1)[0]
-        self.assertIn("[Service]\\nWorkingDirectory=/root\\nExecStart=", expected_segment)
+        self.assertIn("[Service]\nWorkingDirectory=/root\nExecStart=", expected_segment)
         self.assertNotIn("[Service]\\\\nWorkingDirectory", expected_segment)
         self.assertIn('test "$actual" = "$expected"', mod.REMOTE_PREFLIGHT)
 
