@@ -409,6 +409,7 @@ byoh-hosts-idempotency-test: ## Offline regression tests for BYOH token replay a
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-hosts-csr-verify.py
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-hosts-csr-approve.py
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-hosts-register-verify.py
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-control-plane-plan.py
 
 .PHONY: byoh-hosts-agent-prepare
 byoh-hosts-agent-prepare: ## Safely prepare existing stopped agent units for enrollment only.
