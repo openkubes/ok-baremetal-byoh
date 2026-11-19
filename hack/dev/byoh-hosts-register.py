@@ -62,9 +62,9 @@ test ! -L /etc/systemd/system/byoh-hostagent.service.d/90-ok-byoh-enrollment.con
 test "$(cat /etc/systemd/system/byoh-hostagent.service.d/90-ok-byoh-enrollment.conf)" = "$(printf '%s' '[Service]
 WorkingDirectory=/root
 ExecStart=
-ExecStart=/usr/local/bin/byoh-hostagent --namespace default --skip-installation')"
+ExecStart=/usr/local/bin/byoh-hostagent --namespace default --skip-installation --bootstrap-kubeconfig=/root/.byoh/bootstrap.kubeconfig')"
 case "$(systemctl show -p ExecStart --value "$unit")" in
-  *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation ;'*) ;;
+  *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation --bootstrap-kubeconfig=/root/.byoh/bootstrap.kubeconfig ;'*) ;;
   *) exit 20 ;;
 esac
 test "$(systemctl show -p WorkingDirectory --value "$unit")" = /root
@@ -80,7 +80,7 @@ test ! -L /root/.byoh/bootstrap.kubeconfig
 test "$(stat -c '%a %U:%G' /root/.byoh/bootstrap.kubeconfig)" = '600 root:root'
 test "$(sha256sum /root/.byoh/bootstrap.kubeconfig | cut -d ' ' -f 1)" = "$1"
 case "$(systemctl show -p ExecStart --value "$unit")" in
-  *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation ;'*) ;;
+  *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation --bootstrap-kubeconfig=/root/.byoh/bootstrap.kubeconfig ;'*) ;;
   *) exit 21 ;;
 esac
 test "$(systemctl show -p WorkingDirectory --value "$unit")" = /root
