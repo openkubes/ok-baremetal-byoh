@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	sandboxNetworkPOD = "POD"
+	sandboxNetworkPOD  = "POD"
 	sandboxNetworkNODE = "NODE"
 )
 
