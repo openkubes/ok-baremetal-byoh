@@ -73,6 +73,14 @@ if test -e "$path"; then
 WorkingDirectory=/root
 ExecStart=
 ExecStart=/usr/local/bin/byoh-hostagent --namespace default --skip-installation')"
+  effective="$(systemctl show -p ExecStart --value "$unit")"
+  case "$effective" in
+    *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation ;'*) ;;
+    *) echo 'STOP: existing unit effective arguments differ' >&2; exit 1 ;;
+  esac
+  test "$(systemctl show -p WorkingDirectory --value "$unit")" = /root
+  echo 'PASS: enrollment systemd drop-in unchanged; no reload'
+  exit 0
 else
   tmp="$(mktemp "$dir/.90-ok-byoh-enrollment.XXXXXXXX")"
   trap 'rm -f "$tmp"' EXIT
