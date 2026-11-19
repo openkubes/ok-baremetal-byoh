@@ -232,8 +232,24 @@ case "$cmd" in
   agent-install)
     requirements; need ssh; need scp
     [ -s "$AGENT_BINARY" ] || fail "missing agent binary $AGENT_BINARY"
-    # Systemd unit is installed but NOT started. Local SSH-config aliases are not used.
+    # Fail closed if any existing binary, unit, staged binary or service exists.
+    # Explicitly refuse installation onto a host that has already been enrolled.
+    ssh -T "$WORKER_SSH" 'sudo -n sh -c '"'"'
+      test ! -e /usr/local/bin/byoh-hostagent &&
+      test ! -e /etc/systemd/system/byoh-hostagent.service &&
+      test ! -e /tmp/byoh-hostagent &&
+      test ! -e /root/.byoh/config &&
+      test ! -e /root/.byoh/bootstrap.kubeconfig
+    '"'"'' || fail 'agent installation target is not clean'
+    # This is a lab helper, not a concurrent installer. Recheck before copying.
     confirm "install-agent-$HOST_WORKER"
+    ssh -T "$WORKER_SSH" 'sudo -n sh -c '"'"'
+      test ! -e /usr/local/bin/byoh-hostagent &&
+      test ! -e /etc/systemd/system/byoh-hostagent.service &&
+      test ! -e /tmp/byoh-hostagent &&
+      test ! -e /root/.byoh/config &&
+      test ! -e /root/.byoh/bootstrap.kubeconfig
+    '"'"'' || fail 'agent installation target changed'
     scp "$AGENT_BINARY" "$WORKER_SSH:/tmp/byoh-hostagent" || fail 'scp failed'
     ssh "$WORKER_SSH" 'sudo install -m 755 /tmp/byoh-hostagent /usr/local/bin/byoh-hostagent && rm /tmp/byoh-hostagent' || fail 'binary install failed'
     ssh "$WORKER_SSH" 'sudo install -d -m 755 /etc/systemd/system; sudo tee /etc/systemd/system/byoh-hostagent.service >/dev/null <<"UNIT"
