@@ -132,3 +132,34 @@ requires an independently reviewed requester/token identity contract;
 The existing 30-minute token TTL and 20-minute conservative start-age
 restriction remain. If tokens have expired, first use the separately confirmed
 `byoh-hosts-bootstrap-renew` on **stopped, unregistered** hosts.
+
+## Bootstrap agent startup regression (2026-11-19)
+
+The agent source in `agent/main.go` only enters initial certificate
+bootstrap when `--bootstrap-kubeconfig` is explicitly passed and
+`~/.byoh/config` does not exist. The `--skip-installation` flag only
+disables Kubernetes installation; it does not enable bootstrap.
+
+Both lab agents were observed restarting with `client config load failed`
+and a missing `/root/.byoh/config`. They were stopped and remain disabled.
+
+The enrollment-mode systemd drop-in now requires:
+
+```ini
+[Service]
+WorkingDirectory=/root
+ExecStart=
+ExecStart=/usr/local/bin/byoh-hostagent --namespace default --skip-installation --bootstrap-kubeconfig=/root/.byoh/bootstrap.kubeconfig
+```
+
+Apply it only with `byoh-hosts-agent-prepare` while both agents are stopped,
+the management identity is verified, and tokens are fresh. The preparation
+verifies the installed binary's `--help` exposes that flag; it does not
+start services. The registration preflight requires the effective exact
+command. The start workflow checks agents remain active after an eight-second
+observation; this is not proof of successful CSR enrollment.
+
+The next live test must **not** reuse the previous `byoh-hosts-register`
+result. Review the token age, perform an authorized bootstrap renewal if
+needed, and then re-run the read-only registration plan before a fresh start.
+CSR issuance, identity and authorization remain separate safety gates.
