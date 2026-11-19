@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
+from datetime import datetime, timezone
 
 import yaml
 from importlib.machinery import SourceFileLoader
@@ -56,16 +58,62 @@ def main():
     call(["bash", "hack/dev/python-toolchain.sh",
           "hack/dev/byoh-hosts-preflight.py", "--inventory", str(inventory)])
 
-    # Fail closed if any bootstrap resource already exists on either host.
-    for host in hosts:
+    # Read-only identity/freshness checks before reusing an existing object.
+    # The controller's token lifetime is 30 minutes. Do not resume old tokens.
+    ca = subprocess.run(
+        ["kubectl", "--kubeconfig", str(kubeconfig), "config", "view",
+         "--raw", "--minify", "-o",
+         "jsonpath={.clusters[0].cluster.certificate-authority-data}"],
+        capture_output=True, text=True, check=False,
+    )
+    if ca.returncode != 0 or not ca.stdout.strip():
+        fail("cannot verify management CA")
+
+    def kubectl(host, template):
         result = subprocess.run(
             ["kubectl", "--kubeconfig", str(kubeconfig), "-n", "default",
-             "get", "bootstrapkubeconfig", host["name"],
-             "--ignore-not-found", "-o", "name"],
+             "get", "bootstrapkubeconfig", host, "-o", "go-template=" + template],
             cwd=ROOT, capture_output=True, text=True, check=False,
         )
-        if result.returncode != 0 or result.stdout.strip():
-            fail("existing or unreadable bootstrap resource for " + host["name"])
+        if result.returncode != 0:
+            fail("cannot inspect bootstrap object for " + host)
+        return result.stdout.strip()
+
+    def exists(host):
+        result = subprocess.run(
+            ["kubectl", "--kubeconfig", str(kubeconfig), "-n", "default",
+             "get", "bootstrapkubeconfig", host, "--ignore-not-found",
+             "-o", "name"],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            fail("bootstrap resource lookup failed for " + host)
+        return bool(result.stdout.strip())
+
+    def verify_existing(host):
+        actual_url = kubectl(host, "{{.spec.apiserver}}")
+        actual_ca = kubectl(host, '{{index .spec "certificate-authority-data"}}')
+        if actual_url != "https://127.0.0.1:" + str(port) or actual_ca != ca.stdout.strip():
+            fail("existing bootstrap target or CA mismatch on " + host)
+        created = kubectl(host, "{{.metadata.creationTimestamp}}")
+        try:
+            age = (datetime.now(timezone.utc) -
+                   datetime.fromisoformat(created.replace("Z", "+00:00"))).total_seconds()
+        except ValueError:
+            fail("invalid bootstrap object creation time on " + host)
+        if age < -60 or age >= 20 * 60:
+            fail("bootstrap object older than 20 minutes; inspect token expiration and revoke explicitly: " + host)
+        print("PASS: existing bootstrap object matches current management CA and endpoint: " + host, flush=True)
+
+    def wait_for_credential(host):
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            if kubectl(host, "{{if .status.bootstrapKubeconfigData}}ready{{end}}") == "ready":
+                print("PASS: bootstrap credential populated for " + host, flush=True)
+                return
+            time.sleep(2)
+        fail("bootstrap status not populated after 90s for " + host +
+             "; inspect controller logs and existing object, do not recreate automatically")
 
     print("Enrollment preparation: two hosts; no agent start or CSR approval.", flush=True)
     print("Each bootstrap creation and transfer requires confirmation.", flush=True)
@@ -78,9 +126,15 @@ def main():
             "MGMT_FORWARD_URL": "https://127.0.0.1:" + str(port),
             "NAMESPACE": "default",
         })
-        # Existing helper retains its interactive explicit confirmations,
-        # credentials handling, transport checksum, and restrictive permissions.
-        call(["bash", str(SCRIPT), "enroll-create"], env=env)
+        if exists(host["name"]):
+            verify_existing(host["name"])
+            print("Resuming existing bootstrap object for " + host["name"], flush=True)
+        else:
+            call(["bash", str(SCRIPT), "enroll-create"], env=env)
+            verify_existing(host["name"])
+        wait_for_credential(host["name"])
+        # Reuse the existing secure transfer helper, which refuses to overwrite
+        # preexisting remote credentials and requires a typed confirmation.
         call(["bash", str(SCRIPT), "enroll-transfer"], env=env)
         print("PASS: staged bootstrap credential for " + host["name"], flush=True)
 
