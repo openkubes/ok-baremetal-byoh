@@ -133,7 +133,7 @@ linters:
           - gosec
       # These white-box sandbox tests intentionally exercise unexported CRI
       # validation and cleanup helpers; do not expand the production API.
-      - path: agent/reconciler/sandbox_(cleanup|cleanup_retry|inventory)_test[.]go
+      - path: agent/reconciler/sandbox_(cleanup|cleanup_retry|inventory|network|pre_reset)_test[.]go
         linters:
           - testpackage
       # The resources of this provider implement the v1beta1 contract of
