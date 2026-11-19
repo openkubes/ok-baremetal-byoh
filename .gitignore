@@ -38,3 +38,7 @@ _artifacts
 
 # macOS Desktop Service Store files
 .DS_Store
+
+# Local BYOH host inventories: version the template, not actual host addresses
+/config/hosts/*.yaml
+/config/hosts/*.yml
