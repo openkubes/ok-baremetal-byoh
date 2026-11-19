@@ -241,3 +241,34 @@ running agents with pending CSRs merely because the TTL has expired.
 until the offline tests and the read-only approval plan have passed. Use
 `make byoh-hosts-idempotency-test` for the regression suite before executing
 the mutating approval target.
+
+## Post-approval host registration verification (read-only)
+
+After confirmed CSR approval and certificate issuance, run:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-hosts-register-verify
+```
+
+This requires the expected approved and issued CSR for every inventory host,
+verifies the issued certificate subject and public key against its CSR, checks
+the expected registered unbound `ByoHost`, and reads each host's permanent
+`/root/.byoh/config` over authenticated SSH without displaying credentials.
+It validates 0600/root ownership, a non-token TLS client identity, public key
+versus private key consistency, and the certificate's SHA-256 fingerprint
+against the certificate issued for that exact CSR. Agents must be active.
+
+The remote check relies only on Python 3 and OpenSSL rather than an installed
+`kubectl` on the bare-metal hosts. It expects the agent-generated canonical
+kubeconfig serialization, not arbitrary alternative YAML representations.
+It performs NO revocation, service restart, CSR approval, host binding or
+Kubernetes install. A failed check must be investigated before modifying
+bootstrap credentials.
+
+**Revocation remains separate.** Only after all hosts pass and the operator
+authorizes it should we delete the exact owned BootstrapKubeconfig resources
+(waiting for token finalizers and Secret deletion), then remove only matching
+remote bootstrap files. Do not use the old pre-registration renewal target
+against registered hosts.
