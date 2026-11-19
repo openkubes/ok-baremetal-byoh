@@ -389,7 +389,7 @@ The apply command requires one typed `apply <plan-hash>` confirmation,
 rechecks the same target and render digest, labels ONLY the selected
 unbound BYOH CP host `role=control-plane` (without overwrite), then
 submits the five objects from the existing v1.36.6 KCP template.
-It does not change systemd, install packages, or run kubeadm. If it
+After confirmation it safely STOPS the currently running CP enrollment agent\nbefore labelling or creating any CAPI resource. It does not enable the\nagent, install packages, or run kubeadm. If it
 partially succeeds, it refuses automatic replay; inspect CAPI resource
 state before any manual recovery.
 
@@ -411,3 +411,5 @@ ByoMachine binding and an installer Secret; we must NOT simply remove
 the agent's bootstrap flags in the current enrolled service. After
 kubeadm starts, set up verified workload API access and then Cilium.
 No automatic CAPI pivot or unattended cleanup is part of this milestone.
+
+The confirmed CP apply intentionally stops `ok-bm-lab-01`'s agent first, since `--skip-installation` does not guarantee a complete kubeadm block. This means a partial apply requires reviewing the stopped service state; do not attempt to replay the original preflight against an already-created Cluster. Workload API network-up requires the API to be serving and is *not* the next command immediately after apply. A separate verified host-installation arm workflow is still required.
