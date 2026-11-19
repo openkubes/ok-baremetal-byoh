@@ -335,3 +335,34 @@ existing token Secrets still cause a fail-closed STOP.
 
 This exception must **never** be used to renew bootstrap tokens for already
 registered hosts.
+
+## Scaleway lab CAPI control-plane provisioning (read-only plan)
+
+Following successful post-registration bootstrap revocation, reuse the
+original KCP template at
+`test/e2e/data/infrastructure-provider-byoh/v1beta1/templates/vm/cluster-with-kcp.yaml`.
+The first automation stage is strictly **read-only**:
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-control-plane-plan
+```
+
+The plan restricts itself to the isolated local kind management, checks the
+existing unbound control-plane ByoHost and active agent, rejects already
+provisioned Kubernetes state, renders the fixed `ok-byoh-scw1`
+Kubernetes `v1.36.6` single-control-plane manifest, and performs a Kubernetes
+server-side dry-run. It creates no Cluster, KCP, ByoMachine or host label.
+`make byoh-hosts-idempotency-test` includes offline manifest rendering tests.
+
+This is **not yet an apply target**: the earlier successful E2E required a
+separate Mac-to-CP workload API SSH tunnel and kind-to-workload NAT rewrite.
+The current setup has only verified host-to-management tunnels. Before an
+authorized apply and agent-mode transition, independently review the actual
+present network paths and the CAPI controller's ability to reach the target
+workload endpoint, preserving TLS validation. Do not reuse stale port 61599,
+workload kubeconfigs, or NAT addresses without checking this cluster.
+
+The separate Scaleway WireGuard/Private Network design and CAPI pivot test
+remain deferred.
