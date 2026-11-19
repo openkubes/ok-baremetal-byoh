@@ -179,7 +179,22 @@ def main():
             stop("host identity changed before start: " + h["name"])
         print(h["name"] + ": " + ssh(h["peer"], "set -- " + h["credential_sha256"] +
                                     "\n" + HOST_START), flush=True)
-    print("Enrollment agents started. CSRs MUST be reviewed independently.", flush=True)
+    # A successful systemctl start is not proof that a host agent stays up.
+    # Give the bootstrap flow a bounded observation window. Never approve CSRs.
+    time.sleep(8)
+    for h in plan:
+        observed = ssh(h["peer"], r'''set -eu
+unit=byoh-hostagent.service
+test "$(systemctl is-active "$unit")" = active
+case "$(systemctl show -p ExecStart --value "$unit")" in
+  *'argv[]=/usr/local/bin/byoh-hostagent --namespace default --skip-installation --bootstrap-kubeconfig=/root/.byoh/bootstrap.kubeconfig ;'*) ;;
+  *) exit 21 ;;
+esac
+test "$(systemctl show -p WorkingDirectory --value "$unit")" = /root
+echo 'PASS: enrollment agent still active'
+''')
+        print(h["name"] + ": " + observed, flush=True)
+    print("Enrollment agents active after observation; CSRs MUST be reviewed independently.", flush=True)
     print("Read-only CSR inventory (request payloads and tokens withheld):", flush=True)
     for h in plan:
         csr_name = "byoh-csr-default." + h["name"]
