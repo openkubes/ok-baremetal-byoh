@@ -38,19 +38,46 @@ The initial smoke test checks provider inventory versions, controller rollout
 status and Docker socket wiring. A real CAPD workload-cluster creation test is
 not part of this first bootstrap commit yet.
 
-## 5. CAPD versus BYOH
+## 5. Create the first CAPD workload cluster
+
+Render and validate the pinned upstream CAPI v1.14.4 template first:
+
+```bash
+make ok-capd-workload-render
+kubectl --kubeconfig ~/.config/ok/capd/kubeconfig apply --dry-run=server -f /tmp/ok-capd-smoke.yaml
+```
+
+After reviewing the rendered resources, create the disposable workload:
+
+```bash
+make ok-capd-workload-up
+make ok-capd-workload-status
+```
+
+Its separate kubeconfig is stored under
+`~/.config/ok/capd/workloads/ok-capd-smoke.kubeconfig`.
+
+Delete only that workload through CAPI:
+
+```bash
+OK_CAPD_CONFIRM_WORKLOAD_DELETE=ok-capd-smoke make ok-capd-workload-down
+```
+
+The management cluster is preserved.
+
+## 6. CAPD versus BYOH
 
 CAPD provisions disposable Docker containers as workload-cluster machines.
 BYOH targets existing Linux hosts. Keep their inventories, kubeconfigs,
 credentials and evidence separate.
 
-## 6. RuntimeSDK and No-Replacement
+## 7. RuntimeSDK and No-Replacement
 
 The Make targets are reserved but deliberately fail with
 `NOT IMPLEMENTED` until the historical spike assets have been inventoried and
 integrated. Do not interpret a placeholder target as a passing test.
 
-## 7. Shutdown and cleanup
+## 8. Shutdown and cleanup
 
 `make ok-capd-down` currently reports workload clusters without deleting
 anything. To remove the entire management environment, first ensure that no
