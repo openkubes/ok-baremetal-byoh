@@ -554,6 +554,15 @@ ok-capd-clean: ## Delete only the isolated CAPD Kind cluster after explicit conf
 
 ##@ Local CAPD workload cluster
 
-.PHONY: ok-capd-workload-render
+.PHONY: ok-capd-workload-render ok-capd-workload-up ok-capd-workload-status ok-capd-workload-down
 ok-capd-workload-render: ## Render the pinned upstream CAPD workload template locally (no cluster writes).
 	@bash dev/ok-capd/scripts/workload-render.sh
+
+ok-capd-workload-up: ## Create or verify the disposable CAPD smoke workload cluster.
+	@bash dev/ok-capd/scripts/workload-up.sh
+
+ok-capd-workload-status: ## Read-only status of the CAPD smoke workload cluster.
+	@bash dev/ok-capd/scripts/workload-status.sh
+
+ok-capd-workload-down: ## Delete only the CAPD smoke workload cluster after explicit confirmation.
+	@bash dev/ok-capd/scripts/workload-down.sh
