@@ -73,9 +73,10 @@ the management Kind cluster.
 
 ## Shutdown and cleanup
 
-`make ok-capd-down` is read-only in this initial phase. It lists CAPI workload
-clusters and deliberately preserves the management cluster. Workload shutdown
-will be defined together with the first workload lifecycle test.
+`make ok-capd-down` is read-only and preserves the management cluster. The
+separate `make ok-capd-workload-down` target deletes only the configured
+`ok-capd-smoke` workload through CAPI, requires explicit confirmation, and
+verifies that its Machines and CAPD Docker containers are gone.
 
 `make ok-capd-clean` deletes only `ok-capd-dev`, and only when no CAPI
 workload Cluster objects remain. Explicit confirmation is mandatory:
@@ -89,7 +90,7 @@ still exist. No cleanup runs automatically after a failed bootstrap or test.
 
 ## Deferred work
 
-1. Validate the first real CAPD workload cluster on macOS/Apple Silicon and Linux.
+1. Execute and record the first real CAPD workload create/status/delete cycle on macOS/Apple Silicon, then validate on Linux.
 2. Inventory and import the existing BYOH, RuntimeSDK and Guard spike assets.
 3. Integrate BYOH as a separate provider in this management cluster.
 4. Add RuntimeSDK accept/decline/failure/restart and in-place upgrade tests.
