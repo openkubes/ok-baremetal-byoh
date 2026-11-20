@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read-only, fail-closed upgrade preflight for the fixed two-host Scaleway lab.
 
-Exit 0 means the observations completed, NOT that an upgrade is authorized.
+Exit 2 means observations completed but upgrade remains BLOCKED.\nExit 1 means a fail-closed STOP. Exit 0 is reserved for future authorized workflows.
 No package changes, CAPI patches, approval prompts, or Secret reads are made.
 """
 import argparse
@@ -40,12 +40,17 @@ try:
     installed = {name: call(['dpkg-query', '-W', '-f=${Version}', name])
                  for name in ('kubeadm', 'kubelet', 'kubectl')}
     candidates = {}
+    repositories = {}
     for name in ('kubeadm', 'kubelet', 'kubectl'):
         text = call(['apt-cache', 'madison', name])
+        policy = call(['apt-cache', 'policy', name])
+        repositories[name] = sorted(set(
+            'v1.' + match for match in __import__('re').findall(
+                r'pkgs\\.k8s\\.io/core:/stable:/v(1\\.[0-9]+)/deb', policy)))
         candidates[name] = any(
             line.split('|')[1].strip().startswith('1.37.2-')
             for line in text.splitlines() if len(line.split('|')) >= 3)
-    print(json.dumps({'installed': installed, 'target_available': candidates}))
+    print(json.dumps({'installed': installed, 'target_available': candidates, 'repositories': repositories}))
 except Exception:
     print('STOP: remote package inventory failed', file=sys.stderr)
     sys.exit(41)
@@ -71,14 +76,28 @@ def remote_packages(host):
     except (ValueError, UnicodeError):
         stop("invalid package inventory response: " + host)
     installed, available = data.get("installed"), data.get("target_available")
-    if not isinstance(installed, dict) or not isinstance(available, dict):
+    repositories = data.get("repositories")
+    if not all(isinstance(x, dict) for x in (installed, available, repositories)):
         stop("incomplete package inventory: " + host)
     for name in ("kubeadm", "kubelet", "kubectl"):
         if not re.fullmatch(r"1\.36\.6-[A-Za-z0-9.+:~_-]+", str(installed.get(name, ""))):
             stop("unexpected installed Kubernetes package: " + host + "/" + name)
         if not isinstance(available.get(name), bool):
             stop("unknown target package availability: " + host + "/" + name)
-    return {name: available[name] for name in ("kubeadm", "kubelet", "kubectl")}
+        if repositories.get(name) not in (["v1.36"], ["v1.37"]):
+            stop("unexpected Kubernetes package repository: " + host + "/" + name)
+    if len({tuple(repositories[name]) for name in ("kubeadm", "kubelet", "kubectl")}) != 1:
+        stop("mixed Kubernetes package repositories: " + host)
+    return {"available": {name: available[name] for name in ("kubeadm", "kubelet", "kubectl")},
+            "repository": repositories["kubeadm"][0]}
+
+def package_status(result):
+    repository, available = result["repository"], result["available"]
+    if repository == "v1.36" and not any(available.values()):
+        return "EXPECTED_CHANGE", "approved v1.37 repository transition required"
+    if repository == "v1.37" and all(available.values()):
+        return "PASS", "target packages in current apt cache"
+    return "BLOCKED", "inconsistent repository or target package availability"
 
 def assess_cluster(cluster, kcp):
     if (cluster.get("metadata", {}).get("deletionTimestamp")
@@ -139,14 +158,15 @@ def main():
     print("Observed Kubernetes/CAPI: " + BASE + " | Requested target: " + TARGET)
     print("PASS: management identity, CAPI health and exact BYOH host bindings")
     print("PASS: workload API, both Nodes, Cilium and CoreDNS Ready")
-    for host, packages in availability.items():
-        missing = [name for name, available in packages.items() if not available]
-        print(("PASS" if not missing else "BLOCKER") + ": " + host +
-              " target packages " + ("available" if not missing else "unavailable: " + ", ".join(missing)))
+    for host, observation in availability.items():
+        status, explanation = package_status(observation)
+        print(status + ": " + host + " repository=" + observation["repository"] +
+              "; " + explanation)
     print("Observation SHA-256: " + fingerprint)
     print("BLOCKED: CAPI in-place version alignment and safe unpause are unvalidated.")
     print("BLOCKED: backup/recovery, disruption policy and plan-bound authorization are unvalidated.")
     print("NO UPGRADE AUTHORIZED; no CAPI, package, host or network writes performed.")
+    raise SystemExit(2)
 
 if __name__ == "__main__":
     main()
