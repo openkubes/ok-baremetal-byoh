@@ -38,11 +38,11 @@ else
 fi
 
 printf '\n=== Waiting for Cluster Ready ===\n'
-ok_capd_kubectl wait --for=condition=Ready "cluster.cluster.x-k8s.io/$name" --timeout=20m
+ok_capd_kubectl wait --for=condition=Available=True "cluster.cluster.x-k8s.io/$name" --timeout=20m
 printf '\n=== Waiting for control plane Ready ===\n'
-ok_capd_kubectl wait --for=condition=Ready "kubeadmcontrolplane.controlplane.cluster.x-k8s.io/$name-control-plane" --timeout=20m
+ok_capd_kubectl wait --for=condition=Available=True "kubeadmcontrolplane.controlplane.cluster.x-k8s.io/$name-control-plane" --timeout=20m
 printf '\n=== Waiting for worker MachineDeployment Ready ===\n'
-ok_capd_kubectl wait --for=condition=Ready "machinedeployment.cluster.x-k8s.io/$name-md-0" --timeout=20m
+ok_capd_kubectl wait --for=condition=Available=True "machinedeployment.cluster.x-k8s.io/$name-md-0" --timeout=20m
 
 ok_capd_kubectl get secret "$name-kubeconfig" -o name >/dev/null || ok_capd_fail "workload kubeconfig Secret $name-kubeconfig was not created"
 secret_json="$(ok_capd_kubectl get secret "$name-kubeconfig" -o json)"
