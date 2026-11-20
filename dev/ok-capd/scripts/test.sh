@@ -2,7 +2,7 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-"${OK_CAPD_ROOT}/scripts/preflight.sh"
+bash "${OK_CAPD_ROOT}/scripts/preflight.sh"
 ok_capd_verify_target
 ok_capd_verify_provider_versions
 
