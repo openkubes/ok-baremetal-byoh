@@ -141,6 +141,154 @@ The same CAPI concepts can be exercised against different infrastructure
 providers, while each provider retains its own infrastructure resources and
 operational boundaries.
 
+## 2.5 What the Make targets actually do
+
+The Make targets are thin, named entry points. The actual work is performed by
+the scripts they call. This section describes both local workflows because
+they serve different purposes and must not be confused.
+
+### CAPD development workflow
+
+| Make target | Script | What actually happens |
+| --- | --- | --- |
+| `make ok-capd` | `dev/ok-capd/scripts/up.sh` | Checks local tools and Docker, creates the dedicated Kind management cluster if absent, writes its private kubeconfig, initializes CAPI core + Kubeadm + CAPD with `clusterctl init`, then verifies the provider inventory and status. Existing verified clusters are preserved. |
+| `make ok-capd-status` | `dev/ok-capd/scripts/status.sh` | Read-only inspection of the dedicated Kind node, CAPI Provider objects, controller Deployments and CAPI workload Clusters. |
+| `make ok-capd-test` | `dev/ok-capd/scripts/test.sh` | Rechecks prerequisites and provider versions, waits for the seven CAPI/cert-manager Deployments, and verifies that the Docker socket is mounted in the Kind node and CAPD controller. It does not create a workload cluster. |
+| `make ok-capd-workload-render` | `dev/ok-capd/scripts/workload-render.sh` | Renders the pinned upstream CAPI v1.14.4 CAPD template into `/tmp/ok-capd-smoke.yaml`. No Kubernetes resources are written. |
+| `make ok-capd-workload-up` | `dev/ok-capd/scripts/workload-up.sh` | Verifies the management cluster, renders the template, runs server-side dry-run, applies CAPI resources, waits for CAPI readiness, extracts the workload kubeconfig Secret and waits for workload Nodes to become Ready. |
+| `make ok-capd-workload-status` | `dev/ok-capd/scripts/workload-status.sh` | Read-only view of the CAPI Cluster, KCP, MachineDeployment, Machines, CAPD DevCluster/DevMachines, workload Nodes and matching Docker containers. |
+| `make ok-capd-workload-down` | `dev/ok-capd/scripts/workload-down.sh` | Requires `OK_CAPD_CONFIRM_WORKLOAD_DELETE=ok-capd-smoke`, deletes only that CAPI Cluster, waits for Machines and CAPD containers to disappear, and removes its private workload kubeconfig. The management cluster stays running. |
+| `make ok-capd-down` | `dev/ok-capd/scripts/down.sh` | Currently read-only: lists workload Clusters. It does not stop or delete anything. |
+| `make ok-capd-clean` | `dev/ok-capd/scripts/clean.sh` | Deletes only the dedicated `ok-capd-dev` Kind management cluster after explicit confirmation and only when no CAPI workload Clusters, Machines or CAPD-labelled Docker containers remain. |
+| `make ok-capd-inplace-test` | placeholder | Reserved for RuntimeSDK in-place upgrade scenarios; currently exits with NOT IMPLEMENTED. |
+| `make ok-capd-guard-test` | placeholder | Reserved for No-Replacement Guard scenarios; currently exits with NOT IMPLEMENTED. |
+
+The CAPD workflow currently installs CAPI core, Kubeadm Bootstrap,
+Kubeadm Control Plane, CAPD and cert-manager. It does **not** install the
+OpenKubes BYOH controller or enroll BYOH hosts. That integration is a later,
+separately planned stage.
+
+### Existing BYOH management workflow
+
+The existing `make ok-up` workflow is different. It brings up the local
+BYOH management plane, not the CAPD environment:
+
+```bash
+make ok-up
+```
+
+By default, `BYOH_KIND_NAME=ok-byoh-dev`. The target calls
+`byoh-kind-up`, which runs `hack/dev/byoh-controller.sh up`. That script:
+
+1. Verifies the Docker daemon and the exact allow-listed Kind target.
+2. Creates the dedicated `ok-byoh-dev` Kind cluster if it does not exist.
+3. Initializes CAPI core, Kubeadm Bootstrap and Kubeadm Control Plane
+   v1.14.4 if the provider inventory is absent.
+4. Builds the OpenKubes BYOH controller image locally, tagged with the Git
+   revision.
+5. Loads that image into the selected Kind cluster.
+6. Renders and validates the BYOH controller deployment manifest.
+7. Deploys the controller into the `byoh-system` namespace.
+8. Verifies its image, rollout, RBAC and manual CSR approval mode.
+
+Useful individual targets expose the same stages:
+
+| Make target | Actual responsibility |
+| --- | --- |
+| `make byoh-preflight` | Read-only prerequisite checks |
+| `make byoh-kind-create` | Create the isolated Kind cluster only |
+| `make byoh-capi-init` | Install CAPI core and Kubeadm providers |
+| `make byoh-capi-verify` | Verify the CAPI provider inventory and rollouts |
+| `make byoh-controller-build` | Build the local BYOH controller image |
+| `make byoh-controller-load` | Load the image into the selected Kind cluster |
+| `make byoh-controller-render` | Render a fail-closed controller manifest; no cluster write |
+| `make byoh-controller-deploy` | Validate and apply the BYOH controller deployment |
+| `make byoh-controller-verify` | Verify image, rollout, RBAC and manual CSR mode |
+| `make ok-up` | Orchestrate the complete local Kind + CAPI + BYOH controller flow |
+
+The optional `BYOH_ENROLL=true` flag asks `ok-up` to continue into the
+host-enrollment preparation target. This is a separate trust boundary, not
+part of the controller installation. The current enrollment script is
+restricted to the disposable `ok-byoh-make-test` management cluster and a
+matching explicit inventory. It creates or verifies short-lived bootstrap
+credentials, transfers them securely and prepares agent systemd units in a
+stopped state. It explicitly does **not** start agents, approve CSRs or install
+Kubernetes. Those are separate lifecycle and trust decisions.
+
+### How a BYOH host becomes a Kubernetes worker
+
+The BYOH controller does not manufacture physical or virtual hosts. It
+reconciles CAPI infrastructure objects against hosts that already exist and
+have been deliberately enrolled.
+
+At a high level, the flow is:
+
+1. A Linux host exists and is reachable through its approved management path.
+2. The enrollment workflow prepares a short-lived bootstrap credential and
+   the BYOH agent unit. Agent activation is a separate explicit step.
+3. The agent starts and requests its bootstrap identity. Its CSR is inspected
+   and manually approved according to the configured trust policy.
+4. The host is registered as a BYOH host resource in the management cluster.
+5. A CAPI `Machine` references the BYOH infrastructure resource created for
+   that host. The BYOH controller and host agent cooperate to prepare the host
+   for the requested machine lifecycle.
+6. Kubeadm bootstrap/control-plane logic configures the host and joins it to
+   the workload cluster. The kubelet then registers a Kubernetes `Node`.
+7. For a worker, the CAPI `MachineDeployment` / `MachineSet` hierarchy
+   maintains the desired number of Machines; KCP manages the control plane
+   through its separate controller path.
+
+The exact host registration, Machine binding and worker installation steps
+are provider-specific. This high-level sequence is an architectural overview,
+not a claim that `make ok-up` or `BYOH_ENROLL=true` completes all of them.
+
+### Two infrastructure paths, one CAPI management model
+
+```mermaid
+flowchart TB
+  subgraph CAPDM["CAPD local test environment (ok-capd-dev)"]
+    CAPI1["CAPI Core + Kubeadm + CAPD"]
+    CAPD["CAPD controller"]
+    DOCKER["Local Docker daemon<br/>(Colima VM or Linux Docker host)"]
+    DCP["Docker container<br/>control-plane machine"]
+    DW["Docker container<br/>worker machine"]
+    CAPI1 --> CAPD
+    CAPD -->|"Docker API"| DOCKER
+    DOCKER --> DCP
+    DOCKER --> DW
+  end
+
+  subgraph BYOHM["BYOH management environment (ok-byoh-dev)"]
+    CAPI2["CAPI Core + Kubeadm"]
+    BYOHC["OpenKubes BYOH controller"]
+    H1["Existing Linux host<br/>BYOH agent"]
+    H2["Existing Linux host<br/>BYOH agent"]
+    CAPI2 --> BYOHC
+    BYOHC <-->|"registered host / infrastructure lifecycle"| H1
+    BYOHC <-->|"registered host / infrastructure lifecycle"| H2
+  end
+
+  DCP -->|"kubeadm + kubelet"| WK["CAPD workload cluster"]
+  DW -->|"kubeadm join + kubelet"| WK
+  H1 -->|"machine bootstrap / join"| BK["BYOH workload cluster"]
+  H2 -->|"machine bootstrap / join"| BK
+```
+
+The Docker daemon is the infrastructure host for CAPD's container-machines.
+It is not itself a Kubernetes worker Node. The Docker containers are the
+machine instances that are bootstrapped and join the workload cluster as
+Kubernetes Nodes.
+
+In the BYOH path, the Linux hosts already exist. They are not created by
+CAPI or by the BYOH controller. Once correctly enrolled and bound to CAPI
+Machines, they can be prepared and joined as workload-cluster Nodes.
+
+**Current implementation boundary:** `ok-capd-dev` and `ok-byoh-dev` are
+separate Kind management clusters with separate kubeconfigs. The current
+`ok-capd` bootstrap does not deploy BYOH into CAPD. The diagram shows the two
+provider paths conceptually, not a single combined cluster that has already
+been deployed.
+
 ## 2. Architecture and pinned versions
 
 The initial local management cluster contains:
