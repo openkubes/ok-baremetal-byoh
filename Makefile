@@ -550,3 +550,10 @@ ok-capd-down: ## Report CAPD workload clusters without deleting the management e
 
 ok-capd-clean: ## Delete only the isolated CAPD Kind cluster after explicit confirmation.
 	@bash dev/ok-capd/scripts/clean.sh
+
+
+##@ Local CAPD workload cluster
+
+.PHONY: ok-capd-workload-render
+ok-capd-workload-render: ## Render the pinned upstream CAPD workload template locally (no cluster writes).
+	@bash dev/ok-capd/scripts/workload-render.sh
