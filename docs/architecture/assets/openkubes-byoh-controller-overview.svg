@@ -108,9 +108,9 @@
 
   <!-- Overlay capability notes -->
   <g transform="translate(90 0)">
-    <rect x="90" y="605" width="300" height="30" rx="15" fill="#fff1dc" stroke="#e4bd86"/>
-    <text x="108" y="625" class="tag" fill="#94591e">SAFETY: INITIAL / OPT-IN</text>
-    <rect x="410" y="605" width="300" height="30" rx="15" fill="#e2f3ef" stroke="#9bcfbd"/>
-    <text x="428" y="625" class="tag" fill="#236b50">UPGRADE PLANNER: READ-ONLY</text>
+    <rect x="90" y="550" width="300" height="30" rx="15" fill="#fff1dc" stroke="#e4bd86"/>
+    <text x="108" y="570" class="tag" fill="#94591e">SAFETY: INITIAL / OPT-IN</text>
+    <rect x="410" y="550" width="300" height="30" rx="15" fill="#e2f3ef" stroke="#9bcfbd"/>
+    <text x="428" y="570" class="tag" fill="#236b50">UPGRADE PLANNER: READ-ONLY</text>
   </g>
 </svg>
