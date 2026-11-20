@@ -502,9 +502,11 @@ machine and one worker, both running Kubernetes `v1.36.4`.
 
 The workload-up workflow re-renders the pinned template, performs a
 server-side dry run, applies the CAPI objects, waits for the CAPI Cluster,
-KubeadmControlPlane and MachineDeployment to become Ready, extracts the
+KubeadmControlPlane and MachineDeployment to become available, extracts the
 workload kubeconfig from the CAPI-generated Secret and waits for workload
-Kubernetes Nodes to become Ready.
+Kubernetes Nodes to become Ready. With the CAPI v1beta2 APIs used here, the
+relevant condition is `Available=True`; the Cluster object does not expose a
+legacy top-level `Ready=True` condition.
 
 The workload kubeconfig is kept separately at:
 
@@ -654,6 +656,28 @@ The CAPI v1.14.4 Docker provider component artifact does not provide the
 expected release `cluster-template.yaml`. Use the repository's pinned
 upstream E2E template renderer instead of assuming that
 `clusterctl generate cluster` can fetch a default CAPD template.
+
+### CAPI workload-up times out although Machines are available
+
+CAPI v1beta2 exposes availability conditions on the Cluster,
+KubeadmControlPlane and MachineDeployment. A script waiting for
+`condition=Ready` on the Cluster can time out even when the Cluster reports
+`Available=True`, the control plane is initialized and the worker is
+available. The workload-up script therefore waits for `Available=True` on
+these three resources, then checks the workload Kubernetes Nodes separately.
+
+Use `make ok-capd-workload-diagnose` to capture conditions, Machines,
+ClusterResourceSet bindings, CNI configuration, Docker containers, controller
+logs and events without changing resources.
+
+### CAPD Docker containers do not have the expected cluster label
+
+The observed CAPD containers were named
+`ok-capd-smoke-control-plane-...`, `ok-capd-smoke-md-...` and
+`ok-capd-smoke-lb`. Do not rely solely on the
+`cluster.x-k8s.io/cluster-name` Docker label being present. The status,
+diagnostic and cleanup checks identify this disposable test set by its
+configured workload-name prefix instead.
 
 ### A helper script returns Permission denied
 
