@@ -54,7 +54,7 @@ func (h *MachineAdmissionHandler) Handle(
 }
 
 func validMachineResource(req *admission.Request) bool {
-	return req.Resource.Group == "cluster.x-k8s.io" &&
+	return req.Resource.Group == clusterAPIGroup &&
 		req.Resource.Version == "v1beta2" &&
 		req.Resource.Resource == "machines"
 }
@@ -93,7 +93,7 @@ func (h *MachineAdmissionHandler) handleMachine(
 	case admissionv1.Update:
 		if !scope.Verified {
 			return admission.Denied(
-				"BYOH protection scope could not be verified",
+				reasonScopeUnverified,
 			)
 		}
 

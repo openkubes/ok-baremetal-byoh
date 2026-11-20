@@ -15,6 +15,9 @@ const (
 	protectionAnnotation = "safety.openkubes.org/in-place-only"
 )
 
+// clusterAPIGroup is the Cluster API core API group.
+const clusterAPIGroup = "cluster.x-k8s.io"
+
 // reservedMetadataKey identifies metadata owned by CAPI,
 // infrastructure providers, or the OpenKubes safety boundary.
 func reservedMetadataKey(key string) bool {
@@ -23,7 +26,7 @@ func reservedMetadataKey(key string) bool {
 		return false
 	}
 
-	return domain == "cluster.x-k8s.io" ||
+	return domain == clusterAPIGroup ||
 		strings.HasSuffix(domain, ".cluster.x-k8s.io") ||
 		domain == "safety.openkubes.org"
 }
@@ -63,8 +66,9 @@ func EvaluateMachineUpdate(
 	oldMachine *clusterv1.Machine,
 	newMachine *clusterv1.Machine,
 ) Decision {
+
 	if !scope.Verified {
-		return deny("BYOH protection scope could not be verified")
+		return deny(reasonScopeUnverified)
 	}
 
 	if !scope.Protected {

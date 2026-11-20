@@ -17,6 +17,9 @@ const (
 	Delete Operation = "DELETE"
 )
 
+// reasonScopeUnverified is returned when scope verification fails closed.
+const reasonScopeUnverified = "BYOH protection scope could not be verified"
+
 // Scope is resolved from a trusted cluster-level policy source.
 // It must never be derived solely from incoming Machine labels.
 type Scope struct {
@@ -54,7 +57,7 @@ func EvaluateMachineLifecycle(
 ) Decision {
 
 	if !scope.Verified {
-		return deny("BYOH protection scope could not be verified")
+		return deny(reasonScopeUnverified)
 	}
 
 	if !scope.Protected {

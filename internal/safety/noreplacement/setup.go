@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	GuardEnabledEnv = "BYOH_NO_REPLACEMENT_GUARD_ENABLED"
-	RegistryPath    = "/etc/openkubes/no-replacement/registry.json"
+	GuardEnabledEnv   = "BYOH_NO_REPLACEMENT_GUARD_ENABLED"
+	RegistryPath      = "/etc/openkubes/no-replacement/registry.json"
+	guardEnabledTrue  = "true"
+	guardEnabledFalse = "false"
 )
 
 // SetupFromEnvironment prepares an admission handler but does not
@@ -38,14 +40,16 @@ func setupFromEnvironment(
 	enabled := strings.TrimSpace(os.Getenv(GuardEnabledEnv))
 
 	switch enabled {
-	case "", "false":
+	case "", guardEnabledFalse:
 		return nil, nil
-	case "true":
+	case guardEnabledTrue:
 		// Continue below.
 	default:
 		return nil, fmt.Errorf(
-			"%s must be true or false",
+			"%s must be %s or %s",
 			GuardEnabledEnv,
+			guardEnabledTrue,
+			guardEnabledFalse,
 		)
 	}
 
