@@ -2,7 +2,7 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-"${OK_CAPD_ROOT}/scripts/preflight.sh"
+bash "${OK_CAPD_ROOT}/scripts/preflight.sh"
 
 if ok_capd_kind_exists; then
   ok_capd_verify_target
@@ -40,5 +40,5 @@ else
   ok_capd_verify_provider_versions
 fi
 
-"${OK_CAPD_ROOT}/scripts/status.sh"
+bash "${OK_CAPD_ROOT}/scripts/status.sh"
 printf '\nPASS: isolated CAPI + CAPD management cluster is ready. BYOH is not installed.\n'
