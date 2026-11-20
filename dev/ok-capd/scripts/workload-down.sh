@@ -19,7 +19,7 @@ ok_capd_kubectl wait --for=delete "cluster.cluster.x-k8s.io/$name" --timeout=20m
 remaining="$(ok_capd_kubectl get machines -l "cluster.x-k8s.io/cluster-name=$name" -o name)"
 [[ -z "$remaining" ]] || ok_capd_fail "Machines remain after Cluster deletion: $remaining"
 
-remaining_docker="$(docker ps -aq --filter "label=cluster.x-k8s.io/cluster-name=$name")"
+remaining_docker="$(docker ps -aq --filter "name=$name-")"
 [[ -z "$remaining_docker" ]] || ok_capd_fail "CAPD Docker containers remain after Cluster deletion: $remaining_docker"
 
 if [[ -f "$workload_kubeconfig" && ! -L "$workload_kubeconfig" ]]; then
