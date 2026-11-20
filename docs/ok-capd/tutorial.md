@@ -583,6 +583,143 @@ localhost endpoint used by kubectl on macOS.
 Source: [`docs/ok-capd/images/capd-local-network.svg`](images/capd-local-network.svg).
 The SVG is editable and can be reused in the OpenKubes tutorial website.
 
+### How CAPD implements the Kubernetes API Load Balancer with HAProxy
+
+CAPD creates a dedicated Docker container for the workload cluster's external
+control-plane load balancer. In this environment the container is named
+`ok-capd-smoke-lb` and uses the pinned image
+`kindest/haproxy:v20230606-42a2262b`.
+
+This is not a Kubernetes Service, an Ingress controller or a load balancer
+running inside the workload cluster. It is infrastructure created by CAPD on
+the Docker network. Its job is to provide a stable endpoint for clients and
+nodes to reach the Kubernetes API server on the control-plane machine(s).
+
+#### What we observed in this environment
+
+The Docker runtime reported:
+
+```text
+ok-capd-smoke-lb
+  image: kindest/haproxy:v20230606-42a2262b
+  container IP: 172.18.0.5
+  container API frontend: 6443/tcp
+  container stats frontend: 8404/tcp
+  published host ports: 32768 -> 6443, 32769 -> 8404
+```
+
+The exact host ports are dynamically allocated by Docker and can differ on
+another run. Discover them instead of hard-coding them:
+
+```bash
+docker port ok-capd-smoke-lb
+docker inspect ok-capd-smoke-lb \
+  --format 'Image={{.Config.Image}} Entrypoint={{json .Config.Entrypoint}} Networks={{json .NetworkSettings.Networks}} Ports={{json .NetworkSettings.Ports}}'
+```
+
+The observed container entrypoint was:
+
+```text
+haproxy -W -db -f /usr/local/etc/haproxy/haproxy.cfg
+```
+
+The CAPD v1.14.4 source pins the default image repository, tag and
+configuration path. It starts HAProxy with this configuration file and
+publishes the control-plane API port plus the HAProxy statistics port.
+
+#### How traffic flows
+
+1. A local client uses the workload kubeconfig.
+2. On macOS with Colima, the local kubeconfig points to the Docker-published
+   loopback endpoint, for example `https://127.0.0.1:32768`.
+3. Docker forwards that host port to HAProxy's container port `6443`.
+4. HAProxy's `control-plane` frontend listens on `6443` in TCP mode and
+   forwards connections to the `kube-apiservers` backend.
+5. The backend contains the control-plane container address(es) on port
+   `6443`. CAPD discovers these containers and updates the HAProxy
+   configuration when control-plane machines are added or removed.
+6. HAProxy performs a TLS-enabled health check against the API server's
+   `/healthz` endpoint. The default template uses `check-ssl verify none`;
+   this is the backend health-check behavior, not a recommendation to disable
+   TLS verification in kubectl clients.
+
+For the first smoke cluster there is one control-plane backend:
+`ok-capd-smoke-control-plane-j64l2` at `172.18.0.6:6443`. With multiple
+control-plane machines, CAPD can add the corresponding backend entries. The
+default template assigns each discovered backend a weight of 100.
+
+The management cluster and workload nodes share the Docker network named
+`kind` inside the Colima VM. The management node can reach the load balancer's
+container IP (`172.18.0.5:6443`), while macOS reaches it through the published
+localhost port. This is why the internal Docker bridge IP must not be copied
+unchanged into a macOS kubeconfig.
+
+#### HAProxy statistics endpoint
+
+CAPD also exposes HAProxy's statistics frontend on container port `8404`.
+In the observed run Docker mapped it to host port `32769`. The default
+configuration serves the statistics page at `/stats`.
+
+This endpoint is for local diagnostics, not for public exposure. The default
+template enables the stats admin option, so keep the CAPD Docker daemon and
+its published ports restricted to the local development environment. Do not
+forward the statistics port to an untrusted network.
+
+#### Inspecting HAProxy
+
+The minimal HAProxy image does not necessarily contain general-purpose tools
+such as `ps`; in our container, `docker exec ... ps aux` returned
+`executable file not found`. That is not a HAProxy failure. Use Docker
+metadata, logs and the config file instead:
+
+```bash
+# Container image, entrypoint, network and port mappings.
+docker inspect ok-capd-smoke-lb \
+  --format 'Image={{.Config.Image}} Entrypoint={{json .Config.Entrypoint}} Networks={{json .NetworkSettings.Networks}} Ports={{json .NetworkSettings.Ports}}'
+
+# HAProxy startup, backend health and reload messages.
+docker logs --tail 100 ok-capd-smoke-lb
+
+# Read the generated configuration (if the image includes cat).
+docker exec ok-capd-smoke-lb \
+  cat /usr/local/etc/haproxy/haproxy.cfg
+
+# Discover the published statistics port, then query it locally.
+docker port ok-capd-smoke-lb 8404/tcp
+```
+
+If `cat` is also absent, copy the file out without needing tools inside the
+container:
+
+```bash
+docker cp ok-capd-smoke-lb:/usr/local/etc/haproxy/haproxy.cfg \
+  /tmp/ok-capd-smoke-haproxy.cfg
+```
+
+The default configuration is generated by CAPD from its template. CAPD
+updates the file when the set of control-plane backends changes, reads the
+file back to verify it was written, and signals HAProxy with `SIGHUP` to
+reload it.
+
+#### Important distinction
+
+HAProxy only fronts the Kubernetes API endpoint. It does not provide Pod
+networking, Service routing or application ingress. Those are separate
+workload-cluster networking functions:
+
+- HAProxy: client/control-plane API traffic on TCP `6443`.
+- kindnet CNI: Pod networking between workload nodes and Pods.
+- kube-proxy: Kubernetes Service traffic.
+- An Ingress controller or Gateway: north-south application traffic, if
+  installed separately.
+
+Upstream implementation for the pinned CAPI v1.14.4 release:
+
+- [CAPD Docker manager: container entrypoint and published ports](https://github.com/kubernetes-sigs/cluster-api/blob/v1.14.4/test/infrastructure/docker/internal/docker/manager.go)
+- [CAPD load-balancer lifecycle and backend updates](https://github.com/kubernetes-sigs/cluster-api/blob/v1.14.4/test/infrastructure/docker/internal/docker/loadbalancer.go)
+- [Default HAProxy configuration template](https://github.com/kubernetes-sigs/cluster-api/blob/v1.14.4/test/infrastructure/docker/internal/loadbalancer/config.go)
+- [Default image and configuration path](https://github.com/kubernetes-sigs/cluster-api/blob/v1.14.4/test/infrastructure/docker/internal/loadbalancer/const.go)
+
 ### CNI, kindnet and the workload Pod network
 
 A Kubernetes cluster needs a Container Network Interface (CNI) implementation
