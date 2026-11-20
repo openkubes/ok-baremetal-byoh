@@ -1,87 +1,92 @@
 // Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-package noreplacement
+package noreplacement_test
 
-import "testing"
+import (
+	"testing"
 
+	noreplacement "github.com/openkubes/ok-baremetal-byoh/internal/safety/noreplacement"
+)
+
+//nolint:funlen // Enumerates every scope-resolution outcome incl. duplicate name/UID and missing-UID fail-closed as one authoritative decision table.
 func TestResolveScope(t *testing.T) {
-	protected := ClusterIdentity{
+	protected := noreplacement.ClusterIdentity{
 		Name:      "ok-byoh",
 		UID:       "cluster-uid-001",
 		Protected: true,
 	}
 
-	other := ClusterIdentity{
+	other := noreplacement.ClusterIdentity{
 		Name: "other-cluster",
 		UID:  "cluster-uid-002",
 	}
 
 	tests := []struct {
 		name string
-		in   NamespaceInventory
-		want Scope
+		in   noreplacement.NamespaceInventory
+		want noreplacement.Scope
 	}{
 		{
 			name: "protected namespace",
-			in: NamespaceInventory{
+			in: noreplacement.NamespaceInventory{
 				Verified: true,
-				Clusters: []ClusterIdentity{protected},
+				Clusters: []noreplacement.ClusterIdentity{protected},
 			},
-			want: Scope{
+			want: noreplacement.Scope{
 				Verified:  true,
 				Protected: true,
 			},
 		},
 		{
 			name: "mixed namespace remains protected",
-			in: NamespaceInventory{
+			in: noreplacement.NamespaceInventory{
 				Verified: true,
-				Clusters: []ClusterIdentity{protected, other},
+				Clusters: []noreplacement.ClusterIdentity{protected, other},
 			},
-			want: Scope{
+			want: noreplacement.Scope{
 				Verified:  true,
 				Protected: true,
 			},
 		},
 		{
 			name: "verified unprotected namespace",
-			in: NamespaceInventory{
+			in: noreplacement.NamespaceInventory{
 				Verified: true,
-				Clusters: []ClusterIdentity{other},
+				Clusters: []noreplacement.ClusterIdentity{other},
 			},
-			want: Scope{Verified: true},
+			want: noreplacement.Scope{Verified: true},
 		},
 		{
 			name: "verified empty inventory",
-			in: NamespaceInventory{
+			in: noreplacement.NamespaceInventory{
 				Verified: true,
 			},
-			want: Scope{Verified: true},
+			want: noreplacement.Scope{Verified: true},
 		},
 		{
 			name: "unverified inventory",
-			in: NamespaceInventory{
-				Clusters: []ClusterIdentity{protected},
+			in: noreplacement.NamespaceInventory{
+				Clusters: []noreplacement.ClusterIdentity{protected},
 			},
-			want: Scope{},
+			want: noreplacement.Scope{},
 		},
 		{
 			name: "missing cluster UID",
-			in: NamespaceInventory{
+			in: noreplacement.NamespaceInventory{
 				Verified: true,
-				Clusters: []ClusterIdentity{{
+				Clusters: []noreplacement.ClusterIdentity{{
 					Name:      "ok-byoh",
 					Protected: true,
 				}},
 			},
-			want: Scope{},
+			want: noreplacement.Scope{},
 		},
 		{
 			name: "duplicate cluster name",
-			in: NamespaceInventory{
+			in: noreplacement.NamespaceInventory{
 				Verified: true,
-				Clusters: []ClusterIdentity{
+				Clusters: []noreplacement.ClusterIdentity{
 					protected,
 					{
 						Name: "ok-byoh",
@@ -89,13 +94,13 @@ func TestResolveScope(t *testing.T) {
 					},
 				},
 			},
-			want: Scope{},
+			want: noreplacement.Scope{},
 		},
 		{
 			name: "duplicate cluster UID",
-			in: NamespaceInventory{
+			in: noreplacement.NamespaceInventory{
 				Verified: true,
-				Clusters: []ClusterIdentity{
+				Clusters: []noreplacement.ClusterIdentity{
 					protected,
 					{
 						Name: "another-cluster",
@@ -103,16 +108,16 @@ func TestResolveScope(t *testing.T) {
 					},
 				},
 			},
-			want: Scope{},
+			want: noreplacement.Scope{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ResolveScope(tt.in)
+			got := noreplacement.ResolveScope(tt.in)
 			if got != tt.want {
 				t.Fatalf(
-					"ResolveScope() = %+v, want %+v",
+					"noreplacement.ResolveScope() = %+v, want %+v",
 					got, tt.want,
 				)
 			}
@@ -123,9 +128,10 @@ func TestResolveScope(t *testing.T) {
 func TestNamespaceGuardCannotBeBypassedByMachineMetadata(
 	t *testing.T,
 ) {
-	inventory := NamespaceInventory{
+
+	inventory := noreplacement.NamespaceInventory{
 		Verified: true,
-		Clusters: []ClusterIdentity{{
+		Clusters: []noreplacement.ClusterIdentity{{
 			Name:      "ok-byoh",
 			UID:       "cluster-uid-001",
 			Protected: true,
@@ -135,9 +141,9 @@ func TestNamespaceGuardCannotBeBypassedByMachineMetadata(
 	// The resolver deliberately has no Machine-label or
 	// Machine-owner-reference input. Hence these metadata
 	// manipulations cannot influence the scope decision.
-	for _, operation := range []Operation{Create, Delete} {
-		scope := ResolveScope(inventory)
-		decision := EvaluateMachineLifecycle(scope, operation)
+	for _, operation := range []noreplacement.Operation{noreplacement.Create, noreplacement.Delete} {
+		scope := noreplacement.ResolveScope(inventory)
+		decision := noreplacement.EvaluateMachineLifecycle(scope, operation)
 
 		if decision.Allowed {
 			t.Fatalf(

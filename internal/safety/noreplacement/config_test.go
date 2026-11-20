@@ -1,10 +1,12 @@
 // Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-package noreplacement
+package noreplacement_test
 
 import (
 	"strings"
+
+	noreplacement "github.com/openkubes/ok-baremetal-byoh/internal/safety/noreplacement"
 	"testing"
 )
 
@@ -60,7 +62,7 @@ func TestParseProtectedRegistry(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			registry, err := ParseProtectedRegistry([]byte(tt.input))
+			registry, err := noreplacement.ParseProtectedRegistry([]byte(tt.input))
 
 			if tt.wantError {
 				if err == nil {
@@ -93,7 +95,7 @@ func TestRegistryCannotDisableProtection(t *testing.T) {
 		}]
 	}`
 
-	_, err := ParseProtectedRegistry([]byte(input))
+	_, err := noreplacement.ParseProtectedRegistry([]byte(input))
 	if err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("expected unknown-field rejection, got %v", err)
 	}

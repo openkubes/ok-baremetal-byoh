@@ -1,6 +1,7 @@
 // Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
 // SPDX-License-Identifier: Apache-2.0
 
+//nolint:testpackage // White-box tests for private Machine safety metadata.
 package noreplacement
 
 import (

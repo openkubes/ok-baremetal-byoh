@@ -1,11 +1,13 @@
 // Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-package noreplacement
+package noreplacement_test
 
 import (
 	"context"
 	"testing"
+
+	noreplacement "github.com/openkubes/ok-baremetal-byoh/internal/safety/noreplacement"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -14,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+//nolint:funlen // Covers real-UID lookup, not-found, nil-reader fail-closed and API-identity verification across CREATE/DELETE as one cohesive lookup contract.
 func TestKubernetesClusterLookup(t *testing.T) {
 	ctx := context.Background()
 
@@ -35,7 +38,7 @@ func TestKubernetesClusterLookup(t *testing.T) {
 		WithObjects(cluster).
 		Build()
 
-	lookup := KubernetesClusterLookup(reader)
+	lookup := noreplacement.KubernetesClusterLookup(reader)
 
 	t.Run("returns actual UID", func(t *testing.T) {
 		uid, err := lookup(ctx, "byoh-lab", "ok-byoh")
@@ -69,7 +72,7 @@ func TestKubernetesClusterLookup(t *testing.T) {
 	})
 
 	t.Run("nil reader fails closed", func(t *testing.T) {
-		nilReaderLookup := KubernetesClusterLookup(nil)
+		nilReaderLookup := noreplacement.KubernetesClusterLookup(nil)
 		_, err := nilReaderLookup(ctx, "byoh-lab", "ok-byoh")
 		if err == nil {
 			t.Fatal("expected reader error")
@@ -77,10 +80,10 @@ func TestKubernetesClusterLookup(t *testing.T) {
 	})
 
 	t.Run("registration verifies API identity", func(t *testing.T) {
-		scope := ResolveRegisteredScope(
+		scope := noreplacement.ResolveRegisteredScope(
 			ctx,
 			"byoh-lab",
-			map[string]NamespaceRegistration{
+			map[string]noreplacement.NamespaceRegistration{
 				"byoh-lab": {
 					Protected:   true,
 					ClusterName: "ok-byoh",
@@ -94,11 +97,11 @@ func TestKubernetesClusterLookup(t *testing.T) {
 			t.Fatalf("unexpected scope: %+v", scope)
 		}
 
-		for _, operation := range []Operation{
-			Create,
-			Delete,
+		for _, operation := range []noreplacement.Operation{
+			noreplacement.Create,
+			noreplacement.Delete,
 		} {
-			if decision := EvaluateMachineLifecycle(
+			if decision := noreplacement.EvaluateMachineLifecycle(
 				scope,
 				operation,
 			); decision.Allowed {
@@ -111,10 +114,10 @@ func TestKubernetesClusterLookup(t *testing.T) {
 	})
 
 	t.Run("UID mismatch fails closed", func(t *testing.T) {
-		scope := ResolveRegisteredScope(
+		scope := noreplacement.ResolveRegisteredScope(
 			ctx,
 			"byoh-lab",
-			map[string]NamespaceRegistration{
+			map[string]noreplacement.NamespaceRegistration{
 				"byoh-lab": {
 					Protected:   true,
 					ClusterName: "ok-byoh",

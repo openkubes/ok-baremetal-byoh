@@ -1,6 +1,7 @@
 // Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
 // SPDX-License-Identifier: Apache-2.0
 
+//nolint:testpackage // White-box tests for private Machine safety metadata.
 package noreplacement
 
 import (
@@ -12,6 +13,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
+//nolint:funlen // White-box hardening matrix over reserved CAPI/BYOH/OpenKubes metadata keys; each row guards a distinct replacement-bypass vector.
 func TestMachineUpdateMetadataHardening(t *testing.T) {
 	scope := Scope{Verified: true, Protected: true}
 

@@ -1,12 +1,14 @@
 // Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-package noreplacement
+package noreplacement_test
 
 import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	noreplacement "github.com/openkubes/ok-baremetal-byoh/internal/safety/noreplacement"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,11 +18,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
+//nolint:funlen // Exhaustive admission matrix: CREATE/UPDATE/DELETE across protected, unverified and unknown scope in one fail-closed security contract.
 func TestMachineAdmissionHandler(t *testing.T) {
 	const namespace = "byoh-lab"
 
-	handler := NewMachineAdmissionHandler(
-		map[string]NamespaceRegistration{
+	handler := noreplacement.NewMachineAdmissionHandler(
+		map[string]noreplacement.NamespaceRegistration{
 			namespace: {
 				Protected:   true,
 				ClusterName: "ok-byoh",
@@ -31,6 +34,7 @@ func TestMachineAdmissionHandler(t *testing.T) {
 			_ context.Context,
 			_, _ string,
 		) (string, error) {
+
 			return "cluster-uid-123", nil
 		},
 	)
@@ -41,7 +45,7 @@ func TestMachineAdmissionHandler(t *testing.T) {
 			Namespace: namespace,
 			UID:       types.UID("machine-uid-123"),
 			Labels: map[string]string{
-				clusterNameLabel: "ok-byoh",
+				"cluster.x-k8s.io/cluster-name": "ok-byoh",
 			},
 		},
 	}
@@ -57,6 +61,7 @@ func TestMachineAdmissionHandler(t *testing.T) {
 	makeRequest := func(
 		operation admissionv1.Operation,
 	) admission.Request {
+
 		return admission.Request{
 			AdmissionRequest: admissionv1.AdmissionRequest{
 				Operation: operation,
