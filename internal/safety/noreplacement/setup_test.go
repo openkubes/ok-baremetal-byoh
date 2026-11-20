@@ -1,0 +1,106 @@
+package noreplacement
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"k8s.io/apimachinery/pkg/runtime"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+)
+
+func TestSetupFromEnvironment(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clusterv1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	reader := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	err := os.WriteFile(registryPath, []byte(`{
+		"registrations": [{
+			"namespace": "byoh-lab",
+			"clusterName": "ok-byoh",
+			"clusterUID": "uid-123"
+		}]
+	}`), 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		enabled     string
+		file        string
+		wantHandler bool
+		wantError   bool
+	}{
+		{
+			name: "disabled by default",
+		},
+		{
+			name:    "explicit false",
+			enabled: "false",
+		},
+		{
+			name:      "invalid flag",
+			enabled:   "yes",
+			wantError: true,
+		},
+		{
+			name:      "enabled without registry",
+			enabled:   "true",
+			wantError: true,
+		},
+		{
+			name:      "enabled missing registry file",
+			enabled:   "true",
+			file:      filepath.Join(t.TempDir(), "missing.json"),
+			wantError: true,
+		},
+		{
+			name:        "enabled with valid registry",
+			enabled:     "true",
+			file:        registryPath,
+			wantHandler: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(GuardEnabledEnv, tt.enabled)
+			t.Setenv(RegistryFileEnv, tt.file)
+
+			handler, err := SetupFromEnvironment(reader)
+
+			if (err != nil) != tt.wantError {
+				t.Fatalf(
+					"error=%v, wantError=%v",
+					err,
+					tt.wantError,
+				)
+			}
+			if (handler != nil) != tt.wantHandler {
+				t.Fatalf(
+					"handler=%v, wantHandler=%v",
+					handler != nil,
+					tt.wantHandler,
+				)
+			}
+		})
+	}
+}
+
+func TestSetupFailsWithoutReader(t *testing.T) {
+	t.Setenv(GuardEnabledEnv, "true")
+	t.Setenv(RegistryFileEnv, "/unused")
+
+	handler, err := SetupFromEnvironment(nil)
+
+	if err == nil || handler != nil {
+		t.Fatal("enabled guard must reject nil API reader")
+	}
+}
