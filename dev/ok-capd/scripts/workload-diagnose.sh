@@ -48,10 +48,10 @@ cluster_conditions() {
 capture "1. CAPI Cluster conditions" cluster_conditions
 capture "2a. KubeadmControlPlane" \
   ok_capd_kubectl get kubeadmcontrolplane "$name-control-plane" -o yaml
-capture "2b. CAPI Machines" \
-  ok_capd_kubectl get machines -A -o wide
-capture "2c. CAPD DevMachines" \
-  ok_capd_kubectl get devmachines -A -o wide
+capture "2b. CAPI Machines for this workload" \
+  ok_capd_kubectl get machines -A -l "cluster.x-k8s.io/cluster-name=$name" -o wide
+capture "2c. CAPD DevMachines for this workload" \
+  ok_capd_kubectl get devmachines -A -l "cluster.x-k8s.io/cluster-name=$name" -o wide
 capture "2d. CAPD DevCluster" \
   ok_capd_kubectl get devcluster "$name" -o yaml
 capture "3a. ClusterResourceSets and bindings" \
@@ -62,8 +62,11 @@ capture "4a. CAPD Docker containers" \
   docker ps -a --filter "label=cluster.x-k8s.io/cluster-name=$name"
 capture "4b. CAPD controller logs (last 30 minutes, max 150 lines)" \
   ok_capd_kubectl -n capd-system logs deployment/capd-controller-manager --since=30m --tail=150
-capture "5. Kubernetes events (all namespaces, newest last)" \
-  ok_capd_kubectl get events -A --sort-by=.metadata.creationTimestamp
+recent_events() {
+  ok_capd_kubectl get events -A --sort-by=.metadata.creationTimestamp | tail -80
+}
+
+capture "5. Kubernetes events (last 80 across namespaces, newest last)" recent_events
 
 printf '\nDiagnostics complete. No Kubernetes or Docker resources were modified.\n' | tee -a "$report"
 printf 'Saved report: %s\n' "$report"
