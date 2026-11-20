@@ -59,7 +59,7 @@ capture "3a. ClusterResourceSets and bindings" \
 capture "3b. CNI ConfigMap" \
   ok_capd_kubectl get configmap "cni-$name-crs-0" -o yaml
 capture "4a. CAPD Docker containers" \
-  docker ps -a --filter "label=cluster.x-k8s.io/cluster-name=$name"
+  docker ps -a --filter "name=$name-"
 capture "4b. CAPD controller logs (last 30 minutes, max 150 lines)" \
   ok_capd_kubectl -n capd-system logs deployment/capd-controller-manager --since=30m --tail=150
 recent_events() {
