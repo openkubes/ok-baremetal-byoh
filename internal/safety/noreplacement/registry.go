@@ -44,6 +44,7 @@ func ResolveRegisteredScope(
 	registrations map[string]NamespaceRegistration,
 	lookup ClusterLookup,
 ) Scope {
+
 	if namespace == "" {
 		return Scope{}
 	}

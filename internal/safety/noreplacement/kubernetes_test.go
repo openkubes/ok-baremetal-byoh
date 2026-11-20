@@ -69,8 +69,8 @@ func TestKubernetesClusterLookup(t *testing.T) {
 	})
 
 	t.Run("nil reader fails closed", func(t *testing.T) {
-		lookup := KubernetesClusterLookup(nil)
-		_, err := lookup(ctx, "byoh-lab", "ok-byoh")
+		nilReaderLookup := KubernetesClusterLookup(nil)
+		_, err := nilReaderLookup(ctx, "byoh-lab", "ok-byoh")
 		if err == nil {
 			t.Fatal("expected reader error")
 		}

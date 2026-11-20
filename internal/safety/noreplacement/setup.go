@@ -24,6 +24,7 @@ const (
 func SetupFromEnvironment(
 	reader client.Reader,
 ) (*MachineAdmissionHandler, error) {
+
 	enabled := strings.TrimSpace(os.Getenv(GuardEnabledEnv))
 
 	switch enabled {

@@ -31,6 +31,7 @@ func reservedMetadataKey(key string) bool {
 func reservedMetadataChanged(
 	oldValues, newValues map[string]string,
 ) bool {
+
 	for key, oldValue := range oldValues {
 		if !reservedMetadataKey(key) {
 			continue

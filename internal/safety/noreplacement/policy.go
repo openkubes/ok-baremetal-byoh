@@ -52,6 +52,7 @@ func EvaluateMachineLifecycle(
 	scope Scope,
 	operation Operation,
 ) Decision {
+
 	if !scope.Verified {
 		return deny("BYOH protection scope could not be verified")
 	}

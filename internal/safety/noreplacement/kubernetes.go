@@ -22,11 +22,13 @@ import (
 func KubernetesClusterLookup(
 	reader client.Reader,
 ) ClusterLookup {
+
 	return func(
 		ctx context.Context,
 		namespace string,
 		name string,
 	) (string, error) {
+
 		if reader == nil {
 			return "", errors.New(
 				"kubernetes Cluster reader is unavailable",
