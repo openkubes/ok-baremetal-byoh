@@ -10,6 +10,12 @@ ok_capd_verify_target
 clusters="$(ok_capd_kubectl get clusters.cluster.x-k8s.io -A -o name)"
 [[ -z "$clusters" ]] || ok_capd_fail "CAPI workload clusters still exist; delete and verify them through CAPI before cleaning the management cluster: $clusters"
 
+machines="$(ok_capd_kubectl get machines.cluster.x-k8s.io -A -o name)"
+[[ -z "$machines" ]] || ok_capd_fail "CAPI Machines still exist without a Cluster; inspect and resolve them before cleanup: $machines"
+
+docker_containers="$(docker ps -aq --filter label=cluster.x-k8s.io/cluster-name)"
+[[ -z "$docker_containers" ]] || ok_capd_fail "Docker containers carrying CAPI cluster labels still exist; inspect them before cleanup: $docker_containers"
+
 printf 'Deleting only Kind cluster %s\n' "${OK_CAPD_KIND_NAME}"
 kind delete cluster --name "${OK_CAPD_KIND_NAME}"
 rm -f -- "${OK_CAPD_KUBECONFIG}"
