@@ -131,5 +131,89 @@ class UpgradePlanOfflineTests(unittest.TestCase):
             upgrade.remote_packages("ok-bm-lab-01")
 
 
+class RemoteParserRegressionTests(unittest.TestCase):
+    """Exercise the ACTUAL remote apt-cache parser embedded in upgrade.REMOTE.
+
+    The tests above mock subprocess.run and inject an already-parsed
+    'repositories' list, so none of them execute the remote regex. This class
+    runs the real REMOTE snippet through bash with stub apt-cache/dpkg-query on
+    PATH, feeding representative `apt-cache policy`/`madison` output, and asserts
+    the Kubernetes package repository is actually detected. Regression guard for
+    the double-escaped regex that silently returned empty repositories and made
+    a healthy v1.36 host fail-close with STOP instead of EXPECTED_CHANGE.
+    """
+
+    def _run_remote(self, repo_minor, target_available):
+        import json
+        import os
+        import shutil
+        import subprocess
+        import tempfile
+        import textwrap
+        if shutil.which("bash") is None:
+            self.skipTest("bash required for remote-parser regression")
+        work = tempfile.mkdtemp(prefix="ok-byoh-remote-parser-")
+        self.addCleanup(shutil.rmtree, work, ignore_errors=True)
+        bindir = os.path.join(work, "bin")
+        os.mkdir(bindir)
+        apt_cache = textwrap.dedent("""\
+            #!/usr/bin/env bash
+            set -eu
+            sub="$1"; pkg="$2"
+            minor="${OK_TEST_REPO_MINOR}"
+            if [ "$sub" = policy ]; then
+              printf '%s:\\n' "$pkg"
+              printf '  Installed: 1.36.6-1.1\\n'
+              printf '  Candidate: 1.36.6-1.1\\n'
+              printf '  Version table:\\n'
+              printf ' *** 1.36.6-1.1 500\\n'
+              printf '        500 https://pkgs.k8s.io/core:/stable:/v%s/deb  Packages\\n' "$minor"
+              printf '        100 /var/lib/dpkg/status\\n'
+            elif [ "$sub" = madison ]; then
+              printf '   %s |  1.36.6-1.1 | https://pkgs.k8s.io/core:/stable:/v%s/deb  Packages\\n' "$pkg" "$minor"
+              if [ "${OK_TEST_TARGET_AVAILABLE}" = 1 ]; then
+                printf '   %s |  1.37.2-1.1 | https://pkgs.k8s.io/core:/stable:/v1.37/deb  Packages\\n' "$pkg"
+              fi
+            fi
+            """)
+        dpkg_query = "#!/usr/bin/env bash\nprintf '1.36.6-1.1'\n"
+        for name, body in (("apt-cache", apt_cache), ("dpkg-query", dpkg_query)):
+            target = os.path.join(bindir, name)
+            with open(target, "w", encoding="utf-8") as handle:
+                handle.write(body)
+            os.chmod(target, 0o755)
+        env = dict(os.environ)
+        env["PATH"] = bindir + os.pathsep + env["PATH"]
+        env["OK_TEST_REPO_MINOR"] = repo_minor
+        env["OK_TEST_TARGET_AVAILABLE"] = "1" if target_available else "0"
+        proc = subprocess.run(["bash", "-c", upgrade.REMOTE],
+                              capture_output=True, env=env, timeout=60)
+        self.assertEqual(proc.returncode, 0,
+                         "remote snippet failed: " + proc.stderr.decode(errors="replace"))
+        return json.loads(proc.stdout)
+
+    def test_real_parser_detects_v136_repository(self):
+        data = self._run_remote("1.36", target_available=False)
+        # Pre-fix this returned {name: []} for every package and triggered STOP.
+        self.assertEqual(data["repositories"],
+                         {n: ["v1.36"] for n in ("kubeadm", "kubelet", "kubectl")})
+        self.assertEqual(data["target_available"],
+                         {n: False for n in ("kubeadm", "kubelet", "kubectl")})
+        result = upgrade.package_status(
+            {"repository": data["repositories"]["kubeadm"][0],
+             "available": data["target_available"]})
+        self.assertEqual(result[0], "EXPECTED_CHANGE")
+
+    def test_real_parser_detects_v137_repository(self):
+        data = self._run_remote("1.37", target_available=True)
+        self.assertEqual(data["repositories"],
+                         {n: ["v1.37"] for n in ("kubeadm", "kubelet", "kubectl")})
+        self.assertTrue(all(data["target_available"].values()))
+        result = upgrade.package_status(
+            {"repository": data["repositories"]["kubeadm"][0],
+             "available": data["target_available"]})
+        self.assertEqual(result[0], "PASS")
+
+
 if __name__ == "__main__":
     unittest.main()
