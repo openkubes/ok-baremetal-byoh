@@ -1,9 +1,9 @@
 # BYOH Kubernetes upgrade automation – baseline and handoff
 
-**Recorded:** 20–21 November 2026 (operator local session, Europe/Berlin)  
-**Repository:** `openkubes/ok-baremetal-byoh`  
-**Base:** `main` at `ccb9ca8` (merged PR #21)  
-**Working branch:** `feat/byoh-kubernetes-upgrade-automation`  
+**Recorded:** 20–21 November 2026 (operator local session, Europe/Berlin)
+**Repository:** `openkubes/ok-baremetal-byoh`
+**Base:** `main` at `ccb9ca8` (merged PR #21)
+**Working branch:** `feat/byoh-kubernetes-upgrade-automation`
 **Current task:** Design a **read-only** `byoh-cluster-upgrade-plan` before any package, CAPI or cluster changes.
 
 > This is a handoff/checkpoint, **not an upgrade execution log for the current cluster**.
