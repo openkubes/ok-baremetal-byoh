@@ -3,6 +3,9 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 ok_capd_require_tools
+for tool in curl python3; do
+  command -v "$tool" >/dev/null 2>&1 || ok_capd_fail "required tool not found: $tool"
+done
 ok_capd_verify_target
 ok_capd_verify_provider_versions
 bash "${OK_CAPD_ROOT}/scripts/workload-render.sh"
