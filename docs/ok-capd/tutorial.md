@@ -1,6 +1,6 @@
 # Build a local OpenKubes BYOH development environment with CAPD
 
-> **Publication draft — 20 November 2026**
+> **Publication draft — 21 November 2026**
 >
 > This tutorial documents the local CAPD developer environment being built in
 > `openkubes/ok-baremetal-byoh`. The management-cluster bootstrap and its
@@ -434,8 +434,9 @@ The smoke test verifies:
 On the tested macOS/Apple Silicon setup, all seven provider/cert-manager
 controller deployments reached `1/1` and the smoke test passed.
 
-At this point the management cluster is ready, but no CAPD workload cluster
-has been created yet.
+At this point the management cluster is ready. The first CAPD workload
+creation has since been completed successfully; see the workload lifecycle
+and network sections below.
 
 ## 6. Render and validate the first CAPD workload manifest
 
@@ -528,10 +529,13 @@ The CAPI kubeconfig Secret and the in-cluster API endpoint are not modified.
 The management kubeconfig remains
 `~/.config/ok/capd/kubeconfig`. Never commit either kubeconfig.
 
-> **Verification status:** The manifest rendering and server-side dry run
-> passed on 20 November 2026. The first live execution of
-> `make ok-capd-workload-up` and the resulting Machine/Node readiness must be
-> recorded here after it has been run successfully.
+> **Verified on 21 November 2026:** `make ok-capd-workload-up` completed
+> successfully on macOS Apple Silicon with Colima. CAPI reported the Cluster,
+> KubeadmControlPlane and MachineDeployment available; the workload kubeconfig
+> was retrieved; the local API endpoint was switched to the published
+> localhost port; and both the control-plane and worker Kubernetes Nodes
+> reached `Ready`. The CAPI-driven workload deletion and Linux validation are
+> still pending.
 
 ## 8. Diagnose a workload that does not become Ready
 
@@ -567,6 +571,17 @@ control-plane bootstrap, ClusterResourceSet/CNI and worker-join failures.
 Do not assume that every Cluster Ready timeout is a CNI failure: the CNI
 primarily affects workload Pod networking, while CAPD provisioning and
 control-plane bootstrap have their own conditions and events.
+
+### Network architecture diagram
+
+The diagram below summarizes the tested macOS/Colima path. It distinguishes
+the Docker bridge address used inside the Colima VM from the published
+localhost endpoint used by kubectl on macOS.
+
+![OpenKubes CAPD local network overview](images/capd-local-network.svg)
+
+Source: [`docs/ok-capd/images/capd-local-network.svg`](images/capd-local-network.svg).
+The SVG is editable and can be reused in the OpenKubes tutorial website.
 
 ### CNI, kindnet and the workload Pod network
 
