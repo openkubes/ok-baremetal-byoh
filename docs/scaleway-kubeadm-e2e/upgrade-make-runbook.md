@@ -241,3 +241,36 @@ and false), pause annotation, KCP version drift, unavailable KCP,
 uninitialized KCP, missing Cluster availability, SSH failure and mixed
 installed package versions. Passing these isolated tests does **not**
 replace the operator-side read-only plan or CAPI upgrade policy review.
+
+
+### Operator evidence: package repository diagnosis (20 November 2026)
+
+After 9/9 offline tests passed, the operator executed the read-only
+`byoh-cluster-upgrade-plan` against `ok-byoh-make-test` and `ok-byoh-scw1`.
+The management identity, CAPI health, exact BYOH bindings, Kubernetes Nodes,
+Cilium and CoreDNS all reported PASS. Target package availability for
+`kubeadm`, `kubelet`, `kubectl` was BLOCKER on both machines. The plan
+reported BLOCKED for CAPI reconciliation and recovery policy; no upgrade
+was authorized.
+
+The operator then executed `apt-cache policy` remotely over SSH (no
+`apt update`, repository edit, or package installation). Both
+`ok-bm-lab-01` (51.158.62.217) and `ok-bm-lab-02` (51.158.62.216)
+reported, for each of `kubeadm`, `kubelet` and `kubectl`:
+
+- Installed: `1.36.6-1.1`
+- Candidate: `1.36.6-1.1`
+- Repository shown: `https://pkgs.k8s.io/core:/stable:/v1.36/deb`
+
+**Interpretation:** target `1.37.2-*` is absent from the host's *current*
+v1.36 apt package view. This is expected with a minor-specific repository,
+not proof that the 1.37.2 upstream packages are unavailable. The plan should
+distinguish `EXPECTED_CHANGE` (approved repository transition required)
+from unexpected package drift or missing packages after an approved transition.
+Do not change apt sources as part of read-only M1.
+
+**Next controls:** preserve the hard `BLOCKED` upgrade authorization until
+CAPI rollout impact and recovery are reviewed. Separate observation success
+from upgrade readiness using machine-readable statuses and non-success exit
+codes when used as a gating command; regression-test that behavior. This
+evidence is operator-provided, not independently re-executed by the connector.
