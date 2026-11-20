@@ -63,8 +63,11 @@ socket wiring. The first disposable CAPD workload lifecycle is driven separately
 make ok-capd-workload-render  # render only; no cluster writes
 make ok-capd-workload-up      # apply and wait for one CP + one worker
 make ok-capd-workload-status  # read-only CAPI and workload-node status
+make ok-capd-workload-diagnose # detailed read-only failure diagnostics
 make ok-capd-workload-down    # delete workload only, with explicit confirmation
 ```
+
+The diagnostic target collects CAPI conditions, KCP/Machine/CAPD state, ClusterResourceSet bindings, the CNI ConfigMap, Docker containers, CAPD controller logs and Kubernetes events. It writes a private report under `~/.local/state/ok/capd/diagnostics/` (directory mode `0700`, report mode `0600`) and does not modify cluster resources.
 
 The workload kubeconfig is stored at
 `~/.config/ok/capd/workloads/ok-capd-smoke.kubeconfig`. Workload deletion
