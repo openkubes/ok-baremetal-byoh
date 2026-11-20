@@ -43,14 +43,28 @@ func NewMachineAdmissionHandler(
 
 // Handle evaluates admission for CAPI core/v1beta2 Machines.
 // Unknown resources, subresources and scope are denied.
+//
+//nolint:gocritic // admission.Handler requires Request by value.
 func (h *MachineAdmissionHandler) Handle(
 	ctx context.Context,
 	req admission.Request,
 ) admission.Response {
 
-	if req.Resource.Group != "cluster.x-k8s.io" ||
-		req.Resource.Version != "v1beta2" ||
-		req.Resource.Resource != "machines" {
+	return h.handleMachine(ctx, &req)
+}
+
+func validMachineResource(req *admission.Request) bool {
+	return req.Resource.Group == "cluster.x-k8s.io" &&
+		req.Resource.Version == "v1beta2" &&
+		req.Resource.Resource == "machines"
+}
+
+func (h *MachineAdmissionHandler) handleMachine(
+	ctx context.Context,
+	req *admission.Request,
+) admission.Response {
+
+	if !validMachineResource(req) {
 		return admission.Denied("unsupported admission resource")
 	}
 

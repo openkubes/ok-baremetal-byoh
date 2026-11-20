@@ -102,6 +102,14 @@ func EvaluateMachineUpdate(
 		return deny("Machine finalizers must remain unchanged")
 	}
 
+	return evaluateMachineMetadataUpdate(oldMachine, newMachine)
+}
+
+func evaluateMachineMetadataUpdate(
+	oldMachine *clusterv1.Machine,
+	newMachine *clusterv1.Machine,
+) Decision {
+
 	oldCluster, oldClusterExists := oldMachine.Labels[clusterNameLabel]
 	newCluster, newClusterExists := newMachine.Labels[clusterNameLabel]
 	if oldClusterExists != newClusterExists ||

@@ -75,9 +75,10 @@ func TestSetupFromEnvironment(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(GuardEnabledEnv, tt.enabled)
-			t.Setenv(RegistryFileEnv, tt.file)
 
-			handler, err := SetupFromEnvironment(reader)
+			handler, err := setupFromEnvironment(reader, func() ([]byte, error) {
+				return os.ReadFile(tt.file)
+			})
 
 			if (err != nil) != tt.wantError {
 				t.Fatalf(
@@ -99,7 +100,6 @@ func TestSetupFromEnvironment(t *testing.T) {
 
 func TestSetupFailsWithoutReader(t *testing.T) {
 	t.Setenv(GuardEnabledEnv, "true")
-	t.Setenv(RegistryFileEnv, "/unused")
 
 	handler, err := SetupFromEnvironment(nil)
 

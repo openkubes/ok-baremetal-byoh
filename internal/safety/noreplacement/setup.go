@@ -13,7 +13,7 @@ import (
 
 const (
 	GuardEnabledEnv = "BYOH_NO_REPLACEMENT_GUARD_ENABLED"
-	RegistryFileEnv = "BYOH_NO_REPLACEMENT_REGISTRY_FILE"
+	RegistryPath    = "/etc/openkubes/no-replacement/registry.json"
 )
 
 // SetupFromEnvironment prepares an admission handler but does not
@@ -23,6 +23,16 @@ const (
 // missing registry or missing API reader is a startup error.
 func SetupFromEnvironment(
 	reader client.Reader,
+) (*MachineAdmissionHandler, error) {
+
+	return setupFromEnvironment(reader, func() ([]byte, error) {
+		return os.ReadFile(RegistryPath)
+	})
+}
+
+func setupFromEnvironment(
+	reader client.Reader,
+	readRegistry func() ([]byte, error),
 ) (*MachineAdmissionHandler, error) {
 
 	enabled := strings.TrimSpace(os.Getenv(GuardEnabledEnv))
@@ -45,15 +55,7 @@ func SetupFromEnvironment(
 		)
 	}
 
-	path := strings.TrimSpace(os.Getenv(RegistryFileEnv))
-	if path == "" {
-		return nil, fmt.Errorf(
-			"%s must be set when guard is enabled",
-			RegistryFileEnv,
-		)
-	}
-
-	data, err := os.ReadFile(path)
+	data, err := readRegistry()
 	if err != nil {
 		return nil, fmt.Errorf(
 			"read No-Replacement registry: %w",
