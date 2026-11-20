@@ -1,6 +1,8 @@
 package noreplacement
 
 import (
+	"strings"
+
 	"k8s.io/apimachinery/pkg/api/equality"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
@@ -10,14 +12,48 @@ const (
 	protectionAnnotation = "safety.openkubes.org/in-place-only"
 )
 
-// EvaluateMachineUpdate is a conservative initial UPDATE policy.
-//
-// It is not suitable for production deployment until required
-// CAPI spec mutations and explicit upgrade authorizations are
-// modeled and tested.
-//
-// Status subresource operations must be handled independently
-// by the admission adapter.
+// reservedMetadataKey identifies metadata owned by CAPI,
+// infrastructure providers, or the OpenKubes safety boundary.
+func reservedMetadataKey(key string) bool {
+	domain, _, qualified := strings.Cut(key, "/")
+	if !qualified {
+		return false
+	}
+
+	return domain == "cluster.x-k8s.io" ||
+		strings.HasSuffix(domain, ".cluster.x-k8s.io") ||
+		domain == "safety.openkubes.org"
+}
+
+func reservedMetadataChanged(
+	oldValues, newValues map[string]string,
+) bool {
+	for key, oldValue := range oldValues {
+		if !reservedMetadataKey(key) {
+			continue
+		}
+		newValue, exists := newValues[key]
+		if !exists || newValue != oldValue {
+			return true
+		}
+	}
+
+	for key, newValue := range newValues {
+		if !reservedMetadataKey(key) {
+			continue
+		}
+		oldValue, exists := oldValues[key]
+		if !exists || oldValue != newValue {
+			return true
+		}
+	}
+
+	return false
+}
+
+// EvaluateMachineUpdate is a conservative pre-deployment policy.
+// Legitimate CAPI finalizer and metadata mutations need explicit
+// exceptions before enabling this guard in a real cluster.
 func EvaluateMachineUpdate(
 	scope Scope,
 	oldMachine *clusterv1.Machine,
@@ -55,17 +91,40 @@ func EvaluateMachineUpdate(
 		return deny("Machine owner references must remain unchanged")
 	}
 
-	if oldMachine.Labels[clusterNameLabel] !=
-		newMachine.Labels[clusterNameLabel] {
+	if !equality.Semantic.DeepEqual(
+		oldMachine.Finalizers,
+		newMachine.Finalizers,
+	) {
+		return deny("Machine finalizers must remain unchanged")
+	}
+
+	oldCluster, oldClusterExists := oldMachine.Labels[clusterNameLabel]
+	newCluster, newClusterExists := newMachine.Labels[clusterNameLabel]
+	if oldClusterExists != newClusterExists ||
+		oldCluster != newCluster {
 		return deny("Machine cluster identity label must remain unchanged")
 	}
 
-	if oldMachine.Annotations[protectionAnnotation] !=
-		newMachine.Annotations[protectionAnnotation] {
+	oldProtection, oldProtectionExists := oldMachine.Annotations[protectionAnnotation]
+	newProtection, newProtectionExists := newMachine.Annotations[protectionAnnotation]
+	if oldProtectionExists != newProtectionExists ||
+		oldProtection != newProtection {
 		return deny("Machine protection annotation must remain unchanged")
 	}
 
-	// Metadata not explicitly protected above may change.
-	// This does not authorize spec mutations.
+	if reservedMetadataChanged(
+		oldMachine.Labels,
+		newMachine.Labels,
+	) {
+		return deny("Machine reserved labels must remain unchanged")
+	}
+
+	if reservedMetadataChanged(
+		oldMachine.Annotations,
+		newMachine.Annotations,
+	) {
+		return deny("Machine reserved annotations must remain unchanged")
+	}
+
 	return allow()
 }
