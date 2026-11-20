@@ -55,6 +55,26 @@ fi
 chmod 600 "$tmp_kubeconfig"
 mv -f "$tmp_kubeconfig" "$workload_kubeconfig"
 
+printf '\n=== Configure host-reachable workload API endpoint ===\n'
+# CAPD publishes the load balancer API port on the Docker host. On macOS
+# with Colima, the Docker bridge IP is inside the Linux VM and is not directly
+# routable from macOS. Prefer the published loopback port when it is reachable.
+lb_container="${name}-lb"
+published_port="$(docker port "$lb_container" 6443/tcp 2>/dev/null | head -1 | awk -F: '{print $NF}')"
+if [[ "$published_port" =~ ^[0-9]+$ ]] && curl -kfsS --connect-timeout 5 \
+    "https://127.0.0.1:$published_port/readyz" >/dev/null; then
+  cluster_entry="$(kubectl --kubeconfig "$workload_kubeconfig" config view --minify -o jsonpath='{.contexts[0].context.cluster}')"
+  [[ -n "$cluster_entry" ]] || ok_capd_fail "cannot determine workload kubeconfig cluster entry"
+  kubectl --kubeconfig "$workload_kubeconfig" config set-cluster "$cluster_entry" \
+    --server="https://127.0.0.1:$published_port" >/dev/null
+  api_ready="$(kubectl --kubeconfig "$workload_kubeconfig" get --raw=/readyz)" \
+    || ok_capd_fail "published workload API endpoint is reachable by TCP but kubeconfig TLS/API verification failed"
+  [[ "$api_ready" == "ok" ]] || ok_capd_fail "workload API /readyz did not return ok: $api_ready"
+  printf 'Using host-reachable API endpoint https://127.0.0.1:%s\n' "$published_port"
+else
+  ok_capd_fail "CAPD load-balancer API port is not reachable via localhost; inspect Docker port publishing and Colima networking"
+fi
+
 printf '\n=== Waiting for workload Kubernetes nodes ===\n'
 kubectl --kubeconfig "$workload_kubeconfig" wait --for=condition=Ready nodes --all --timeout=15m
 printf '\n=== Workload nodes ===\n'
