@@ -1,0 +1,6 @@
+# clusterctl configuration for this isolated environment.
+# The cert-manager version is pinned to the default used by the CAPI v1.14
+# release line, rather than inheriting whatever a newer clusterctl selects.
+cert-manager:
+  version: "v1.21.3"
+  timeout: 10m
