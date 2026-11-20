@@ -36,8 +36,16 @@ printf 'Workload cluster: %s\n' "$name" | tee -a "$report"
 printf 'Docker context: %s\n' "$(docker context show)" | tee -a "$report"
 printf 'Report: %s\n' "$report" | tee -a "$report"
 
-capture "1. CAPI Cluster conditions" \
-  ok_capd_kubectl get cluster "$name" -o json
+cluster_conditions() {
+  ok_capd_kubectl get cluster "$name" -o json | jq '{
+    phase: .status.phase,
+    infrastructureReady: .status.infrastructureReady,
+    controlPlaneReady: .status.controlPlaneReady,
+    conditions: .status.conditions
+  }'
+}
+
+capture "1. CAPI Cluster conditions" cluster_conditions
 capture "2a. KubeadmControlPlane" \
   ok_capd_kubectl get kubeadmcontrolplane "$name-control-plane" -o yaml
 capture "2b. CAPI Machines" \
