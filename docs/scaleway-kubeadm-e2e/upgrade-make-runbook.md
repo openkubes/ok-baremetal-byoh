@@ -274,3 +274,30 @@ CAPI rollout impact and recovery are reviewed. Separate observation success
 from upgrade readiness using machine-readable statuses and non-success exit
 codes when used as a gating command; regression-test that behavior. This
 evidence is operator-provided, not independently re-executed by the connector.
+
+### M1 follow-up: explicit repository classification and exit status
+
+Implemented on the feature branch after the operator's apt-cache evidence:
+
+- Each host's read-only remote query now collects the current Kubernetes
+  minor-specific package repositories from `apt-cache policy`, along with
+  installed versions and cached target availability.
+- `EXPECTED_CHANGE`: current repository v1.36, with no v1.37.2 packages
+  offered by the current apt cache. An explicitly authorized repo transition
+  would be required later; this tool does not perform it.
+- `PASS`: repository v1.37 with all three target packages present in the
+  existing cache. This is package-observation only, not upgrade authorization.
+- `BLOCKED`: inconsistent repository/cache combination. Unexpected or
+  mixed Kubernetes repositories, incorrect installed versions, SSH failures,
+  and unexpected CAPI state cause `STOP`.
+- The command exits with code **2** when read-only observations complete
+  and the upgrade is still blocked; `STOP` exits nonzero (normally 1).
+  Exit code 0 is reserved for a separately designed authorized workflow.
+  Therefore `make byoh-cluster-upgrade-plan` is **expected to exit 2**
+  even on the healthy v1.36.6 baseline; do not mask this in CI.
+- Four additional offline cases cover v1.36 expected transition, v1.37
+  cache present, unexpected repository and mixed repositories.
+
+**Verification status:** implementation committed, offline regression rerun
+and operator-side live rerun remain outstanding. The code has not changed
+live packages, cluster objects or network infrastructure.
