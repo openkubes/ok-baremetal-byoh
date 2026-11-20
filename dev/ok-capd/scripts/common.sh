@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OK_CAPD_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+OK_CAPD_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.. && pwd)"
 # shellcheck source=../versions.env
 source "${OK_CAPD_ROOT}/versions.env"
 
