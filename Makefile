@@ -363,6 +363,10 @@ byoh-hosts-preflight: ## Read-only inventory, SSH, agent and management-tunnel i
 byoh-hosts-enroll: ## One approved N-host plan: bootstrap credentials and stopped agent-unit preparation.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-hosts-enroll.py --inventory '$(BYOH_HOSTS_INVENTORY)'
 
+.PHONY: byoh-cluster-upgrade-plan-test
+byoh-cluster-upgrade-plan-test: ## Offline safety regressions for read-only BYOH upgrade preflight.
+	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/test-byoh-cluster-upgrade-plan.py
+
 .PHONY: byoh-cluster-upgrade-plan
 byoh-cluster-upgrade-plan: ## Read-only Kubernetes 1.36.6 to 1.37.2 preflight; upgrade remains blocked.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-upgrade-plan.py --inventory '$(BYOH_HOSTS_INVENTORY)'
