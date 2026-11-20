@@ -62,7 +62,7 @@ ok_capd_verify_provider_versions() {
           or (.metadata.name == "control-plane-kubeadm")
           or (.metadata.name == "infrastructure-docker")
         )
-      | select(.spec.version == $v)
+      | select(.version == $v)
     ] | length == 4
   ' <<<"$inventory" >/dev/null || ok_capd_fail "expected core, kubeadm bootstrap, kubeadm control-plane and CAPD providers at $OK_CAPD_CAPI_VERSION"
 }
