@@ -26,4 +26,4 @@ else
 fi
 
 printf '\n=== CAPD Docker containers ===\n'
-docker ps -a --filter "label=cluster.x-k8s.io/cluster-name=$name"
+docker ps -a --filter "name=$name-"
