@@ -45,7 +45,7 @@ try:
         text = call(['apt-cache', 'madison', name])
         policy = call(['apt-cache', 'policy', name])
         repositories[name] = sorted(set(
-            'v1.' + match for match in __import__('re').findall(
+            'v' + match for match in __import__('re').findall(
                 r'pkgs\\.k8s\\.io/core:/stable:/v(1\\.[0-9]+)/deb', policy)))
         candidates[name] = any(
             line.split('|')[1].strip().startswith('1.37.2-')
