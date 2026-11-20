@@ -12,6 +12,14 @@ manifest="/tmp/ok-capd-smoke.yaml"
 workload_dir="${OK_CAPD_CONFIG_DIR}/workloads"
 workload_kubeconfig="${workload_dir}/${name}.kubeconfig"
 
+[[ ! -L "$workload_dir" ]] || ok_capd_fail "workload kubeconfig directory may not be a symlink: $workload_dir"
+if [[ -e "$workload_dir" && ! -d "$workload_dir" ]]; then
+  ok_capd_fail "workload kubeconfig path exists but is not a directory: $workload_dir"
+fi
+(umask 077; mkdir -p "$workload_dir")
+chmod 700 "$workload_dir"
+[[ ! -L "$workload_kubeconfig" ]] || ok_capd_fail "workload kubeconfig may not be a symlink: $workload_kubeconfig"
+
 if ok_capd_kubectl get cluster "$name" >/dev/null 2>&1; then
   printf 'Preserving existing CAPI workload Cluster %s; no manifests reapplied.\n' "$name"
 else
@@ -37,8 +45,6 @@ printf '\n=== Waiting for worker MachineDeployment Ready ===\n'
 ok_capd_kubectl wait --for=condition=Ready "machinedeployment.cluster.x-k8s.io/$name-md-0" --timeout=20m
 
 ok_capd_kubectl get secret "$name-kubeconfig" -o name >/dev/null || ok_capd_fail "workload kubeconfig Secret $name-kubeconfig was not created"
-mkdir -p "$workload_dir"
-chmod 700 "$workload_dir"
 secret_json="$(ok_capd_kubectl get secret "$name-kubeconfig" -o json)"
 encoded="$(jq -er '.data.value' <<<"$secret_json")" || ok_capd_fail "workload kubeconfig Secret has no data.value"
 tmp_kubeconfig="$(mktemp "$workload_dir/.kubeconfig.XXXXXXXX")"
