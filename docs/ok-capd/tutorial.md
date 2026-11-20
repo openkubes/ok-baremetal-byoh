@@ -2,13 +2,42 @@
 
 > **Publication draft — 21 November 2026**
 >
-> This tutorial documents the local CAPD developer environment being built in
-> `openkubes/ok-baremetal-byoh`. The management-cluster bootstrap and its
-> controller/Docker-socket smoke test have been executed successfully on
-> macOS Apple Silicon with Colima. The CAPD workload manifest has also passed
-> Kubernetes server-side dry-run validation. The first full workload-cluster
-> creation and deletion must still be completed and recorded before this
-> tutorial is considered fully end-to-end verified.
+> This tutorial documents the local CAPD developer environment in
+> `openkubes/ok-baremetal-byoh`. The management-cluster bootstrap, provider
+> checks, Docker-socket verification and first CAPD workload creation have
+> succeeded on macOS Apple Silicon with Colima. Both workload Nodes and the
+> kindnet DaemonSet reached Ready. The CAPI-driven workload deletion and Linux
+> validation remain before this tutorial is considered fully end-to-end
+> verified across platforms.
+
+## TL;DR
+
+From the repository root, these are the main commands for the isolated CAPD
+development environment:
+
+| Command | Purpose |
+| --- | --- |
+| `make ok-capd` | Create or verify the dedicated Kind management cluster and install CAPI, Kubeadm providers, CAPD and cert-manager. |
+| `make ok-capd-status` | Show management-cluster, provider, controller and workload status. Read-only. |
+| `make ok-capd-test` | Run the management bootstrap smoke checks, including controller rollouts and Docker-socket access. |
+| `make ok-capd-workload-render` | Render the pinned CAPD workload manifest locally. No cluster changes. |
+| `make ok-capd-workload-up` | Create the sample CAPD workload cluster, or verify the existing one; wait for CAPI availability and Kubernetes Nodes. |
+| `make ok-capd-workload-status` | Inspect CAPI resources, CAPD machines, Docker containers and workload Nodes. Read-only. |
+| `make ok-capd-workload-diagnose` | Collect detailed, read-only troubleshooting evidence into a private local report. |
+| `make ok-capd-workload-down` | Delete only the sample workload through CAPI. Requires explicit confirmation. |
+| `make ok-capd-down` | Report existing CAPD workloads; does not delete anything. |
+| `OK_CAPD_CONFIRM_DELETE=ok-capd-dev make ok-capd-clean` | Delete the dedicated Kind management cluster after safety checks and explicit confirmation. |
+
+The RuntimeSDK and No-Replacement targets are reserved but not implemented yet:
+`make ok-capd-inplace-test` and `make ok-capd-guard-test` currently report
+that status rather than running tests.
+
+The existing `make ok-up` workflow is separate: it bootstraps the local BYOH
+management environment and deploys the OpenKubes BYOH controller. It does not
+create the CAPD environment. Do not mix their Kind clusters or kubeconfigs.
+
+For the complete explanation of each target, its script and the resources it
+changes, continue to [What the Make targets actually do](#25-what-the-make-targets-actually-do).
 
 ## What you will build
 
