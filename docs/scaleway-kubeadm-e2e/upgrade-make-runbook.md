@@ -229,3 +229,15 @@ Current checks:
 **Next step:** review the new code and run offline tests. Then execute the
 read-only plan on the operator Mac and append its redacted PASS/STOP evidence
 here before proceeding with CAPI design.
+
+### M1 offline verification commands (not yet executed)
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test byoh-cluster-upgrade-plan-test
+```
+
+The dedicated test script covers healthy baseline, explicit pause (both true
+and false), pause annotation, KCP version drift, unavailable KCP,
+uninitialized KCP, missing Cluster availability, SSH failure and mixed
+installed package versions. Passing these isolated tests does **not**
+replace the operator-side read-only plan or CAPI upgrade policy review.
