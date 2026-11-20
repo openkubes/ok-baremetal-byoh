@@ -520,6 +520,41 @@ The management kubeconfig remains
 > `make ok-capd-workload-up` and the resulting Machine/Node readiness must be
 > recorded here after it has been run successfully.
 
+## 8. Diagnose a workload that does not become Ready
+
+When `make ok-capd-workload-up` times out, do not immediately rerun it or
+delete Docker containers. The CAPI resources may already exist and the
+controllers may still be reconciling them.
+
+Run the reusable read-only diagnostic:
+
+```bash
+make ok-capd-workload-diagnose
+```
+
+The command checks:
+
+1. CAPI Cluster phase, infrastructure/control-plane readiness and conditions.
+2. KubeadmControlPlane, CAPI Machines, CAPD DevMachines and DevCluster.
+3. ClusterResourceSets, their bindings and the CNI ConfigMap.
+4. CAPD Docker containers and recent CAPD controller logs.
+5. Kubernetes events across namespaces, ordered by creation time.
+
+The report is written outside the repository under
+`~/.local/state/ok/capd/diagnostics/`. The directory is mode `0700` and the
+report is mode `0600`. It contains local cluster diagnostics; inspect and
+redact it before sharing outside your machine.
+
+The diagnostic is read-only: it does not apply manifests, restart controllers,
+delete resources, change CNI configuration or alter Docker containers. A
+failed section is recorded as a warning and the remaining checks continue.
+
+Use the evidence to distinguish infrastructure provisioning failures from
+control-plane bootstrap, ClusterResourceSet/CNI and worker-join failures.
+Do not assume that every Cluster Ready timeout is a CNI failure: the CNI
+primarily affects workload Pod networking, while CAPD provisioning and
+control-plane bootstrap have their own conditions and events.
+
 ## 8. Delete only the CAPD workload cluster
 
 When the workload lifecycle has been verified, delete the disposable workload
