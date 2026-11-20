@@ -57,10 +57,10 @@ ok_capd_verify_provider_versions() {
     [
       .items[]
       | select(
-          (.spec.providerName == "cluster-api")
-          or (.spec.providerName == "bootstrap-kubeadm")
-          or (.spec.providerName == "control-plane-kubeadm")
-          or (.spec.providerName == "infrastructure-docker")
+          (.metadata.name == "cluster-api")
+          or (.metadata.name == "bootstrap-kubeadm")
+          or (.metadata.name == "control-plane-kubeadm")
+          or (.metadata.name == "infrastructure-docker")
         )
       | select(.spec.version == $v)
     ] | length == 4
