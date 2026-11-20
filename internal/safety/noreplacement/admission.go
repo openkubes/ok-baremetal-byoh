@@ -1,3 +1,6 @@
+// Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 package noreplacement
 
 import (
@@ -26,6 +29,7 @@ func NewMachineAdmissionHandler(
 	registrations map[string]NamespaceRegistration,
 	lookup ClusterLookup,
 ) *MachineAdmissionHandler {
+
 	copied := make(map[string]NamespaceRegistration, len(registrations))
 	for namespace, registration := range registrations {
 		copied[namespace] = registration
@@ -43,6 +47,7 @@ func (h *MachineAdmissionHandler) Handle(
 	ctx context.Context,
 	req admission.Request,
 ) admission.Response {
+
 	if req.Resource.Group != "cluster.x-k8s.io" ||
 		req.Resource.Version != "v1beta2" ||
 		req.Resource.Resource != "machines" {

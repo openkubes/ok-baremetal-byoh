@@ -1,3 +1,6 @@
+// Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package noreplacement contains policy decisions for in-place-only
 // BYOH clusters. It does not query Kubernetes or authorize lifecycle
 // exceptions. Callers must supply independently verified scope.

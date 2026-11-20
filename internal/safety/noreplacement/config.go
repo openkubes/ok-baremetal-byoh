@@ -1,3 +1,6 @@
+// Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 package noreplacement
 
 import (
@@ -32,6 +35,7 @@ type registryDocument struct {
 func ParseProtectedRegistry(
 	data []byte,
 ) (map[string]NamespaceRegistration, error) {
+
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 

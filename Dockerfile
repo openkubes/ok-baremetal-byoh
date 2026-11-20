@@ -21,6 +21,7 @@ COPY apis/ apis/
 COPY controllers/ controllers/
 COPY installer/ installer/
 COPY common/ common/
+COPY internal/ internal/
 
 # Build for the target platform, which BuildKit sets from --platform and
 # defaults to the platform of the machine.

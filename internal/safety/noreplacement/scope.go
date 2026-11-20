@@ -1,3 +1,6 @@
+// Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 package noreplacement
 
 // ClusterIdentity represents a cluster discovered from a trusted

@@ -1,3 +1,6 @@
+// Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 package noreplacement
 
 import (
@@ -26,13 +29,13 @@ func KubernetesClusterLookup(
 	) (string, error) {
 		if reader == nil {
 			return "", errors.New(
-				"Kubernetes Cluster reader is unavailable",
+				"kubernetes Cluster reader is unavailable",
 			)
 		}
 
 		if namespace == "" || name == "" {
 			return "", errors.New(
-				"Cluster namespace and name are required",
+				"cluster namespace and name are required",
 			)
 		}
 
@@ -52,7 +55,7 @@ func KubernetesClusterLookup(
 
 		if cluster.UID == "" {
 			return "", errors.New(
-				"CAPI Cluster has no UID",
+				"CAPI cluster has no UID",
 			)
 		}
 
