@@ -56,9 +56,20 @@ The first `make ok-capd` creates the management cluster and runs
 `clusterctl init`. Repeated runs preserve an existing cluster and verify its
 identity and provider inventory; partial or unexpected states fail closed.
 
-`make ok-capd-test` is currently a bootstrap smoke test. It verifies provider
-versions, controller rollouts and Docker socket wiring. It does not yet create
-a CAPD workload cluster.
+`make ok-capd-test` verifies provider versions, controller rollouts and Docker
+socket wiring. The first disposable CAPD workload lifecycle is driven separately:
+
+```bash
+make ok-capd-workload-render  # render only; no cluster writes
+make ok-capd-workload-up      # apply and wait for one CP + one worker
+make ok-capd-workload-status  # read-only CAPI and workload-node status
+make ok-capd-workload-down    # delete workload only, with explicit confirmation
+```
+
+The workload kubeconfig is stored at
+`~/.config/ok/capd/workloads/ok-capd-smoke.kubeconfig`. Workload deletion
+requires `OK_CAPD_CONFIRM_WORKLOAD_DELETE=ok-capd-smoke`. It does not delete
+the management Kind cluster.
 
 ## Shutdown and cleanup
 
@@ -78,7 +89,7 @@ still exist. No cleanup runs automatically after a failed bootstrap or test.
 
 ## Deferred work
 
-1. Create and verify a real CAPD workload cluster.
+1. Validate the first real CAPD workload cluster on macOS/Apple Silicon and Linux.
 2. Inventory and import the existing BYOH, RuntimeSDK and Guard spike assets.
 3. Integrate BYOH as a separate provider in this management cluster.
 4. Add RuntimeSDK accept/decline/failure/restart and in-place upgrade tests.
