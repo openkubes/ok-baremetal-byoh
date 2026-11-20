@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	byohcontrollers "github.com/openkubes/ok-baremetal-byoh/controllers/infrastructure"
+	noreplacement "github.com/openkubes/ok-baremetal-byoh/internal/safety/noreplacement"
 
 	infrastructurev1beta1 "github.com/openkubes/ok-baremetal-byoh/apis/infrastructure/v1beta1"
 
@@ -200,6 +201,24 @@ func main() {
 	if err = (&byohcontrollers.K8sInstallerConfigReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "K8sInstallerConfig")
 		os.Exit(1)
+	}
+
+	// No-Replacement admission is disabled by default.
+	// When explicitly enabled, invalid configuration must
+	// prevent manager startup.
+	noReplacementHandler, err := noreplacement.SetupFromEnvironment(
+		mgr.GetAPIReader(),
+	)
+	if err != nil {
+		setupLog.Error(err, "unable to configure No-Replacement Guard")
+		os.Exit(1)
+	}
+
+	if noReplacementHandler != nil {
+		mgr.GetWebhookServer().Register(
+			"/validate-cluster-x-k8s-io-v1beta2-machine-no-replacement",
+			&webhook.Admission{Handler: noReplacementHandler},
+		)
 	}
 
 	mgr.GetWebhookServer().Register("/validate-infrastructure-cluster-x-k8s-io-v1beta1-byohost", &webhook.Admission{Handler: infrastructurev1beta1.NewByoHostValidator(mgr.GetScheme())})

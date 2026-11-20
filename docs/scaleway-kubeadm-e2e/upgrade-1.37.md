@@ -1,5 +1,7 @@
 # Scaleway BYOH Kubernetes 1.37 Upgrade
 
+> For the **current** v1.36.6 two-node baseline and the proposed, not-yet-executed Make upgrade automation, see [Upgrade Make runbook](upgrade-make-runbook.md). This file documents an earlier **separate manual** experiment.
+
 Date: 2026-11-19
 Cluster: ok-byoh-scw1
 Scope: Lab-only, manually executed in-place upgrade
