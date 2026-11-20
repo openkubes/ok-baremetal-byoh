@@ -7,6 +7,8 @@
 
 > This document describes the current OpenKubes-maintained BYOH provider, the safety work merged in PR #23, and the intended lifecycle direction. It distinguishes implemented capabilities from design and implementation work that remains open.
 
+![OpenKubes BYOH Controller Architecture](assets/openkubes-byoh-controller-overview.svg)
+
 ## Why OpenKubes maintains a BYOH controller
 
 Cluster API (CAPI) provides declarative APIs and reconciliation for Kubernetes cluster lifecycle. The Bring Your Own Host (BYOH) infrastructure provider allows operators to use already-provisioned Linux hosts without coupling Kubernetes node lifecycle to a specific infrastructure service.
