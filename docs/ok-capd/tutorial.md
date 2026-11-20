@@ -557,6 +557,119 @@ Do not assume that every Cluster Ready timeout is a CNI failure: the CNI
 primarily affects workload Pod networking, while CAPD provisioning and
 control-plane bootstrap have their own conditions and events.
 
+### CNI, kindnet and the workload Pod network
+
+A Kubernetes cluster needs a Container Network Interface (CNI) implementation
+to connect Pods to one another and to the cluster network. The CNI is separate
+from the Docker network that CAPD uses to create the machine containers.
+
+In this smoke environment, the workload template installs **kindnet** through
+a CAPI ClusterResourceSet (CRS):
+
+1. The pinned kindnet manifest is embedded in the ConfigMap
+   `cni-ok-capd-smoke-crs-0` in the management cluster.
+2. The `ClusterResourceSet` selects the workload Cluster and references that
+   ConfigMap.
+3. CAPI's ClusterResourceSet controller creates a binding and applies the
+   manifest to the workload cluster.
+4. The kindnet DaemonSet runs on the workload nodes and configures Pod
+   networking using the workload Pod CIDR (`192.168.0.0/16` in this test).
+
+kindnet is the CNI implementation used by this CAPD test template; it is not
+the CNI used by the Kind management cluster simply because both environments
+use Kind-related images. The management cluster and workload cluster have
+separate Kubernetes APIs and separate networking state.
+
+The following network layers must not be confused:
+
+| Network layer | What it connects | Example in this environment |
+| --- | --- | --- |
+| Colima / Docker network | Docker containers that represent CAPD machines and the CAPD load balancer | Internal addresses in the Docker network, including the workload API endpoint |
+| Workload Kubernetes API endpoint | kubectl/clients to the workload API server through the CAPD load balancer | `172.18.0.5:6443` as observed in this test |
+| Kubernetes CNI (kindnet) | Pods and node networking inside the workload cluster | Pod CIDR `192.168.0.0/16` |
+| Kubernetes Service networking | Virtual ClusterIP service addresses | Service CIDR configured for the workload |
+
+A timeout to the workload API endpoint does not, by itself, prove a CNI
+failure. The API endpoint is reached before kubectl can list Pods or inspect
+the kindnet DaemonSet. First prove that the client can reach the load balancer
+and API server; then inspect CNI health from a working workload-cluster
+connection.
+
+#### Verify kindnet after workload API access works
+
+Use the workload kubeconfig only after it has been extracted and its API
+endpoint is reachable:
+
+```bash
+WORKLOAD_KUBECONFIG="$HOME/.config/ok/capd/workloads/ok-capd-smoke.kubeconfig"
+
+kubectl --kubeconfig "$WORKLOAD_KUBECONFIG" -n kube-system \
+  get daemonset kindnet
+kubectl --kubeconfig "$WORKLOAD_KUBECONFIG" -n kube-system \
+  get pods -l app=kindnet -o wide
+kubectl --kubeconfig "$WORKLOAD_KUBECONFIG" \
+  get nodes -o wide
+kubectl --kubeconfig "$WORKLOAD_KUBECONFIG" \
+  get pods -A -o wide
+```
+
+Expected evidence is a kindnet DaemonSet with a Ready Pod on each workload
+node, followed by Ready Kubernetes Nodes. If the API endpoint is unreachable
+from the Mac, perform the network-path checks below first; do not infer CNI
+health from an API connection timeout.
+
+#### Troubleshoot a workload API endpoint timeout on macOS / Colima
+
+An observed error in the first CAPD run was:
+
+```text
+Get "https://172.18.0.5:6443/api?timeout=32s":
+dial tcp 172.18.0.5:6443: i/o timeout
+```
+
+The CAPI Cluster, KubeadmControlPlane and MachineDeployment had already
+reported `Available=True`, and CAPD had created the control-plane, worker
+and load-balancer containers. The workload kubeconfig's API endpoint was an
+internal Docker-network address. On macOS, Docker networking is provided by
+the Colima Linux VM; an address inside that VM's Docker bridge is not
+automatically routable from the macOS host.
+
+Diagnose the layers separately before changing configuration:
+
+```bash
+# 1. Read the API endpoint from the workload kubeconfig (do not print credentials).
+kubectl --kubeconfig "$HOME/.config/ok/capd/workloads/ok-capd-smoke.kubeconfig" \
+  config view --minify -o jsonpath='{.clusters[0].cluster.server}'
+
+# 2. Inspect CAPD containers and published ports.
+docker ps -a --format \
+  'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}' | grep -E 'NAMES|ok-capd-smoke'
+
+# 3. Inspect the load-balancer container network and port bindings.
+docker inspect ok-capd-smoke-lb --format \
+  'Networks={{json .NetworkSettings.Networks}} Ports={{json .NetworkSettings.Ports}}'
+
+# 4. Test the endpoint from the Kind management node, attached to the Docker network.
+docker exec ok-capd-dev-control-plane \
+  bash -c 'timeout 5 bash -c "</dev/tcp/172.18.0.5/6443"'
+
+# 5. Inspect the CAPD load-balancer logs.
+docker logs --tail 100 ok-capd-smoke-lb
+```
+
+Use the actual endpoint printed in step 1 if it differs from
+`172.18.0.5:6443`. A successful TCP test from the management node but a
+timeout from macOS indicates a host-to-Colima/Docker-network reachability
+problem, not a workload CNI failure. If the TCP test also fails inside the
+management node, investigate the load balancer, its backend targets and
+control-plane listener before changing host routing.
+
+Do not add a route to the Docker bridge, publish ports, recreate the
+load-balancer container or change the workload kubeconfig until the current
+container network and port bindings have been inspected. Any host-access
+solution must preserve the API server certificate SANs and be repeatable on
+macOS/Colima and Linux.
+
 ## 8. Delete only the CAPD workload cluster
 
 When the workload lifecycle has been verified, delete the disposable workload
