@@ -188,3 +188,44 @@ automatic cleanup and cross-node Cilium NetworkPolicy E2E.
 
 **Checkpoint:** ready to design `byoh-cluster-upgrade-plan`; **no
 upgrade action approved**.
+
+## 6. M1 implementation checkpoint (20 November 2026)
+
+The branch now contains `hack/dev/byoh-cluster-upgrade-plan.py` and the
+`byoh-cluster-upgrade-plan` Make entry point. These files are **implementation
+work**, not evidence of a successful live preflight or permission to upgrade.
+
+Command (operator Mac, explicitly selected management cluster):
+
+```sh
+make BYOH_KIND_NAME=ok-byoh-make-test \
+  BYOH_HOSTS_INVENTORY=config/hosts/scaleway.yaml \
+  byoh-cluster-upgrade-plan
+```
+
+Current checks:
+- Strict inventory and kind management context selection; fixed two-host SSH identities.
+- Management API availability; CAPI Cluster not deleting or explicitly paused.
+- Singleton KCP version v1.36.6, initialized and 1/1 status.
+- Reuse of the existing worker-status checks for the MD, two Machines,
+  ByoHost/ByoMachine UID binding, workload Node readiness, Cilium and CoreDNS.
+- Read-only SSH inspection of installed kubeadm/kubelet/kubectl package versions
+  and cached apt target availability on both hosts.
+- Stable observation fingerprint without exposing kubeconfigs, SSH output,
+  bootstrap tokens, Secrets or raw Kubernetes objects.
+
+**Important limits:**
+- apt-cache availability is a local cache observation, not a verified release
+  repository provenance or a guarantee that package installation will succeed.
+- The current helper does not validate etcd backup/restore, target Kubernetes
+  compatibility, workload disruption, KCP/MD safe reconciliation, or rollback.
+- Its success exit code means *observations completed*, not *upgrade approved*.
+  Output deliberately remains BLOCKED pending a separately reviewed CAPI policy.
+- No CAPI pause or desired version patch is performed; no kubeadm, apt, firewall,
+  Scaleway, OpenTofu or kind mutations are performed.
+- Offline unit tests and actual operator-side live evidence remain **pending**.
+  Do not claim those have passed without recorded output.
+
+**Next step:** review the new code and run offline tests. Then execute the
+read-only plan on the operator Mac and append its redacted PASS/STOP evidence
+here before proceeding with CAPI design.
