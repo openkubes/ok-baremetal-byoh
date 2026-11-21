@@ -31,11 +31,17 @@ or OpenTofu state. It does not modify `ok-up` or its scripts.
 
 Install and put these tools on `PATH`:
 
-- Docker Engine-compatible CLI and a running Linux-container Docker daemon
+- Git
+- GNU Make (`make`) and Bash
+- Docker CLI and a running Linux-container Docker daemon
 - kind
 - kubectl
 - clusterctl v1.14.4
 - jq
+- curl
+- Python 3
+
+Colima is optional on macOS; it is one way to provide the required Linux Docker daemon. Docker Desktop is another option. On Linux, use Docker Engine. The active Docker context must point to the intended disposable development daemon.
 
 The Docker context must point to the intended local development daemon. On
 macOS, Docker Desktop or Colima can provide this daemon. The Kind node config
@@ -47,6 +53,9 @@ to Docker daemon authority. Do not use a shared or production Docker daemon.
 From the repository root:
 
 ```bash
+make ok-capd-setup   # complete management + CAPD workload setup
+
+# Or run the stages individually:
 make ok-capd
 make ok-capd-status
 make ok-capd-test
