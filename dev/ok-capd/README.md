@@ -85,7 +85,7 @@ the management Kind cluster.
 
 ## Shutdown and cleanup
 
-`make ok-capd-down` is read-only and preserves the management cluster. The
+`make ok-capd-report` is read-only and preserves the management cluster. The
 separate `make ok-capd-workload-down` target deletes only the configured
 `ok-capd-smoke` workload through CAPI, requires explicit confirmation, and
 verifies that its Machines and CAPD Docker containers are gone.
