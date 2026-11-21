@@ -1,0 +1,22 @@
+# apiserver audit policy for the spike: the AUTHORITATIVE record of DELETE *requests*.
+# Machine deletes are logged at RequestResponse level AND at ALL stages (per-rule omitStages: [])
+# so that an in-flight / incomplete DELETE (e.g. apiserver dies before ResponseComplete) still
+# leaves a RequestReceived record and can never be misread as "no request". responseStatus on the
+# ResponseComplete event distinguishes success / denied / other (e.g. 409). A configmap-delete
+# rule lets bootstrap prove end-to-end that audit logging is active (fail closed).
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages: ["RequestReceived"]
+rules:
+  - level: RequestResponse
+    verbs: ["delete"]
+    resources:
+      - group: "cluster.x-k8s.io"
+        resources: ["machines"]
+    omitStages: []        # log RequestReceived AND ResponseComplete for machine deletes
+  - level: Metadata
+    verbs: ["delete"]
+    resources:
+      - group: ""
+        resources: ["configmaps"]
+  - level: None

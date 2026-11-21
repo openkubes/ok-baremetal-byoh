@@ -1,0 +1,26 @@
+# Registers the in-tree CAPI test Runtime Extension (test/extension) with the management
+# cluster so the InPlaceUpdates machinery can call CanUpdateMachine / UpdateMachine.
+# Assumes the test-extension Deployment + Service + cert are already applied from
+# <capi>/test/extension/config/default (namespace test-extension-system).
+# Flip spec.settings.disableInPlaceUpdates to "true" to exercise the decline/safety path.
+apiVersion: runtime.cluster.x-k8s.io/v1beta2
+kind: ExtensionConfig
+metadata:
+  name: test-extension
+  annotations:
+    runtime.cluster.x-k8s.io/inject-ca-from-secret: test-extension-system/test-extension-webhook-service-cert
+spec:
+  clientConfig:
+    service:
+      name: test-extension-webhook-service
+      namespace: test-extension-system
+      port: 443
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: In
+        values:
+          - default
+  settings:
+    extensionConfigName: test-extension
+    disableInPlaceUpdates: "false"   # set "true" for the --decline safety test

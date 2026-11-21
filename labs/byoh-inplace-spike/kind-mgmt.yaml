@@ -1,0 +1,10 @@
+# Disposable management cluster for the in-place spike. Unique name set via --name on the CLI.
+# CAPD needs the Docker socket mounted so the management controllers can create
+# workload Machines as sibling containers on the host.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: /var/run/docker.sock
+        containerPath: /var/run/docker.sock
