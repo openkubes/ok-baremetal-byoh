@@ -177,6 +177,7 @@ they serve different purposes and must not be confused.
 
 | Make target | Script | What actually happens |
 | --- | --- | --- |
+| `make ok-capd-setup` | `dev/ok-capd/scripts/setup.sh` | Orchestrates the full sequence: bootstrap/verify management cluster, run CAPI/CAPD smoke tests, create/verify the workload cluster, then print management and workload status. It does not install BYOH. |
 | `make ok-capd` | `dev/ok-capd/scripts/up.sh` | Checks local tools and Docker, creates the dedicated Kind management cluster if absent, writes its private kubeconfig, initializes CAPI core + Kubeadm + CAPD with `clusterctl init`, then verifies the provider inventory and status. Existing verified clusters are preserved. |
 | `make ok-capd-status` | `dev/ok-capd/scripts/status.sh` | Read-only inspection of the dedicated Kind node, CAPI Provider objects, controller Deployments and CAPI workload Clusters. |
 | `make ok-capd-test` | `dev/ok-capd/scripts/test.sh` | Rechecks prerequisites and provider versions, waits for the seven CAPI/cert-manager Deployments, and verifies that the Docker socket is mounted in the Kind node and CAPD controller. It does not create a workload cluster. |
