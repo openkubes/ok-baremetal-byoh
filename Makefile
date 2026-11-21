@@ -528,10 +528,13 @@ byoh-kind-up: kustomize ## Preserve existing kind/CAPI and safely bring up BYOH 
 
 # Deliberately separate from ok-up / BYOH_KIND_NAME. This workflow owns only
 # the disposable ok-capd-dev Kind management cluster and its private kubeconfig.
-.PHONY: ok-capd ok-capd-status ok-capd-test ok-capd-inplace-test ok-capd-guard-test ok-capd-down ok-capd-clean
+.PHONY: ok-capd-setup ok-capd ok-capd-status ok-capd-test ok-capd-inplace-test ok-capd-guard-test ok-capd-down ok-capd-clean
 
 ok-capd: ## Create or verify the isolated local CAPI + CAPD management cluster.
 	@bash dev/ok-capd/scripts/up.sh
+
+ok-capd-setup: ## Create or verify the CAPD management cluster and one workload cluster.
+	@bash dev/ok-capd/scripts/setup.sh
 
 ok-capd-status: ## Read-only status of the isolated CAPD management cluster.
 	@bash dev/ok-capd/scripts/status.sh
