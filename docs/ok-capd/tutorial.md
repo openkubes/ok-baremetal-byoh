@@ -17,6 +17,7 @@ development environment:
 
 | Command | Purpose |
 | --- | --- |
+| `make ok-capd-setup` | One-command path: create/verify the management cluster, run its smoke tests, then create/verify the CAPD workload cluster. |
 | `make ok-capd` | Create or verify the dedicated Kind management cluster and install CAPI, Kubeadm providers, CAPD and cert-manager. |
 | `make ok-capd-status` | Show management-cluster, provider, controller and workload status. Read-only. |
 | `make ok-capd-test` | Run the management bootstrap smoke checks, including controller rollouts and Docker-socket access. |
@@ -27,6 +28,8 @@ development environment:
 | `make ok-capd-workload-down` | Delete only the sample workload through CAPI. Requires explicit confirmation. |
 | `make ok-capd-down` | Report existing CAPD workloads; does not delete anything. |
 | `OK_CAPD_CONFIRM_DELETE=ok-capd-dev make ok-capd-clean` | Delete the dedicated Kind management cluster after safety checks and explicit confirmation. |
+
+`make ok-capd-setup` is the convenient first-time path. It is idempotent for the configured management and smoke workload clusters: it preserves existing verified resources and does not reapply the workload manifest when the CAPI Cluster already exists. It does not install the BYOH provider. Use the individual targets when you want to work on only one layer.
 
 The RuntimeSDK and No-Replacement targets are reserved but not implemented yet:
 `make ok-capd-inplace-test` and `make ok-capd-guard-test` currently report
@@ -345,12 +348,22 @@ local development Docker daemon, never a shared or production daemon.
 
 Install and make the following tools available on `PATH`:
 
+- Git (to clone the repository)
+- GNU Make (`make`) and Bash
 - Docker CLI and a running Docker daemon that runs Linux containers
 - kind
 - kubectl
 - clusterctl `v1.14.4`
 - jq
-- Python 3 (used by the pinned template renderer)
+- curl (workload API endpoint probe)
+- Python 3 (used by the pinned template renderer and kubeconfig decoding)
+
+Colima is **not** a universal prerequisite. It is one option for providing a
+Linux Docker daemon on macOS; Docker Desktop is another. On Linux, use a local
+Docker Engine. The CAPD workflow talks to whichever daemon the active Docker
+context selects. Confirm that context before starting, because CAPD mounts the
+Docker socket into the Kind management node and therefore has Docker-daemon
+level authority.
 
 On macOS, Docker Desktop or Colima can provide the Linux Docker daemon. On
 Linux, use a local Docker Engine. Confirm that the active Docker context is
