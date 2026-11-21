@@ -12,35 +12,29 @@
 
 ## TL;DR
 
-From the repository root, these are the main commands for the isolated CAPD
-development environment:
+From the repository root, these five commands cover the main local CAPD
+developer lifecycle:
 
 | Command | Purpose |
 | --- | --- |
-| `make ok-capd-setup` | One-command path: create/verify the management cluster, run its smoke tests, then create/verify the CAPD workload cluster. |
-| `make ok-capd` | Create or verify the dedicated Kind management cluster and install CAPI, Kubeadm providers, CAPD and cert-manager. |
-| `make ok-capd-status` | Show management-cluster, provider, controller and workload status. Read-only. |
-| `make ok-capd-test` | Run the management bootstrap smoke checks, including controller rollouts and Docker-socket access. |
-| `make ok-capd-workload-render` | Render the pinned CAPD workload manifest locally. No cluster changes. |
-| `make ok-capd-workload-up` | Create the sample CAPD workload cluster, or verify the existing one; wait for CAPI availability and Kubernetes Nodes. |
-| `make ok-capd-workload-status` | Inspect CAPI resources, CAPD machines, Docker containers and workload Nodes. Read-only. |
-| `make ok-capd-workload-diagnose` | Collect detailed, read-only troubleshooting evidence into a private local report. |
-| `make ok-capd-workload-down` | Delete only the sample workload through CAPI. Requires explicit confirmation. |
-| `make ok-capd-down` | Report existing CAPD workloads; does not delete anything. |
-| `OK_CAPD_CONFIRM_DELETE=ok-capd-dev make ok-capd-clean` | Delete the dedicated Kind management cluster after safety checks and explicit confirmation. |
+| `make ok-capd-setup` | Start the complete environment: management cluster, CAPI/CAPD providers, smoke checks and sample workload cluster. |
+| `make ok-capd` | Create or verify only the Kind management plane with CAPI, Kubeadm, CAPD and cert-manager. |
+| `make ok-capd-workload-up` | Create or verify the disposable CAPD workload cluster. |
+| `OK_CAPD_CONFIRM_WORKLOAD_DELETE=ok-capd-smoke make ok-capd-workload-down` | Delete only the sample workload through CAPI; preserve the management cluster. |
+| `OK_CAPD_CONFIRM_DELETE=ok-capd-dev make ok-capd-clean` | Delete the management Kind cluster after safety checks and explicit confirmation. |
 
-`make ok-capd-setup` is the convenient first-time path. It is idempotent for the configured management and smoke workload clusters: it preserves existing verified resources and does not reapply the workload manifest when the CAPI Cluster already exists. It does not install the BYOH provider. Use the individual targets when you want to work on only one layer.
+For inspection without changing resources, use `make ok-capd-status`,
+`make ok-capd-workload-status` and `make ok-capd-report`. For troubleshooting,
+use `make ok-capd-workload-diagnose`. These supporting commands are explained
+in the detailed Make-target reference below.
 
-The RuntimeSDK and No-Replacement targets are reserved but not implemented yet:
+`make ok-capd-setup` is the recommended first-time path. It does not install
+the OpenKubes BYOH controller. The existing `make ok-up` workflow is separate
+and must not share the CAPD Kind cluster or kubeconfig.
+
+The RuntimeSDK and No-Replacement targets are reserved but not implemented:
 `make ok-capd-inplace-test` and `make ok-capd-guard-test` currently report
 that status rather than running tests.
-
-The existing `make ok-up` workflow is separate: it bootstraps the local BYOH
-management environment and deploys the OpenKubes BYOH controller. It does not
-create the CAPD environment. Do not mix their Kind clusters or kubeconfigs.
-
-For the complete explanation of each target, its script and the resources it
-changes, continue to [What the Make targets actually do](#25-what-the-make-targets-actually-do).
 
 ## What you will build
 
@@ -190,7 +184,7 @@ they serve different purposes and must not be confused.
 | `make ok-capd-workload-up` | `dev/ok-capd/scripts/workload-up.sh` | Verifies the management cluster, renders the template, runs server-side dry-run, applies CAPI resources, waits for CAPI readiness, extracts the workload kubeconfig Secret and waits for workload Nodes to become Ready. |
 | `make ok-capd-workload-status` | `dev/ok-capd/scripts/workload-status.sh` | Read-only view of the CAPI Cluster, KCP, MachineDeployment, Machines, CAPD DevCluster/DevMachines, workload Nodes and matching Docker containers. |
 | `make ok-capd-workload-down` | `dev/ok-capd/scripts/workload-down.sh` | Requires `OK_CAPD_CONFIRM_WORKLOAD_DELETE=ok-capd-smoke`, deletes only that CAPI Cluster, waits for Machines and CAPD containers to disappear, and removes its private workload kubeconfig. The management cluster stays running. |
-| `make ok-capd-down` | `dev/ok-capd/scripts/down.sh` | Currently read-only: lists workload Clusters. It does not stop or delete anything. |
+| `make ok-capd-report` | `dev/ok-capd/scripts/report.sh` | Currently read-only: lists workload Clusters. It does not stop or delete anything. |
 | `make ok-capd-clean` | `dev/ok-capd/scripts/clean.sh` | Deletes only the dedicated `ok-capd-dev` Kind management cluster after explicit confirmation and only when no CAPI workload Clusters, Machines or CAPD-labelled Docker containers remain. |
 | `make ok-capd-inplace-test` | placeholder | Reserved for RuntimeSDK in-place upgrade scenarios; currently exits with NOT IMPLEMENTED. |
 | `make ok-capd-guard-test` | placeholder | Reserved for No-Replacement Guard scenarios; currently exits with NOT IMPLEMENTED. |
