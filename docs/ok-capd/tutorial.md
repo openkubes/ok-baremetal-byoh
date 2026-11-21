@@ -1006,7 +1006,7 @@ If the entire disposable CAPD environment must be removed, first ensure all
 CAPI workload Clusters and Machines have been deleted. Then run:
 
 ```bash
-make ok-capd-down
+make ok-capd-report
 OK_CAPD_CONFIRM_DELETE=ok-capd-dev make ok-capd-clean
 ```
 
