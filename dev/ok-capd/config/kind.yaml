@@ -1,0 +1,11 @@
+# CAPD needs the Docker socket exposed inside the Kind node. The CAPD
+# controller mounts this socket from the node; access is equivalent to Docker
+# daemon authority and must be limited to this disposable developer cluster.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: /var/run/docker.sock
+        containerPath: /var/run/docker.sock
+        readOnly: false

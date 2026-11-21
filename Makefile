@@ -522,3 +522,54 @@ byoh-controller-test: ## Run offline manifest and bootstrap security tests.
 
 byoh-kind-up: kustomize ## Preserve existing kind/CAPI and safely bring up BYOH management plane.
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/byoh-controller.sh up
+
+
+##@ Local CAPD developer environment
+
+# Deliberately separate from ok-up / BYOH_KIND_NAME. This workflow owns only
+# the disposable ok-capd-dev Kind management cluster and its private kubeconfig.
+.PHONY: ok-capd-setup ok-capd ok-capd-status ok-capd-test ok-capd-inplace-test ok-capd-guard-test ok-capd-report ok-capd-clean
+
+ok-capd-setup: ## Create or verify the CAPD management cluster and one workload cluster.
+	@bash dev/ok-capd/scripts/setup.sh
+
+ok-capd: ## Create or verify the isolated local CAPI + CAPD management cluster.
+	@bash dev/ok-capd/scripts/up.sh
+
+
+ok-capd-status: ## Read-only status of the isolated CAPD management cluster.
+	@bash dev/ok-capd/scripts/status.sh
+
+ok-capd-test: ## Verify CAPI/CAPD readiness and Docker socket access (bootstrap smoke test).
+	@bash dev/ok-capd/scripts/test.sh
+
+ok-capd-inplace-test: ## Run the CAPD-backed RuntimeSDK in-place upgrade scenarios (not yet implemented).
+	@bash dev/ok-capd/scripts/not-yet-implemented.sh inplace-upgrade
+
+ok-capd-guard-test: ## Run the No-Replacement Guard scenarios (not yet implemented).
+	@bash dev/ok-capd/scripts/not-yet-implemented.sh no-replacement
+
+ok-capd-report: ## Read-only report of CAPD workload clusters; does not stop or delete anything.
+	@bash dev/ok-capd/scripts/report.sh
+
+ok-capd-clean: ## Delete only the isolated CAPD Kind cluster after explicit confirmation.
+	@bash dev/ok-capd/scripts/clean.sh
+
+
+##@ Local CAPD workload cluster
+
+.PHONY: ok-capd-workload-render ok-capd-workload-up ok-capd-workload-status ok-capd-workload-diagnose ok-capd-workload-down
+ok-capd-workload-render: ## Render the pinned upstream CAPD workload template locally (no cluster writes).
+	@bash dev/ok-capd/scripts/workload-render.sh
+
+ok-capd-workload-up: ## Create or verify the disposable CAPD smoke workload cluster.
+	@bash dev/ok-capd/scripts/workload-up.sh
+
+ok-capd-workload-status: ## Read-only status of the CAPD smoke workload cluster.
+	@bash dev/ok-capd/scripts/workload-status.sh
+
+ok-capd-workload-diagnose: ## Collect read-only CAPD workload diagnostics and save a private report.
+	@bash dev/ok-capd/scripts/workload-diagnose.sh
+
+ok-capd-workload-down: ## Delete only the CAPD smoke workload cluster after explicit confirmation.
+	@bash dev/ok-capd/scripts/workload-down.sh
