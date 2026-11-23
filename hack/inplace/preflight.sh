@@ -2,8 +2,8 @@
 # Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Read-only preflight of an in-place upgrade of a BYOH cluster (five hosts in the
-# Scaleway lab). Usage: preflight.sh TARGET_VERSION [EXPECTED_CONTROL_PLANES EXPECTED_WORKERS]
+# Read-only preflight of an in-place upgrade of a BYOH cluster (default: 3 control planes,
+# 2 workers). Usage: preflight.sh TARGET_VERSION [EXPECTED_CONTROL_PLANES EXPECTED_WORKERS]
 # Exit 0 READY, 2 BLOCKED (every failed check is listed), 1 error.
 # Optional: GW_SSH="ssh -o UserKnownHostsFile=... -o StrictHostKeyChecking=yes root@GW" adds the HAProxy check;
 # OKX_CILIUM_PRERELEASE=<version> approves a pinned Cilium pre-release of cilium-compat.json for this run.

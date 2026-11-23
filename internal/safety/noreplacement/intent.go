@@ -54,7 +54,7 @@ var (
 
 // Reasons of the intent guard.
 const (
-	reasonIntentLifecycle = "a protected KubeadmControlPlane or MachineDeployment is created and deleted only outside the in-place-only scope; decommission it first (inplace-upgrade-runbook.md, Decommission)"
+	reasonIntentLifecycle = "a protected KubeadmControlPlane or MachineDeployment is created and deleted only outside the in-place-only scope; decommission it first (docs/inplace-upgrade.md, Decommission)"
 	reasonIntentReplicas  = "the replicas of a protected KubeadmControlPlane or MachineDeployment do not change: scaling creates or deletes Machines"
 	reasonIntentSpec      = "unauthorized change of the protected %s spec: only spec.version under an upgrade grant and lowering maxSurge to 0 are allowed"
 	reasonIntentSurge     = "maxSurge of a protected %s may only be lowered to 0: a surge creates a replacement Machine"

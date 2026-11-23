@@ -38,7 +38,7 @@ const (
 	InPlaceUpgradeSucceeded InPlaceUpgradePhase = "Succeeded"
 	// InPlaceUpgradeFailed means that a step failed, or that the agent could
 	// not verify its result. The agent does not retry it until spec.attempt
-	// grows (docs/scaleway-kubeadm-e2e/inplace-upgrade-runbook.md).
+	// grows (docs/inplace-upgrade.md).
 	InPlaceUpgradeFailed InPlaceUpgradePhase = "Failed"
 )
 

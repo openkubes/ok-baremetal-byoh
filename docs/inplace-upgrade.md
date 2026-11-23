@@ -1,19 +1,19 @@
-# Scaleway BYOH in-place upgrade runbook
+# BYOH in-place upgrade runbook
 
 > **Maturity: IMPLEMENTED, NOT YET EXECUTED on real hosts.** The host executor, the real
 > `UpdateMachine` handler, the guard and the tooling exist and pass their unit and envtest
 > suites, but the CAPI-driven upgrade has not run on a real BYOH host yet. The first run is a
-> gated E2E (below) and is recorded in
-> [inplace-upgrade-testprotocol.md](inplace-upgrade-testprotocol.md) only if it succeeds.
+> gated E2E (below) and is recorded in the E2E lab's test protocol
+> ([inplace-upgrade-testprotocol.md](scaleway-kubeadm-e2e/inplace-upgrade-testprotocol.md)) only if it succeeds. <!-- provider-neutrality: allow (E2E lab record) -->
 
 Read together with the testing/evidence rules in
-[../development/byoh/testing-and-evidence.md](../development/byoh/testing-and-evidence.md) and the
-No-Replacement contract [../adr/ADR-001-byoh-no-replacement-safety.md](../adr/ADR-001-byoh-no-replacement-safety.md).
+[development/byoh/testing-and-evidence.md](development/byoh/testing-and-evidence.md) and the
+No-Replacement contract [adr/ADR-001-byoh-no-replacement-safety.md](adr/ADR-001-byoh-no-replacement-safety.md).
 
 ## History: manual upgrade (2026-11-19)
-Two Scaleway hosts were upgraded by hand from **v1.36.6 → v1.37.2** with **CAPI paused**
+Two E2E lab hosts were upgraded by hand from **v1.36.6 → v1.37.2** with **CAPI paused**
 (`kubeadm upgrade apply` / `kubeadm upgrade node`, apt `v1.36 → v1.37`, kubelet/kubectl), CAPI
-metadata left at v1.36.6 and no etcd backup ([upgrade-1.37.md](upgrade-1.37.md)). The executor
+metadata left at v1.36.6 and no etcd backup ([lab record](scaleway-kubeadm-e2e/upgrade-1.37.md)). The executor <!-- provider-neutrality: allow (E2E lab record) -->
 below performs the same host steps under CAPI control.
 
 ## Mechanism
@@ -127,9 +127,10 @@ comparison (Machines, ByoMachines, ByoHosts, Nodes; versions), `progress.sh` per
 without secrets or kubeconfigs.
 
 ## References
-- Historical manual upgrade: [upgrade-1.37.md](upgrade-1.37.md)
-- Upgrade automation baseline: [upgrade-make-runbook.md](upgrade-make-runbook.md)
+- Historical manual upgrade: [upgrade-1.37.md](scaleway-kubeadm-e2e/upgrade-1.37.md) <!-- provider-neutrality: allow (E2E lab record) -->
+- Upgrade automation baseline: [upgrade-make-runbook.md](scaleway-kubeadm-e2e/upgrade-make-runbook.md) <!-- provider-neutrality: allow (E2E lab record) -->
+- E2E lab rollout plan: [inplace-upgrade-ha1-rollout.md](scaleway-kubeadm-e2e/inplace-upgrade-ha1-rollout.md) <!-- provider-neutrality: allow (E2E lab record) -->
 - Tooling: `hack/inplace/` (preflight, progress, monitor, etcd-snapshot, uids, render-registry; identity checks
   of the kubeconfigs in `lib.sh`, Cilium compatibility in `cilium_compat.py`; offline tests in `hack/inplace/test`)
-- Deployment: `config/inplace/` (base + `overlays/ha1`)
+- Deployment: `config/inplace/base` (generic) and per-lab overlays (`config/inplace/overlays/<lab>`)
 - Grant contract: `labs/byoh-inplace-spike/design/M1-grant-contract-and-transition-matrix.md`

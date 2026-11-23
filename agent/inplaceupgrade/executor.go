@@ -14,7 +14,7 @@
 // The executor never resets the host, never removes the Kubernetes components
 // and never touches the bootstrap of the node: a failed step stops the
 // upgrade and is reported, and the host stays as it is for a forward recovery
-// (docs/scaleway-kubeadm-e2e/inplace-upgrade-runbook.md).
+// (docs/inplace-upgrade.md).
 package inplaceupgrade
 
 import (
