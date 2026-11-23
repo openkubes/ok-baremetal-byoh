@@ -20,7 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func pod(name string, owner string, annotations map[string]string) *corev1.Pod {
+func pod(name, owner string, annotations map[string]string) *corev1.Pod {
 	p := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", Annotations: annotations},
 		Spec:       corev1.PodSpec{NodeName: "node1"},
@@ -48,6 +48,7 @@ func evictions(cs *kfake.Clientset) []string {
 	return names
 }
 
+//nolint:gocyclo // one table of drain cases.
 func TestDrain(t *testing.T) {
 	ctx, key := context.Background(), client.ObjectKey{Namespace: "ha1", Name: "ha1"}
 
@@ -124,4 +125,40 @@ func TestDrain(t *testing.T) {
 			t.Fatal("no error")
 		}
 	})
+}
+
+func TestDrainerRESTConfig(t *testing.T) {
+	const server = "https://172.16.0.10:6443"
+	kubeconfig := func(cluster, user string) []byte {
+		return []byte("apiVersion: v1\nkind: Config\n" +
+			"clusters: [{name: ha1, cluster: {" + cluster + "}}]\n" +
+			"users: [{name: d, user: {" + user + "}}]\n" +
+			"contexts: [{name: c, context: {cluster: ha1, user: d}}]\ncurrent-context: c\n")
+	}
+	good := `server: "` + server + `", certificate-authority-data: "Y2E="`
+	config, err := DrainerRESTConfig(kubeconfig(good, `token: "t"`), server)
+	if err != nil || config.Host != server || config.BearerToken != "t" || config.Timeout != drainerRequestTimeout {
+		t.Fatalf("%+v %v", config, err)
+	}
+	for name, data := range map[string][]byte{
+		"another server":   kubeconfig(`server: "https://evil:6443", certificate-authority-data: "Y2E="`, `token: "t"`),
+		"no CA":            kubeconfig(`server: "`+server+`"`, `token: "t"`),
+		"insecure TLS":     kubeconfig(good+`, insecure-skip-tls-verify: true`, `token: "t"`),
+		"a proxy":          kubeconfig(good+`, proxy-url: "http://p:3128"`, `token: "t"`),
+		"an exec plugin":   kubeconfig(good, `exec: {apiVersion: client.authentication.k8s.io/v1, command: /bin/sh, args: ["-c", "id"]}`),
+		"an auth provider": kubeconfig(good, `auth-provider: {name: oidc}`),
+		"a token file":     kubeconfig(good, `tokenFile: /etc/shadow`),
+		"a client cert":    kubeconfig(good, `token: "t", client-certificate-data: "Y2VydA=="`),
+		"basic auth":       kubeconfig(good, `username: u, password: p`),
+		"impersonation":    kubeconfig(good, `token: "t", as: system:admin`),
+		"no token":         kubeconfig(good, ``),
+		"two clusters":     []byte(strings.Replace(string(kubeconfig(good, `token: "t"`)), "clusters: [{name: ha1,", "clusters: [{name: other, cluster: {server: x}}, {name: ha1,", 1)),
+		"not a kubeconfig": []byte("{"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := DrainerRESTConfig(data, server); err == nil {
+				t.Fatal("accepted")
+			}
+		})
+	}
 }

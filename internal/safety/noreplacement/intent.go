@@ -19,6 +19,17 @@ import (
 // controlPlaneAPIGroup is the group of KubeadmControlPlanes.
 const controlPlaneAPIGroup = "controlplane.cluster.x-k8s.io"
 
+// Resources and fields of the intent guard.
+const (
+	machineDeploymentsResource = "machinedeployments"
+	fieldTemplate              = "template"
+	fieldVersion               = "version"
+	fieldMaxSurge              = "maxSurge"
+	fieldRollingUpdate         = "rollingUpdate"
+	fieldRollout               = "rollout"
+	fieldStrategy              = "strategy"
+)
+
 // intentKind describes where the intent of a KCP or a MachineDeployment lives.
 type intentKind struct {
 	group, resource string
@@ -32,13 +43,13 @@ type intentKind struct {
 var (
 	kcpIntent = intentKind{
 		group: controlPlaneAPIGroup, resource: "kubeadmcontrolplanes", target: TargetKubeadmControlPlane,
-		versionPath: []string{"spec", "version"}, versionTransition: TransitionKCPVersionBump,
+		versionPath: []string{fieldSpec, fieldVersion}, versionTransition: TransitionKCPVersionBump,
 	}
 	mdIntent = intentKind{
-		group: clusterAPIGroup, resource: "machinedeployments", target: TargetMachineDeployment,
-		versionPath: []string{"spec", "template", "spec", "version"}, versionTransition: TransitionMDFinalizeMachine,
+		group: clusterAPIGroup, resource: machineDeploymentsResource, target: TargetMachineDeployment,
+		versionPath: []string{fieldSpec, fieldTemplate, fieldSpec, fieldVersion}, versionTransition: TransitionMDFinalizeMachine,
 	}
-	maxSurgePath = []string{"spec", "rollout", "strategy", "rollingUpdate", "maxSurge"}
+	maxSurgePath = []string{fieldSpec, fieldRollout, fieldStrategy, fieldRollingUpdate, fieldMaxSurge}
 )
 
 // Reasons of the intent guard.
@@ -55,15 +66,15 @@ const (
 // such as the templates, the kubeadm configuration or the replicas, is denied.
 // Metadata is left to the Machine gate and RBAC: the CAPI controllers write
 // finalizers, owner references and labels.
-func EvaluateIntentUpdate(ctx context.Context, scope Scope, kind intentKind, oldObj, newObj *unstructured.Unstructured, clusterUID string, grants GrantReader, dryRun bool, now time.Time) Decision {
+func EvaluateIntentUpdate(ctx context.Context, scope Scope, kind *intentKind, oldObj, newObj *unstructured.Unstructured, clusterUID string, grants GrantReader, dryRun bool, now time.Time) Decision {
 	if !scope.Verified {
 		return deny(reasonScopeUnverified)
 	}
 	if !scope.Protected {
 		return allow()
 	}
-	oldSpec, _, _ := unstructured.NestedMap(oldObj.Object, "spec")
-	newSpec, _, _ := unstructured.NestedMap(newObj.Object, "spec")
+	oldSpec, _, _ := unstructured.NestedMap(oldObj.Object, fieldSpec)
+	newSpec, _, _ := unstructured.NestedMap(newObj.Object, fieldSpec)
 	if !reflect.DeepEqual(oldSpec["replicas"], newSpec["replicas"]) {
 		return deny(reasonIntentReplicas)
 	}
@@ -78,8 +89,8 @@ func EvaluateIntentUpdate(ctx context.Context, scope Scope, kind intentKind, old
 		unstructured.RemoveNestedField(obj.Object, kind.versionPath...)
 		unstructured.RemoveNestedField(obj.Object, maxSurgePath...)
 	}
-	oRest, _, _ := unstructured.NestedMap(o.Object, "spec")
-	nRest, _, _ := unstructured.NestedMap(n.Object, "spec")
+	oRest, _, _ := unstructured.NestedMap(o.Object, fieldSpec)
+	nRest, _, _ := unstructured.NestedMap(n.Object, fieldSpec)
 	if !reflect.DeepEqual(pruneEmpty(oRest), pruneEmpty(nRest)) {
 		return deny(fmt.Sprintf(reasonIntentSpec, kind.target))
 	}
@@ -149,12 +160,12 @@ func NewIntentAdmissionHandler(regs map[string]NamespaceRegistration, lookup Clu
 //
 //nolint:gocritic // admission.Handler requires Request by value.
 func (h *IntentAdmissionHandler) Handle(ctx context.Context, req admission.Request) admission.Response {
-	var kind intentKind
+	var kind *intentKind
 	switch {
-	case req.Resource.Group == kcpIntent.group && req.Resource.Resource == kcpIntent.resource && req.Resource.Version == "v1beta2":
-		kind = kcpIntent
-	case req.Resource.Group == mdIntent.group && req.Resource.Resource == mdIntent.resource && req.Resource.Version == "v1beta2":
-		kind = mdIntent
+	case req.Resource.Group == kcpIntent.group && req.Resource.Resource == kcpIntent.resource && req.Resource.Version == capiVersion:
+		kind = &kcpIntent
+	case req.Resource.Group == mdIntent.group && req.Resource.Resource == mdIntent.resource && req.Resource.Version == capiVersion:
+		kind = &mdIntent
 	default:
 		return admission.Denied("unsupported admission resource")
 	}
@@ -169,7 +180,24 @@ func (h *IntentAdmissionHandler) Handle(ctx context.Context, req admission.Reque
 	return admission.Allowed("No-Replacement intent policy satisfied")
 }
 
-func (h *IntentAdmissionHandler) decide(ctx context.Context, req *admission.Request, kind intentKind, scope Scope, clusterUID string) Decision {
+// evaluateScale denies a change of the replicas through the scale
+// subresource.
+func evaluateScale(req *admission.Request) Decision {
+	var oldScale, newScale struct {
+		Spec struct {
+			Replicas *int32 `json:"replicas"`
+		} `json:"spec"`
+	}
+	if json.Unmarshal(req.OldObject.Raw, &oldScale) != nil || json.Unmarshal(req.Object.Raw, &newScale) != nil {
+		return deny("invalid Scale")
+	}
+	if !reflect.DeepEqual(oldScale.Spec.Replicas, newScale.Spec.Replicas) {
+		return deny(reasonIntentReplicas)
+	}
+	return allow()
+}
+
+func (h *IntentAdmissionHandler) decide(ctx context.Context, req *admission.Request, kind *intentKind, scope Scope, clusterUID string) Decision {
 	if !scope.Verified {
 		return deny(reasonScopeUnverified)
 	}
@@ -185,18 +213,7 @@ func (h *IntentAdmissionHandler) decide(ctx context.Context, req *admission.Requ
 	case req.Operation != admissionv1.Update:
 		return deny("unsupported operation")
 	case req.SubResource == "scale":
-		var oldScale, newScale struct {
-			Spec struct {
-				Replicas *int32 `json:"replicas"`
-			} `json:"spec"`
-		}
-		if json.Unmarshal(req.OldObject.Raw, &oldScale) != nil || json.Unmarshal(req.Object.Raw, &newScale) != nil {
-			return deny("invalid Scale")
-		}
-		if !reflect.DeepEqual(oldScale.Spec.Replicas, newScale.Spec.Replicas) {
-			return deny(reasonIntentReplicas)
-		}
-		return allow()
+		return evaluateScale(req)
 	case req.SubResource != "":
 		// status is written by the CAPI controllers and not routed here.
 		return deny("unsupported subresource")

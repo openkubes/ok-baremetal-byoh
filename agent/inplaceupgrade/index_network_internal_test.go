@@ -35,7 +35,7 @@ func TestRealRepositoryIndex(t *testing.T) {
 	if err := (HTTPFetcher{}).Fetch(context.Background(), lock["v1.37.2"].Repository+"Release.key", key); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("gpg", "--dearmor", "--yes", "-o", keyring, key).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(context.Background(), "gpg", "--dearmor", "--yes", "-o", keyring, key).CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
 	req := request(infrav1.InPlaceUpgradeWorker)

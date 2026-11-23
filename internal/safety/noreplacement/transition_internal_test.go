@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func sameOwner() (OwnerControllerRef, OwnerControllerRef) {
+func sameOwner() (from, to OwnerControllerRef) {
 	o := OwnerControllerRef{Kind: "MachineSet", Name: "ms-a", UID: "ms-uid-a"}
 	return o, o
 }
@@ -126,21 +126,21 @@ func TestEvaluateMachineUpdateInPlace(t *testing.T) {
 	kcp := claimedKCPGrant(t)
 
 	t.Run("valid claimed version bump -> allow", func(t *testing.T) {
-		d := EvaluateMachineUpdateInPlace(protectedScope(), versionBumpChange(), kcp, "cluster-uid-1", false, now)
+		d := EvaluateMachineUpdateInPlace(protectedScope(), versionBumpChangePtr(), kcp, "cluster-uid-1", false, now)
 		if !d.Allowed {
 			t.Fatalf("expected allow, got deny: %s", d.Reason)
 		}
 	})
 	t.Run("unclaimed real write -> deny", func(t *testing.T) {
 		unc, _ := ParseGrant(validKCPGrantData())
-		d := EvaluateMachineUpdateInPlace(protectedScope(), versionBumpChange(), unc, "cluster-uid-1", false, now)
+		d := EvaluateMachineUpdateInPlace(protectedScope(), versionBumpChangePtr(), unc, "cluster-uid-1", false, now)
 		if d.Allowed {
 			t.Fatalf("unclaimed real write must deny")
 		}
 	})
 	t.Run("unclaimed dry-run -> allow", func(t *testing.T) {
 		unc, _ := ParseGrant(validKCPGrantData())
-		d := EvaluateMachineUpdateInPlace(protectedScope(), versionBumpChange(), unc, "cluster-uid-1", true, now)
+		d := EvaluateMachineUpdateInPlace(protectedScope(), versionBumpChangePtr(), unc, "cluster-uid-1", true, now)
 		if !d.Allowed {
 			t.Fatalf("dry-run probe must allow without claim: %s", d.Reason)
 		}
@@ -148,7 +148,7 @@ func TestEvaluateMachineUpdateInPlace(t *testing.T) {
 	t.Run("shape none -> deny", func(t *testing.T) {
 		c := versionBumpChange()
 		c.IdentityChanged = true
-		d := EvaluateMachineUpdateInPlace(protectedScope(), c, kcp, "cluster-uid-1", false, now)
+		d := EvaluateMachineUpdateInPlace(protectedScope(), &c, kcp, "cluster-uid-1", false, now)
 		if d.Allowed {
 			t.Fatalf("unrecognized shape must deny")
 		}
@@ -156,7 +156,7 @@ func TestEvaluateMachineUpdateInPlace(t *testing.T) {
 	t.Run("version mismatch vs grant -> deny", func(t *testing.T) {
 		c := versionBumpChange()
 		c.VersionTo = "v1.99.9"
-		d := EvaluateMachineUpdateInPlace(protectedScope(), c, kcp, "cluster-uid-1", false, now)
+		d := EvaluateMachineUpdateInPlace(protectedScope(), &c, kcp, "cluster-uid-1", false, now)
 		if d.Allowed {
 			t.Fatalf("version mismatch must deny")
 		}
@@ -169,15 +169,25 @@ func TestEvaluateMachineUpdateInPlace(t *testing.T) {
 		if err != nil {
 			t.Fatalf("setup md grant: %v", err)
 		}
-		dec := EvaluateMachineUpdateInPlace(protectedScope(), moveChange(), mdGrant, "cluster-uid-1", false, now)
+		dec := EvaluateMachineUpdateInPlace(protectedScope(), moveChangePtr(), mdGrant, "cluster-uid-1", false, now)
 		if !dec.Allowed {
 			t.Fatalf("MD move under MD grant must allow: %s", dec.Reason)
 		}
 	})
 	t.Run("KCP grant cannot authorize a move -> deny", func(t *testing.T) {
-		d := EvaluateMachineUpdateInPlace(protectedScope(), moveChange(), kcp, "cluster-uid-1", false, now)
+		d := EvaluateMachineUpdateInPlace(protectedScope(), moveChangePtr(), kcp, "cluster-uid-1", false, now)
 		if d.Allowed {
 			t.Fatalf("a KCP grant must not authorize an MD move")
 		}
 	})
+}
+
+func versionBumpChangePtr() *MachineChange {
+	c := versionBumpChange()
+	return &c
+}
+
+func moveChangePtr() *MachineChange {
+	c := moveChange()
+	return &c
 }

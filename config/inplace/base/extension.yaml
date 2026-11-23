@@ -59,7 +59,7 @@ spec:
           image: ghcr.io/openkubes/inplace-extension:UNPINNED
           args:
             - --package-lock=/etc/openkubes/inplace/packages.json
-            - --upgrade-timeout=45m
+            - --upgrade-timeout=2h
           ports:
             - {containerPort: 9444, name: webhook}
             - {containerPort: 9440, name: health}

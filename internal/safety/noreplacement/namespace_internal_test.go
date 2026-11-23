@@ -22,9 +22,9 @@ func TestEvaluateNamespaceChange(t *testing.T) {
 		{"another change of a registered namespace", admissionv1.Update, true, "true", "true", true},
 		{"protecting a registered namespace", admissionv1.Update, true, "", "true", true},
 		{"deleting a registered namespace", admissionv1.Delete, true, "true", "", false},
-		{"labelling an unregistered namespace", admissionv1.Update, false, "", "true", false},
-		{"creating an unregistered labelled namespace", admissionv1.Create, false, "", "true", false},
-		{"unlabelling an unregistered namespace after decommission", admissionv1.Update, false, "true", "", true},
+		{"labeling an unregistered namespace", admissionv1.Update, false, "", "true", false},
+		{"creating an unregistered labeled namespace", admissionv1.Create, false, "", "true", false},
+		{"unlabeling an unregistered namespace after decommission", admissionv1.Update, false, "true", "", true},
 		{"deleting an unregistered namespace", admissionv1.Delete, false, "true", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

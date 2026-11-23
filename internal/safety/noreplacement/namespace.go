@@ -43,7 +43,7 @@ func EvaluateNamespaceChange(op admissionv1.Operation, registered bool, oldLabel
 		}
 		return allow()
 	case admissionv1.Create, admissionv1.Update:
-		if registered && oldLabel == "true" && newLabel != "true" {
+		if registered && oldLabel == labelValueTrue && newLabel != labelValueTrue {
 			return deny(fmt.Sprintf("the label %s of a namespace in the No-Replacement registry cannot be removed or changed; decommission it first", ProtectedNamespaceLabel))
 		}
 		if !registered && newLabel != "" && newLabel != oldLabel {

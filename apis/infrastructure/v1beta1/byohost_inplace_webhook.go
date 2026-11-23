@@ -13,15 +13,25 @@ import (
 )
 
 // inPlaceUpgradeDebs are the packages of an in-place upgrade, each exactly once.
-var inPlaceUpgradeDebs = []string{"kubeadm", "kubelet", "kubectl"}
+var inPlaceUpgradeDebs = []string{debKubeadm, debKubelet, debKubectl}
+
+// Lengths of a version, a key fingerprint and a SHA256, and the kubeadm package.
+const (
+	versionParts      = 3
+	fingerprintHexLen = 40
+	sha256HexLen      = 64
+	debKubeadm        = "kubeadm"
+	debKubelet        = "kubelet"
+	debKubectl        = "kubectl"
+)
 
 // minorOf returns the major and minor version of vX.Y.Z.
 func minorOf(version string) (major, minor int, ok bool) {
 	parts := strings.Split(strings.TrimPrefix(version, "v"), ".")
-	if len(parts) != 3 || !strings.HasPrefix(version, "v") {
+	if len(parts) != versionParts || !strings.HasPrefix(version, "v") {
 		return 0, 0, false
 	}
-	nums := make([]int, 3)
+	nums := make([]int, versionParts)
 	for i, p := range parts {
 		n, err := strconv.Atoi(p)
 		if err != nil || n < 0 || p == "" || (len(p) > 1 && p[0] == '0') {
@@ -36,7 +46,7 @@ func minorOf(version string) (major, minor int, ok bool) {
 func compareVersions(a, b string) int {
 	pa := strings.Split(strings.TrimPrefix(a, "v"), ".")
 	pb := strings.Split(strings.TrimPrefix(b, "v"), ".")
-	for i := range 3 {
+	for i := range versionParts {
 		x, _ := strconv.Atoi(pa[i])
 		y, _ := strconv.Atoi(pb[i])
 		if x != y {
@@ -111,7 +121,7 @@ func validatePackages(path *field.Path, p *InPlaceUpgradePackages, toVersion str
 			errs = append(errs, field.Invalid(path.Child("repository"), p.Repository, "must be "+want))
 		}
 	}
-	if !isHex(p.RepositoryKeyFingerprint, 40, true) {
+	if !isHex(p.RepositoryKeyFingerprint, fingerprintHexLen, true) {
 		errs = append(errs, field.Invalid(path.Child("repositoryKeyFingerprint"), p.RepositoryKeyFingerprint, "must be 40 upper-case hexadecimal digits"))
 	}
 	seen := map[string]bool{}
@@ -124,7 +134,7 @@ func validatePackages(path *field.Path, p *InPlaceUpgradePackages, toVersion str
 		if !strings.HasPrefix(deb.Version, strings.TrimPrefix(toVersion, "v")+"-") {
 			errs = append(errs, field.Invalid(debPath.Child("version"), deb.Version, "must be a package of "+toVersion))
 		}
-		if !isHex(deb.SHA256, 64, false) {
+		if !isHex(deb.SHA256, sha256HexLen, false) {
 			errs = append(errs, field.Invalid(debPath.Child("sha256"), deb.SHA256, "must be 64 lower-case hexadecimal digits"))
 		}
 	}

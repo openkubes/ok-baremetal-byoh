@@ -17,7 +17,7 @@ func IsGrantObjectName(name string) bool {
 }
 
 // IsGrantObject reports whether a ConfigMap must be treated as a grant CAS object
-// and therefore admitted by the guarded-ConfigMap policy. True if it is labelled
+// and therefore admitted by the guarded-ConfigMap policy. True if it is labeled
 // as a grant OR follows the grant naming convention — name-based recognition
 // removes reliance on the (evadable) objectSelector label for the security
 // decision.
@@ -25,13 +25,13 @@ func IsGrantObject(name string, labels map[string]string) bool {
 	if IsGrantObjectName(name) {
 		return true
 	}
-	return labels[GrantLabel] == "true"
+	return labels[GrantLabel] == labelValueTrue
 }
 
 // grantLabelRemoved reports whether the GrantLabel was present on old and is
 // absent or no longer "true" on new.
 func grantLabelRemoved(oldLabels, newLabels map[string]string) bool {
-	return oldLabels[GrantLabel] == "true" && newLabels[GrantLabel] != "true"
+	return oldLabels[GrantLabel] == labelValueTrue && newLabels[GrantLabel] != labelValueTrue
 }
 
 // EvaluateGrantConfigMapGuarded is the M6 wrapper around EvaluateGrantConfigMap
@@ -44,6 +44,7 @@ func EvaluateGrantConfigMapGuarded(
 	oldLabels, newLabels map[string]string,
 	oldData, newData map[string]string,
 ) Decision {
+
 	if op == Update && grantLabelRemoved(oldLabels, newLabels) {
 		return deny("the grant label must not be removed from an upgrade grant")
 	}

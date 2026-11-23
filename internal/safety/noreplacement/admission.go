@@ -24,7 +24,7 @@ type MachineAdmissionHandler struct {
 	registrations map[string]NamespaceRegistration
 	lookup        ClusterLookup
 	// grants, when set, enables the grant-authorized in-place UPDATE exception.
-	// When nil the handler keeps its strict deny-by-default behaviour.
+	// When nil the handler keeps its strict deny-by-default behavior.
 	grants GrantReader
 	// resolver climbs the owner chain to the grant target (KCP / MD).
 	resolver TargetResolver
@@ -74,10 +74,11 @@ func (h *MachineAdmissionHandler) Handle(
 
 func validMachineResource(req *admission.Request) bool {
 	return req.Resource.Group == clusterAPIGroup &&
-		req.Resource.Version == "v1beta2" &&
-		req.Resource.Resource == "machines"
+		req.Resource.Version == capiVersion &&
+		req.Resource.Resource == machinesResource
 }
 
+//nolint:gocyclo // one admission path per operation, each failing closed.
 func (h *MachineAdmissionHandler) handleMachine(
 	ctx context.Context,
 	req *admission.Request,

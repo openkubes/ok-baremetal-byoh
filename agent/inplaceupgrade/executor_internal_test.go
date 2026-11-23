@@ -70,6 +70,8 @@ type fakeHost struct {
 	gpgvStatus     string // status of gpgv; a good signature of the pinned key by default
 	indexDigests   map[string]string
 	tamperPackages bool
+	// unitStates scripts the ActiveState of transient units, per unit name.
+	unitStates map[string][]string
 }
 
 // packagesFile is the Packages index of the fake repository.
@@ -112,6 +114,7 @@ func (h *fakeHost) writeManifests(version string) {
 	}
 }
 
+//nolint:gocyclo,funlen // the fake host dispatches every command of the executor.
 func (h *fakeHost) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	call := strings.TrimSpace(name + " " + strings.Join(args, " "))
 	h.calls = append(h.calls, call)
@@ -120,6 +123,18 @@ func (h *fakeHost) Run(ctx context.Context, name string, args ...string) ([]byte
 			delete(h.failOnce, prefix)
 			return nil, err
 		}
+	}
+	if name == "systemd-run" {
+		i := slices.Index(args, "--")
+		return h.Run(ctx, args[i+1], args[i+2:]...)
+	}
+	if name == "systemctl" && len(args) > 0 && args[0] == "show" {
+		unit := args[len(args)-1]
+		state := "inactive"
+		if states := h.unitStates[unit]; len(states) > 0 {
+			state, h.unitStates[unit] = states[0], states[1:]
+		}
+		return []byte("ActiveState=" + state + "\nResult=success\n"), nil
 	}
 	if h.hang != "" && strings.HasPrefix(call, h.hang) {
 		<-ctx.Done()
@@ -320,7 +335,7 @@ func TestControlPlaneWaitsForItsStaticPods(t *testing.T) {
 	// kubeadm fails to write the new manifests, but exits 0: the
 	// verification must not report success.
 	e.Runner = runnerFunc(func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		if name == "kubeadm" && len(args) > 1 && args[1] == "node" {
+		if name == "systemd-run" && slices.Contains(args, "kubeadm") && slices.Contains(args, "node") {
 			h.calls = append(h.calls, "kubeadm upgrade node (no-op)")
 			return nil, nil
 		}
@@ -367,8 +382,11 @@ func TestInterruptedUpgradeResumes(t *testing.T) {
 	if slices.ContainsFunc(resumed, func(c string) bool { return strings.Contains(c, "kubeadm_") || strings.HasPrefix(c, "gpg") }) {
 		t.Fatalf("the resumed upgrade repeated a finished step: %v", resumed)
 	}
-	if resumed[0] != "kubeadm upgrade node" {
-		t.Fatalf("the resumed upgrade started with %q", resumed[0])
+	commands := slices.DeleteFunc(slices.Clone(resumed), func(c string) bool {
+		return strings.HasPrefix(c, "systemctl show") || strings.HasPrefix(c, "systemd-run")
+	})
+	if commands[0] != "kubeadm upgrade node" {
+		t.Fatalf("the resumed upgrade started with %q", commands[0])
 	}
 	assertNoReset(t, h)
 }
@@ -529,4 +547,117 @@ func TestReleaseEntry(t *testing.T) {
 	if _, _, err := releaseEntry([]byte("MD5Sum:\n 00 1 Packages\n"), "Packages"); err == nil {
 		t.Fatal("an MD5 entry was accepted")
 	}
+}
+
+//nolint:gocyclo,funlen // one table of the durable-command cases, each against a fresh fake host.
+func TestDurableCommands(t *testing.T) {
+	unit := "okx-inplace-abc123-0-kubeadm-upgrade.service"
+	run := func(t *testing.T, h *fakeHost, req *infrav1.InPlaceUpgradeRequest) error {
+		t.Helper()
+		_, err := newExecutor(t, h, t.TempDir()).Execute(context.Background(), req, nil)
+		return err
+	}
+	count := func(h *fakeHost, call string) int {
+		n := 0
+		for _, c := range h.calls {
+			if c == call {
+				n++
+			}
+		}
+		return n
+	}
+
+	t.Run("kubeadm and dpkg run in transient units", func(t *testing.T) {
+		h := newFakeHost(t, false)
+		h.server = to
+		if err := run(t, h, request(infrav1.InPlaceUpgradeWorker)); err != nil {
+			t.Fatal(err)
+		}
+		for _, prefix := range []string{
+			"systemd-run --unit=" + unit + " --wait --quiet --property=TimeoutStartSec=infinity -- kubeadm upgrade node",
+			"systemd-run --unit=okx-inplace-abc123-0-kubeadm.service --wait",
+			"systemd-run --unit=okx-inplace-abc123-0-kubelet.service --wait",
+		} {
+			if !slices.ContainsFunc(h.calls, func(c string) bool { return strings.HasPrefix(c, prefix) }) {
+				t.Fatalf("no %q in %v", prefix, h.calls)
+			}
+		}
+		if slices.ContainsFunc(h.calls, func(c string) bool {
+			return strings.HasPrefix(c, "kubeadm upgrade") || strings.HasPrefix(c, "dpkg --install")
+		}) &&
+			!slices.ContainsFunc(h.calls, func(c string) bool { return strings.HasPrefix(c, "systemd-run") }) {
+			t.Fatal("a durable command ran outside a unit")
+		}
+	})
+
+	t.Run("a unit of an earlier agent process is waited for, not started twice", func(t *testing.T) {
+		h := newFakeHost(t, false)
+		h.server = to
+		h.unitStates = map[string][]string{unit: {"active", "active", "deactivating", "inactive"}}
+		if err := run(t, h, request(infrav1.InPlaceUpgradeWorker)); err != nil {
+			t.Fatal(err)
+		}
+		if n := count(h, "kubeadm upgrade node"); n != 1 {
+			t.Fatalf("kubeadm upgrade node ran %d times", n)
+		}
+		if i, j := slices.Index(h.calls, "systemctl show --property=ActiveState --property=Result "+unit), slices.Index(h.calls, "kubeadm upgrade node"); i < 0 || j < i {
+			t.Fatal("kubeadm ran before the earlier unit finished")
+		}
+	})
+
+	t.Run("a unit that failed in this attempt fails the step without running again", func(t *testing.T) {
+		h := newFakeHost(t, false)
+		h.server = to
+		h.unitStates = map[string][]string{unit: {"failed"}}
+		err := run(t, h, request(infrav1.InPlaceUpgradeWorker))
+		if err == nil || stepOf(t, err) != StepKubeadmUpgrade || !strings.Contains(err.Error(), "journalctl -u "+unit) {
+			t.Fatalf("error %v", err)
+		}
+		if count(h, "kubeadm upgrade node") != 0 {
+			t.Fatal("kubeadm ran again")
+		}
+	})
+
+	t.Run("a new attempt runs in a new unit", func(t *testing.T) {
+		h := newFakeHost(t, false)
+		h.server = to
+		h.unitStates = map[string][]string{unit: {"failed"}}
+		req := request(infrav1.InPlaceUpgradeWorker)
+		req.Attempt = 1
+		if err := run(t, h, req); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("a timeout never stops a running unit", func(t *testing.T) {
+		h := newFakeHost(t, false)
+		h.server = to
+		states := make([]string, 1000)
+		for i := range states {
+			states[i] = "active"
+		}
+		h.unitStates = map[string][]string{unit: states}
+		err := run(t, h, request(infrav1.InPlaceUpgradeWorker))
+		if err == nil || !strings.Contains(err.Error(), "it was not stopped") {
+			t.Fatalf("error %v", err)
+		}
+		if slices.ContainsFunc(h.calls, func(c string) bool {
+			return strings.HasPrefix(c, "systemctl stop") || strings.HasPrefix(c, "systemctl kill")
+		}) {
+			t.Fatal("the unit was stopped")
+		}
+	})
+
+	t.Run("a failed dpkg leaves the packages held", func(t *testing.T) {
+		h := newFakeHost(t, false)
+		h.server = to
+		h.failOnce["dpkg --install"] = errors.New("dependency problems")
+		err := run(t, h, request(infrav1.InPlaceUpgradeWorker))
+		if err == nil || stepOf(t, err) != StepKubeadm {
+			t.Fatalf("error %v", err)
+		}
+		if h.calls[len(h.calls)-1] != "apt-mark hold kubeadm" {
+			t.Fatalf("the last command was %q, not the hold", h.calls[len(h.calls)-1])
+		}
+	})
 }

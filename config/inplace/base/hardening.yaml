@@ -9,6 +9,8 @@
 #                     and the guard and extension Deployments
 #   approverMinters   may mint tokens of okx-upgrade-approver
 #   initiatorMinters  may mint tokens of okx-upgrade-initiator
+#   upgradeApprovers  may approve the upgrade of a host (ByoHost annotation
+#                     inplace.openkubes.org/approved-upgrade)
 # Without the ConfigMap every matching request is denied (fail closed).
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -107,6 +109,60 @@ metadata:
   name: okx-inplace-protected-config
 spec:
   policyName: okx-inplace-protected-config
+  validationActions: ["Deny"]
+  paramRef:
+    name: okx-inplace-authorized-identities
+    namespace: okx-inplace-system
+    parameterNotFoundAction: Deny
+---
+# M1 (review B10.23c): the extension may write only spec.inPlaceUpgrade of a
+# ByoHost (never resetRequested, the attachment, labels, annotations,
+# finalizers or owner references), and the approval annotation of an upgrade
+# (the hold point between hosts) is set only by upgradeApprovers. Agents write
+# the status subresource, which this policy does not match.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: okx-inplace-byohost-writes
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["infrastructure.cluster.x-k8s.io"]
+        apiVersions: ["v1beta1"]
+        operations: ["UPDATE"]
+        resources: ["byohosts"]
+  variables:
+    - name: extension
+      expression: "request.userInfo.username == 'system:serviceaccount:okx-inplace-system:inplace-extension'"
+    - name: approval
+      expression: "'inplace.openkubes.org/approved-upgrade'"
+  validations:
+    - expression: >-
+        !variables.extension || (
+        object.spec.?byoMachineRef == oldObject.spec.?byoMachineRef &&
+        object.spec.?resetRequested.orValue(false) == oldObject.spec.?resetRequested.orValue(false) &&
+        object.spec.?bootstrapSecret == oldObject.spec.?bootstrapSecret &&
+        object.spec.?installationSecret == oldObject.spec.?installationSecret &&
+        object.metadata.?labels.orValue({}) == oldObject.metadata.?labels.orValue({}) &&
+        object.metadata.?annotations.orValue({}) == oldObject.metadata.?annotations.orValue({}) &&
+        object.metadata.?finalizers.orValue([]) == oldObject.metadata.?finalizers.orValue([]) &&
+        object.metadata.?ownerReferences.orValue([]) == oldObject.metadata.?ownerReferences.orValue([]))
+      message: "the in-place extension changes only spec.inPlaceUpgrade of a ByoHost"
+    - expression: >-
+        object.metadata.?annotations[variables.approval].orValue('') == oldObject.metadata.?annotations[variables.approval].orValue('') ||
+        request.userInfo.username in params.data.upgradeApprovers.split(',')
+      messageExpression: "'the approval of an in-place upgrade is set only by an upgrade approver, not ' + request.userInfo.username"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: okx-inplace-byohost-writes
+spec:
+  policyName: okx-inplace-byohost-writes
   validationActions: ["Deny"]
   paramRef:
     name: okx-inplace-authorized-identities

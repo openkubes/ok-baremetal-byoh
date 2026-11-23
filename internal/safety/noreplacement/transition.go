@@ -78,17 +78,17 @@ const (
 	ShapeMoveAlign
 )
 
-func (c MachineChange) versionChanged() bool { return c.VersionFrom != c.VersionTo }
+func (c *MachineChange) versionChanged() bool { return c.VersionFrom != c.VersionTo }
 
-func (c MachineChange) ownerControllerMoved() bool {
-	return c.OwnerControllerFrom.Kind == "MachineSet" &&
-		c.OwnerControllerTo.Kind == "MachineSet" &&
+func (c *MachineChange) ownerControllerMoved() bool {
+	return c.OwnerControllerFrom.Kind == string(TargetMachineSet) &&
+		c.OwnerControllerTo.Kind == string(TargetMachineSet) &&
 		c.OwnerControllerFrom.UID != "" &&
 		c.OwnerControllerTo.UID != "" &&
 		c.OwnerControllerFrom.UID != c.OwnerControllerTo.UID
 }
 
-func (c MachineChange) ownerControllerUnchanged() bool {
+func (c *MachineChange) ownerControllerUnchanged() bool {
 	return c.OwnerControllerFrom == c.OwnerControllerTo
 }
 
@@ -96,6 +96,8 @@ func (c MachineChange) ownerControllerUnchanged() bool {
 // or ShapeNone. It is intentionally strict and fail-closed: any identity,
 // finalizer, cluster-name-label, protection-annotation or other-reserved-metadata
 // change, or any unexpected combination, yields ShapeNone (-> deny).
+//
+//nolint:gocyclo,gocritic // the source-verified transition matrix (M1 §3) as one fail-closed decision table, on a copy of the change.
 func ClassifyMachineTransition(c MachineChange) Shape {
 	// Hard invariants: these must NEVER change during any in-place transition.
 	if c.IdentityChanged || c.FinalizersChanged ||
@@ -219,13 +221,14 @@ func TransitionIDForShape(shape Shape, kind TargetKind) string {
 // path, and falls back to the existing deny-by-default for everything else.
 func EvaluateMachineUpdateInPlace(
 	scope Scope,
-	change MachineChange,
+	change *MachineChange,
 	grant *Grant,
 	clusterUID string,
 	dryRun bool,
 	now time.Time,
 ) Decision {
-	shape := ClassifyMachineTransition(change)
+
+	shape := ClassifyMachineTransition(*change)
 	if shape == ShapeNone {
 		return deny("change is not a recognized in-place transition")
 	}

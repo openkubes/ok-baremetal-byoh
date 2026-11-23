@@ -14,7 +14,7 @@ import (
 // asked for after M3: unprotected namespace, missing grant, wrong requester.
 //
 // They are runnable OFFLINE (stdlib only). The webhook ROUTING scope
-// (namespaceSelector / objectSelector) and live apiserver admission behaviour are
+// (namespaceSelector / objectSelector) and live apiserver admission behavior are
 // NOT covered here — those are marked PENDING and verified on the Mac / in CI.
 
 func negTestRegistrations() map[string]NamespaceRegistration {

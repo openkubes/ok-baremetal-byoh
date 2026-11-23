@@ -29,6 +29,14 @@ const (
 	updateMachineHookName      = "UpdateMachine"
 )
 
+// Keys of an object and of its metadata that the change extraction compares.
+const (
+	fieldSpec        = "spec"
+	fieldMetadata    = "metadata"
+	fieldLabels      = "labels"
+	fieldAnnotations = "annotations"
+)
+
 func annoDelta(oldAnns, newAnns map[string]string, key string) AnnoDelta {
 	ov, oOK := oldAnns[key]
 	nv, nOK := newAnns[key]
@@ -195,14 +203,14 @@ func machineDiffSummary(oldRaw, newRaw []byte) map[string][]string {
 		return out
 	}
 	meta := rawKeys(o.Metadata, n.Metadata, map[string]bool{
-		"labels": true, "annotations": true, "managedFields": true,
+		fieldLabels: true, fieldAnnotations: true, "managedFields": true,
 		"resourceVersion": true, "generation": true,
 	})
 	return map[string][]string{
-		"spec":        rawKeys(o.Spec, n.Spec, nil),
-		"labels":      strKeys("labels"),
-		"annotations": strKeys("annotations"),
-		"metadata":    meta,
+		fieldSpec:        rawKeys(o.Spec, n.Spec, nil),
+		fieldLabels:      strKeys(fieldLabels),
+		fieldAnnotations: strKeys(fieldAnnotations),
+		fieldMetadata:    meta,
 	}
 }
 
@@ -218,7 +226,7 @@ func labelChanged(oldL, newL map[string]string, key string) bool {
 func setNameMatchesController(m *clusterv1.Machine) bool {
 	ref := controllerRef(m.OwnerReferences)
 	v, ok := m.Labels[machineSetNameLabel]
-	return ok && ref.Kind == "MachineSet" && ref.Name != "" && v == ref.Name
+	return ok && ref.Kind == string(TargetMachineSet) && ref.Name != "" && v == ref.Name
 }
 
 func mergeMeta(labels, anns map[string]string) map[string]string {

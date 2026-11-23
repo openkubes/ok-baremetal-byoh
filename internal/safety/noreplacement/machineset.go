@@ -46,8 +46,9 @@ func EvaluateMachineSetInPlace(
 	scope Scope,
 	moveAnnotationTouched bool,
 	grant *Grant,
-	q GrantQuery,
+	q *GrantQuery,
 ) Decision {
+
 	if !scope.Verified {
 		return deny(reasonScopeUnverified)
 	}
@@ -60,5 +61,5 @@ func EvaluateMachineSetInPlace(
 	if q.Transition != TransitionMDAcknowledge {
 		return deny("move-authorization annotation requires the MD-ACK grant transition")
 	}
-	return VerifyGrant(scope, grant, q)
+	return VerifyGrant(scope, grant, *q)
 }

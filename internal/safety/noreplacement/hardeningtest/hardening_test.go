@@ -6,7 +6,7 @@
 // token minting for the grant identities (S4) and writes of the registry, the
 // package lock, the identities and the Deployments (S5) are limited to the
 // authorized identities, also for members of system:masters.
-package hardeningtest
+package hardeningtest_test
 
 import (
 	"bytes"
@@ -71,8 +71,9 @@ func denied(t *testing.T, err error, text string) {
 	}
 }
 
+//nolint:gocyclo,funlen // one envtest API server for all policy cases.
 func TestHardening(t *testing.T) {
-	env := &envtest.Environment{}
+	env := &envtest.Environment{CRDDirectoryPaths: []string{filepath.Join("..", "..", "..", "..", "config", "crd", "bases")}, ErrorIfCRDPathMissing: true}
 	cfg, err := env.Start()
 	if err != nil {
 		t.Fatal(err)
@@ -110,6 +111,20 @@ func TestHardening(t *testing.T) {
 	if _, err := cs.AppsV1().Deployments(ns).Create(ctx, guard, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
+	// A ByoHost attached to a ByoMachine, in the protected namespace ha1.
+	if _, err := cs.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ha1"}}, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	byoHost := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "infrastructure.cluster.x-k8s.io/v1beta1", "kind": "ByoHost",
+		"metadata": map[string]any{"name": "ha1-cp-1", "namespace": "ha1"},
+		"spec":     map[string]any{"byoMachineRef": map[string]any{"name": "bm1", "uid": "uid-bm1"}},
+	}}
+	if err := c.Create(ctx, byoHost); err != nil {
+		t.Fatal(err)
+	}
+	// The extension has exactly its namespaced rights of the overlay.
+	apply(t, c, filepath.Join(root, "overlays", "ha1", "rbac.yaml"))
 	apply(t, c, filepath.Join(root, "base", "hardening.yaml"))
 
 	admin, mallory := as(t, cfg, "kubernetes-admin"), as(t, cfg, "mallory")
@@ -182,6 +197,43 @@ func TestHardening(t *testing.T) {
 			t.Fatalf("an ordinary Secret: %v", err)
 		}
 	})
+	extension := asUser(t, cfg, "system:serviceaccount:okx-inplace-system:inplace-extension", "system:serviceaccounts", "system:serviceaccounts:okx-inplace-system", "system:authenticated")
+	patchHost := func(k client.Client, patch string) error {
+		h := &unstructured.Unstructured{}
+		h.SetGroupVersionKind(byoHost.GroupVersionKind())
+		h.SetNamespace("ha1")
+		h.SetName("ha1-cp-1")
+		return k.Patch(ctx, h, client.RawPatch(types.MergePatchType, []byte(patch)), client.DryRunAll)
+	}
+	request := `{"spec":{"inPlaceUpgrade":{"id":"abc123","clusterName":"ha1","clusterUID":"u","machineName":"m","machineUID":"mu","byoMachineUID":"uid-bm1","nodeName":"ha1-cp-1","role":"ControlPlaneFirst","fromVersion":"v1.36.6","toVersion":"v1.37.2","packages":{"repository":"https://pkgs.k8s.io/core:/stable:/v1.37/deb/","repositoryKeyFingerprint":"DE15B14486CD377B9E876E1A234654DA9A296436","debs":[{"name":"kubeadm","version":"1.37.2-1.1","sha256":"d1674bffcf80b36531375b35cf68d0dc23453a373c1b4537d78b6960732bc699"},{"name":"kubelet","version":"1.37.2-1.1","sha256":"f95d0b572a24563bb6e2a1a1f0e84a8a30a24e11c95068b2e81c294a0e1bee11"},{"name":"kubectl","version":"1.37.2-1.1","sha256":"e95d73aaf1da438cc8b287545b128fbe5e6a9f3723ecaa25eac1b42b8fe542ab"}]}}}}`
+	t.Run("M1: the extension writes spec.inPlaceUpgrade", func(t *testing.T) {
+		if err := patchHost(extension, request); err != nil {
+			t.Fatal(err)
+		}
+	})
+	for name, patch := range map[string]string{
+		"requests a reset":       `{"spec":{"resetRequested":true}}`,
+		"changes the attachment": `{"spec":{"byoMachineRef":{"name":"bm2","uid":"uid-bm2"}}}`,
+		"approves itself":        `{"metadata":{"annotations":{"inplace.openkubes.org/approved-upgrade":"v1.37.2"}}}`,
+		"adds a finalizer":       `{"metadata":{"finalizers":["x/y"]}}`,
+	} {
+		t.Run("M1: the extension never "+name, func(t *testing.T) {
+			denied(t, patchHost(extension, patch), "denied request")
+		})
+	}
+	approve := `{"metadata":{"annotations":{"inplace.openkubes.org/approved-upgrade":"v1.37.2"}}}`
+	t.Run("M1: only an upgrade approver approves", func(t *testing.T) {
+		denied(t, patchHost(asUser(t, cfg, "mallory", "system:masters", "system:authenticated"), approve), "set only by an upgrade approver, not mallory")
+		if err := patchHost(asUser(t, cfg, "kubernetes-admin", "system:masters", "system:authenticated"), approve); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("M1: the BYOH controller still writes the spec", func(t *testing.T) {
+		controller := asUser(t, cfg, "system:serviceaccount:byoh-system:byoh-controller-manager", "system:masters", "system:authenticated")
+		if err := patchHost(controller, `{"spec":{"resetRequested":true}}`); err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("ordinary ConfigMaps are not affected", func(t *testing.T) {
 		if err := patchCM(mallory, "ordinary"); err != nil {
 			t.Fatal(err)
@@ -204,4 +256,15 @@ func TestHardening(t *testing.T) {
 		}
 		denied(t, patchCM(admin, "okx-no-replacement-registry-abc"), "no params found")
 	})
+}
+
+func asUser(t *testing.T, cfg *rest.Config, user string, groups ...string) client.Client {
+	t.Helper()
+	c := rest.CopyConfig(cfg)
+	c.Impersonate = rest.ImpersonationConfig{UserName: user, Groups: groups}
+	k, err := client.New(c, client.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k
 }

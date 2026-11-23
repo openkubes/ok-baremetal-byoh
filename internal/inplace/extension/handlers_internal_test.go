@@ -172,11 +172,11 @@ func (w *world) upgraded(name string) {
 	w.nodes.versions["node-"+name] = toV
 }
 
-func (w *world) report(name string, status infrav1.InPlaceUpgradeStatus) {
+func (w *world) report(name string, status *infrav1.InPlaceUpgradeStatus) {
 	h := w.host(name)
 	status.ID = h.Spec.InPlaceUpgrade.ID
 	status.Attempt = h.Spec.InPlaceUpgrade.Attempt
-	h.Status.InPlaceUpgrade = &status
+	h.Status.InPlaceUpgrade = status
 	if err := w.client.Status().Update(context.Background(), h); err != nil {
 		w.t.Fatal(err)
 	}
@@ -202,6 +202,7 @@ func expect(t *testing.T, resp *runtimehooksv1.UpdateMachineResponse, want state
 	}
 }
 
+//nolint:gocyclo // one upgrade followed through all its UpdateMachine calls.
 func TestFirstControlPlaneUpgrade(t *testing.T) {
 	w := newWorld(t)
 	w.bump("cp-1")
@@ -227,10 +228,10 @@ func TestFirstControlPlaneUpgrade(t *testing.T) {
 		t.Fatalf("a repeated call wrote %d patches and drained %v", w.patches-patches, w.nodes.drained)
 	}
 
-	w.report("cp-1", infrav1.InPlaceUpgradeStatus{Phase: infrav1.InPlaceUpgradeRunning, Step: "KubeadmUpgrade", StartedAt: &metav1.Time{Time: w.now}})
+	w.report("cp-1", &infrav1.InPlaceUpgradeStatus{Phase: infrav1.InPlaceUpgradeRunning, Step: "KubeadmUpgrade", StartedAt: &metav1.Time{Time: w.now}})
 	expect(t, w.update("cp-1"), stateWaiting, "step KubeadmUpgrade")
 
-	w.report("cp-1", infrav1.InPlaceUpgradeStatus{Phase: infrav1.InPlaceUpgradeSucceeded, ObservedKubeletVersion: toV, ObservedNodeVersion: toV})
+	w.report("cp-1", &infrav1.InPlaceUpgradeStatus{Phase: infrav1.InPlaceUpgradeSucceeded, ObservedKubeletVersion: toV, ObservedNodeVersion: toV})
 	w.nodes.versions["node-cp-1"] = toV
 	expect(t, w.update("cp-1"), stateDone, "Node node-cp-1 runs v1.37.2")
 	if len(w.nodes.uncordoned) != 1 {
@@ -257,10 +258,10 @@ func TestRolesAndSequencing(t *testing.T) {
 	// cp-2 runs: no other host of the cluster starts.
 	w.bump("cp-3")
 	expect(t, w.update("cp-3"), stateWaiting, "runs an in-place upgrade; hosts are upgraded one at a time")
-	w.report("cp-2", infrav1.InPlaceUpgradeStatus{Phase: infrav1.InPlaceUpgradeSucceeded, ObservedKubeletVersion: toV, ObservedNodeVersion: toV})
+	w.report("cp-2", &infrav1.InPlaceUpgradeStatus{Phase: infrav1.InPlaceUpgradeSucceeded, ObservedKubeletVersion: toV, ObservedNodeVersion: toV})
 	w.upgraded("cp-2")
 	expect(t, w.update("cp-3"), stateWaiting, "requested as ControlPlane")
-	w.report("cp-3", infrav1.InPlaceUpgradeStatus{Phase: infrav1.InPlaceUpgradeSucceeded, ObservedKubeletVersion: toV, ObservedNodeVersion: toV})
+	w.report("cp-3", &infrav1.InPlaceUpgradeStatus{Phase: infrav1.InPlaceUpgradeSucceeded, ObservedKubeletVersion: toV, ObservedNodeVersion: toV})
 	w.upgraded("cp-3")
 
 	expect(t, w.update("w-1"), stateWaiting, "requested as Worker")
@@ -362,7 +363,7 @@ func TestProgressNeverReportsAnUnverifiedUpgrade(t *testing.T) {
 		want    state
 		message string
 	}{
-		{"a timeout", infrav1.InPlaceUpgradeStatus{Phase: infrav1.InPlaceUpgradeRunning, Step: "Verify", StartedAt: &metav1.Time{Time: time.Date(2026, 11, 23, 20, 0, 0, 0, time.UTC)}}, toV, nil, stateFailed, "has run for more than"},
+		{"a timeout", infrav1.InPlaceUpgradeStatus{Phase: infrav1.InPlaceUpgradeRunning, Step: "Verify", StartedAt: &metav1.Time{Time: time.Date(2026, 11, 23, 19, 0, 0, 0, time.UTC)}}, toV, nil, stateFailed, "has run for more than"},
 		{"a failed step", infrav1.InPlaceUpgradeStatus{Phase: infrav1.InPlaceUpgradeFailed, Step: "Download", Message: "not the pinned"}, toV, nil, stateFailed, "at step Download: not the pinned"},
 		{"Succeeded without the observed Node version", infrav1.InPlaceUpgradeStatus{Phase: infrav1.InPlaceUpgradeSucceeded, ObservedKubeletVersion: toV}, toV, nil, stateFailed, "reports Succeeded with"},
 		{"a Node with another version", infrav1.InPlaceUpgradeStatus{Phase: infrav1.InPlaceUpgradeSucceeded, ObservedKubeletVersion: toV, ObservedNodeVersion: toV}, from, nil, stateFailed, "but Node node-cp-1 reports v1.36.6"},
@@ -373,7 +374,7 @@ func TestProgressNeverReportsAnUnverifiedUpgrade(t *testing.T) {
 			w := newWorld(t)
 			w.bump("cp-1")
 			expect(t, w.update("cp-1"), stateWaiting, "requested")
-			w.report("cp-1", tc.status)
+			w.report("cp-1", &tc.status)
 			w.nodes.versions["node-cp-1"] = tc.node
 			w.nodes.readErr = tc.readErr
 			expect(t, w.update("cp-1"), tc.want, tc.message)

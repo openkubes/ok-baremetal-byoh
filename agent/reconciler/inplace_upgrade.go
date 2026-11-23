@@ -6,6 +6,7 @@ package reconciler
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/openkubes/ok-baremetal-byoh/agent/inplaceupgrade"
 	infrastructurev1beta1 "github.com/openkubes/ok-baremetal-byoh/apis/infrastructure/v1beta1"
@@ -15,6 +16,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// acceptedRequeue runs an accepted upgrade right after its Running status is
+// stored.
+const acceptedRequeue = time.Second
 
 // reconcileInPlaceUpgrade runs the in-place upgrade in spec.inPlaceUpgrade.
 //
@@ -42,7 +47,7 @@ func (r *HostReconciler) reconcileInPlaceUpgrade(ctx context.Context, byoHost *i
 			return ctrl.Result{}, nil
 		}
 		logger.Info("In-place upgrade accepted")
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: acceptedRequeue}, nil
 	}
 	if err := r.checkInPlaceUpgrade(byoHost); err != nil {
 		r.finishInPlaceUpgrade(byoHost, inplaceupgrade.Result{}, &inplaceupgrade.StepError{Step: inplaceupgrade.StepPreflight, Err: err})

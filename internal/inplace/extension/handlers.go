@@ -39,9 +39,11 @@ const (
 	dockerMachineKind = "DockerMachine"
 )
 
-// Defaults of the extension.
+// Defaults of the extension. The upgrade timeout covers the bounded steps of
+// the agent (agent/inplaceupgrade.DefaultTimeouts) with a margin, so that the
+// extension does not report a failure while the agent still works.
 const (
-	DefaultUpgradeTimeout = 45 * time.Minute
+	DefaultUpgradeTimeout = 2 * time.Hour
 	DefaultRetryAfter     = 15
 )
 
@@ -143,13 +145,13 @@ func (h *ExtensionHandlers) DoCanUpdateMachine(ctx context.Context, req *runtime
 	accepted, _ := inplace.AcceptInPlace(cur, des)
 	modified.Spec.Version = accepted.Version
 
-	marshalledCurrent, err := json.Marshal(req.Current.Machine)
+	marshaledCurrent, err := json.Marshal(req.Current.Machine)
 	if err != nil {
 		resp.Status = runtimehooksv1.ResponseStatusFailure
 		resp.Message = pkgerrors.Wrap(err, "marshal current Machine").Error()
 		return
 	}
-	machinePatch, err := createJSONPatch(marshalledCurrent, modified)
+	machinePatch, err := createJSONPatch(marshaledCurrent, modified)
 	if err != nil {
 		resp.Status = runtimehooksv1.ResponseStatusFailure
 		resp.Message = err.Error()
@@ -175,13 +177,13 @@ func (h *ExtensionHandlers) DoCanUpdateMachineSet(ctx context.Context, req *runt
 	accepted, _ := inplace.AcceptInPlace(cur, des)
 	modified.Spec.Template.Spec.Version = accepted.Version
 
-	marshalledCurrent, err := json.Marshal(req.Current.MachineSet)
+	marshaledCurrent, err := json.Marshal(req.Current.MachineSet)
 	if err != nil {
 		resp.Status = runtimehooksv1.ResponseStatusFailure
 		resp.Message = pkgerrors.Wrap(err, "marshal current MachineSet").Error()
 		return
 	}
-	machineSetPatch, err := createJSONPatch(marshalledCurrent, modified)
+	machineSetPatch, err := createJSONPatch(marshaledCurrent, modified)
 	if err != nil {
 		resp.Status = runtimehooksv1.ResponseStatusFailure
 		resp.Message = err.Error()
@@ -239,17 +241,17 @@ func (h *ExtensionHandlers) simulateUpdate(machine *clusterv1.Machine) outcome {
 		h.simulated.Delete(key)
 		return done("simulated in-place update complete (CAPD DockerMachine, no host work performed)")
 	}
-	return waiting(5, "simulated in-place update in progress (CAPD DockerMachine, no host work performed)")
+	return waiting(retryShort, "simulated in-place update in progress (CAPD DockerMachine, no host work performed)")
 }
 
-// createJSONPatch builds an RFC 6902 JSON patch from a marshalled original and a
+// createJSONPatch builds an RFC 6902 JSON patch from a marshaled original and a
 // modified object. Adapted from cluster-api test/extension (Apache-2.0).
-func createJSONPatch(marshalledOriginal []byte, modified runtime.Object) ([]byte, error) {
-	marshalledModified, err := json.Marshal(modified)
+func createJSONPatch(marshaledOriginal []byte, modified runtime.Object) ([]byte, error) {
+	marshaledModified, err := json.Marshal(modified)
 	if err != nil {
 		return nil, pkgerrors.Wrap(err, "marshal modified object")
 	}
-	patch, err := jsonpatch.CreatePatch(marshalledOriginal, marshalledModified)
+	patch, err := jsonpatch.CreatePatch(marshaledOriginal, marshaledModified)
 	if err != nil {
 		return nil, pkgerrors.Wrap(err, "create patch")
 	}

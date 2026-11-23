@@ -66,8 +66,9 @@ func EvaluateByoMachineInPlace(
 	scope Scope,
 	change ByoMachineChange,
 	grant *Grant,
-	q GrantQuery,
+	q *GrantQuery,
 ) Decision {
+
 	if !scope.Verified {
 		return deny(reasonScopeUnverified)
 	}
@@ -85,7 +86,7 @@ func EvaluateByoMachineInPlace(
 	if id == "" {
 		return deny("ByoMachine transition is not valid for the grant target kind")
 	}
-	qq := q
+	qq := *q
 	qq.Transition = id
 	qq.VersionRelevant = false
 	return VerifyGrant(scope, grant, qq)

@@ -49,7 +49,7 @@ below performs the same host steps under CAPI control.
    `kubeadm reset`, never purges or removes packages and never touches the bootstrap.
 5. **Done.** The extension answers success only when the agent reports `Succeeded` with the target
    observed on the host **and** the Node, **and** it reads the target on the Node itself; it then
-   uncordons the Node. A `Running` upgrade older than `--upgrade-timeout` (45 min), a `Failed`
+   uncordons the Node. A `Running` upgrade older than `--upgrade-timeout` (2 h), a `Failed`
    upgrade, an inconsistent report or an unreadable state is never success.
 
 The ByoHost webhook keeps the request immutable while it runs (except a larger `attempt`), binds it
@@ -72,7 +72,39 @@ request in its spec; `Succeeded` needs the observed target versions.
   recovered from the etcd snapshot taken before the control-plane upgrade (writes after the
   snapshot are lost); this is a separate disaster-recovery procedure.
 
-## Decommission (unregistering a protected cluster)
+## Grants
+One grant per KubeadmControlPlane and one per MachineDeployment, **without** `machineUID`: it authorizes the
+version patch of the KCP/MD (intent guard) and the in-place transitions of each of its Machines. Grants bound to a
+Machine UID next to it make the lookup ambiguous and are denied (fail closed). A claimed grant stays usable until
+`notAfter`; keep `notAfter` short (the length of the change window).
+
+## Host commands that must not be interrupted
+`dpkg --install` and `kubeadm upgrade` run in transient systemd units
+`okx-inplace-<id>-<attempt>-<what>.service`. They outlive the agent (restart, crash, `update-agent`) and a step
+timeout only stops the waiting, never the command. A restarted agent waits for a running unit of the same attempt
+instead of starting it again; a unit that failed fails the step (journal: `journalctl -u <unit>`); the next attempt
+runs in a new unit. `update-agent` refuses to restart the agent while such a unit runs. Packages are held again also
+after a failed installation.
+
+## Known limitations (review B10.23c)
+- **Cluster-admin** can delete the webhook configuration, the admission policies or their bindings, and can
+  impersonate the approver/initiator ServiceAccounts directly (impersonation is not admission-checked). These are
+  the audited break-glass paths; alert on changes of `okx-no-replacement-guard`, the `okx-inplace-*` policies and
+  on impersonation of the grant identities.
+- **Namespace writers of `okx-inplace-system`** could still edit ReplicaSets or Pods of the guard (the policies
+  protect the Deployments, the registry, the package lock and the identities). Only platform administrators may
+  write in that namespace (RBAC).
+- **One host at a time** is a check before the drain, not a lock; the per-host approval annotation is the binding
+  hold point (approve one host, wait for its verification, then the next).
+- **Grant holders**: an initiator with a claimed grant can complete a Machine's in-place update without host work
+  (the guard allows the cleanup transitions); the initiator is trusted, the agent status and the Node version show
+  the truth (`progress.sh`, `uids.py compare --expect-version`).
+- The extension waits without a limit for an agent that never accepts a request (never success); an agent that
+  fails after `kubeadm upgrade` and a restored etcd may need its checkpoint removed by an operator before a new
+  attempt; success uncordons the Node even if it was cordoned before the upgrade; the drainer may evict on every
+  Node (PodDisruptionBudgets apply); a registered namespace without the label is not guarded (preflight checks it).
+
+
 While a namespace is protected, the guard denies Machine and KCP/MD CREATE/DELETE, so a teardown
 is impossible by design. Decommission is a separate, approved operation:
 1. Confirm no in-place upgrade is running (`hack/inplace/progress.sh`).

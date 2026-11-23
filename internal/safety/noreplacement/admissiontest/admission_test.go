@@ -5,7 +5,7 @@
 // (envtest), with the ValidatingWebhookConfiguration of
 // config/inplace/base/webhooks.yaml: namespace routing, the scale
 // subresource, server-side dry-run and the fail-closed denials.
-package admissiontest
+package admissiontest_test
 
 import (
 	"context"
@@ -88,6 +88,7 @@ func expectDenied(t *testing.T, err error, reason string) {
 	}
 }
 
+//nolint:gocyclo,funlen // one envtest API server for all admission cases.
 func TestGuardBehindAPIServer(t *testing.T) {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 	core, err := crds.ClusterAPICoreDir()
@@ -115,7 +116,8 @@ func TestGuardBehindAPIServer(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, clusterv1.AddToScheme, autoscalingv1.AddToScheme} {
-		if err := add(scheme); err != nil {
+		err = add(scheme)
+		if err != nil {
 			t.Fatal(err)
 		}
 	}

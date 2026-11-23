@@ -69,6 +69,27 @@ const (
 	ManifestsDir = "/etc/kubernetes/manifests"
 )
 
+// Values of Node and pod status, and the modes of the files of the upgrade.
+const (
+	conditionReady         = "Ready"
+	conditionTrue          = "True"
+	podRunning             = "Running"
+	sourcesMode            = os.FileMode(0o644)
+	stateDirMode           = os.FileMode(0o700)
+	stateFileMode          = os.FileMode(0o600)
+	majorMinorParts        = 2
+	unitFailed             = "failed"
+	unitActive             = "active"
+	unitDeactivating       = "deactivating"
+	releaseFile            = "Release"
+	maxPackagesLineBytes   = 1024 * 1024
+	initialPackagesBufSize = 64 * 1024
+)
+
+// unitRunningStates are the ActiveStates of a systemd unit whose command has
+// not finished.
+var unitRunningStates = []string{unitActive, "activating", unitDeactivating, "reloading"}
+
 // controlPlaneComponents are the static pods that kubeadm upgrades on a
 // control-plane node.
 var controlPlaneComponents = []string{"kube-apiserver", "kube-controller-manager", "kube-scheduler"}
@@ -82,13 +103,6 @@ type Paths struct {
 
 // DefaultPaths are the paths on a host.
 var DefaultPaths = Paths{Keyring: KeyringPath, Sources: SourcesPath, Manifests: ManifestsDir}
-
-func (e *Executor) paths() Paths {
-	if e.Paths == (Paths{}) {
-		return DefaultPaths
-	}
-	return e.Paths
-}
 
 // Runner runs a command without a shell and returns its standard output.
 type Runner interface {
@@ -137,6 +151,13 @@ type Executor struct {
 	// Sleep waits between the polls of the verification; time.Sleep with the
 	// context by default.
 	Sleep func(context.Context, time.Duration) error
+}
+
+func (e *Executor) paths() Paths {
+	if e.Paths == (Paths{}) {
+		return DefaultPaths
+	}
+	return e.Paths
 }
 
 // Result is what the executor verified on the host.
@@ -290,7 +311,7 @@ func (e *Executor) repository(ctx context.Context, req *infrav1.InPlaceUpgradeRe
 	// The source names the keyring by its path on the host, as the
 	// installer writes it.
 	sources := fmt.Sprintf("Types: deb\nURIs: %s\nSuites: /\nSigned-By: %s\n", req.Packages.Repository, KeyringPath)
-	return writeFileAtomic(p.Sources, []byte(sources), 0o644)
+	return writeFileAtomic(p.Sources, []byte(sources), sourcesMode)
 }
 
 // primaryFingerprints returns the fingerprints of the primary keys in the
@@ -333,7 +354,7 @@ func (e *Executor) download(ctx context.Context, req *infrav1.InPlaceUpgradeRequ
 	for i := range req.Packages.Debs {
 		deb := &req.Packages.Debs[i]
 		path := e.debPath(req, deb)
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), stateDirMode); err != nil {
 			return err
 		}
 		if sum, err := fileSHA256(path); err == nil && sum == deb.SHA256 {
@@ -383,11 +404,14 @@ func (e *Executor) install(ctx context.Context, req *infrav1.InPlaceUpgradeReque
 	if _, err := e.Runner.Run(ctx, "apt-mark", append([]string{"unhold"}, names...)...); err != nil {
 		return err
 	}
-	if _, err := e.Runner.Run(ctx, "dpkg", append([]string{"--install"}, paths...)...); err != nil {
+	// The packages are held again also after a failed installation, so that
+	// no later apt run moves them.
+	installErr := e.durable(ctx, e.unit(req, names[0]), "dpkg", append([]string{"--install"}, paths...)...)
+	if _, err := e.Runner.Run(ctx, "apt-mark", append([]string{"hold"}, names...)...); err != nil && installErr == nil {
 		return err
 	}
-	if _, err := e.Runner.Run(ctx, "apt-mark", append([]string{"hold"}, names...)...); err != nil {
-		return err
+	if installErr != nil {
+		return installErr
 	}
 	for _, name := range names {
 		deb := req.Packages.Deb(name)
@@ -415,12 +439,71 @@ func (e *Executor) install(ctx context.Context, req *infrav1.InPlaceUpgradeReque
 // first control-plane node, kubeadm upgrade node on the others. Both can run
 // again after an interruption.
 func (e *Executor) kubeadmUpgrade(ctx context.Context, req *infrav1.InPlaceUpgradeRequest) error {
+	unit := e.unit(req, "kubeadm-upgrade")
 	if req.Role == infrav1.InPlaceUpgradeControlPlaneFirst {
-		_, err := e.Runner.Run(ctx, "kubeadm", "upgrade", "apply", req.ToVersion, "--yes")
+		return e.durable(ctx, unit, "kubeadm", "upgrade", "apply", req.ToVersion, "--yes")
+	}
+	return e.durable(ctx, unit, "kubeadm", "upgrade", "node")
+}
+
+// unit names the transient systemd unit of a durable command of the request,
+// per attempt: a failed unit stays for the journal and never blocks the next
+// attempt.
+func (e *Executor) unit(req *infrav1.InPlaceUpgradeRequest, what string) string {
+	return fmt.Sprintf("okx-inplace-%s-%d-%s.service", req.ID, req.Attempt, what)
+}
+
+// durable runs a command that must not be interrupted (dpkg, kubeadm upgrade)
+// in a transient systemd unit. The unit outlives the agent (a restart or an
+// update of the agent does not kill it) and a step timeout only stops the
+// waiting, never the command. A unit of the same attempt that still runs, from
+// an earlier agent process, is waited for instead of started again; one that
+// failed meanwhile fails the step.
+func (e *Executor) durable(ctx context.Context, unit, name string, args ...string) error {
+	state, result, err := e.unitState(ctx, unit)
+	for err == nil && slices.Contains(unitRunningStates, state) {
+		if err = e.sleep(ctx, e.timeouts().VerifyPeriod); err != nil {
+			return fmt.Errorf("%s still runs in %s; it was not stopped: %w", name, unit, err)
+		}
+		state, result, err = e.unitState(ctx, unit)
+	}
+	if err != nil {
 		return err
 	}
-	_, err := e.Runner.Run(ctx, "kubeadm", "upgrade", "node")
-	return err
+	if state == unitFailed {
+		return fmt.Errorf("%s failed in %s (%s) while the agent was not waiting; see journalctl -u %s", name, unit, result, unit)
+	}
+	_, err = e.Runner.Run(ctx, "systemd-run", append([]string{"--unit=" + unit, "--wait", "--quiet", "--property=TimeoutStartSec=infinity", "--", name}, args...)...)
+	if ctx.Err() != nil {
+		return fmt.Errorf("%s still runs in %s after the step timeout; it was not stopped: %w", name, unit, ctx.Err())
+	}
+	if err != nil {
+		return fmt.Errorf("%s failed in %s (journalctl -u %s): %w", name, unit, unit, err)
+	}
+	return nil
+}
+
+// unitState returns the ActiveState and the Result of a systemd unit; an
+// unknown unit is inactive.
+func (e *Executor) unitState(ctx context.Context, unit string) (state, result string, err error) {
+	out, err := e.Runner.Run(ctx, "systemctl", "show", "--property=ActiveState", "--property=Result", unit)
+	if err != nil {
+		return "", "", fmt.Errorf("reading the state of %s: %w", unit, err)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
+			switch k {
+			case "ActiveState":
+				state = v
+			case "Result":
+				result = v
+			}
+		}
+	}
+	if state == "" {
+		return "", "", fmt.Errorf("no ActiveState of %s", unit)
+	}
+	return state, result, nil
 }
 
 // kubelet installs the pinned kubelet and kubectl and restarts the kubelet.
@@ -460,7 +543,7 @@ func (e *Executor) verifyOnce(ctx context.Context, req *infrav1.InPlaceUpgradeRe
 	if kubelet != req.ToVersion {
 		return fmt.Errorf("kubelet is %s, not %s", kubelet, req.ToVersion)
 	}
-	if out, err := e.Runner.Run(ctx, "systemctl", "is-active", "kubelet"); err != nil || strings.TrimSpace(string(out)) != "active" {
+	if out, err := e.Runner.Run(ctx, "systemctl", "is-active", "kubelet"); err != nil || strings.TrimSpace(string(out)) != unitActive {
 		return fmt.Errorf("the kubelet is not active: %q %v", strings.TrimSpace(string(out)), err)
 	}
 	var node struct {
@@ -483,8 +566,8 @@ func (e *Executor) verifyOnce(ctx context.Context, req *infrav1.InPlaceUpgradeRe
 	}
 	ready := false
 	for _, c := range node.Status.Conditions {
-		if c.Type == "Ready" {
-			ready = c.Status == "True"
+		if c.Type == conditionReady {
+			ready = c.Status == conditionTrue
 		}
 	}
 	if !ready {
@@ -533,11 +616,11 @@ func (e *Executor) verifyStaticPod(ctx context.Context, req *infrav1.InPlaceUpgr
 	}
 	ready := false
 	for _, c := range pod.Status.Conditions {
-		if c.Type == "Ready" {
-			ready = c.Status == "True"
+		if c.Type == conditionReady {
+			ready = c.Status == conditionTrue
 		}
 	}
-	if pod.Status.Phase != "Running" || !ready {
+	if pod.Status.Phase != podRunning || !ready {
 		return fmt.Errorf("the pod of %s is not running and ready", component)
 	}
 	return nil
@@ -585,7 +668,7 @@ func (e *Executor) serverVersion(ctx context.Context) (string, error) {
 func minorLess(a, b string) bool {
 	minor := func(v string) int {
 		parts := strings.Split(strings.TrimPrefix(v, "v"), ".")
-		if len(parts) < 2 {
+		if len(parts) < majorMinorParts {
 			return -1
 		}
 		n, err := strconv.Atoi(parts[1])
@@ -647,7 +730,7 @@ func (e *Executor) saveCheckpoint(cp *checkpoint) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(e.checkpointPath(cp.ID), data, 0o600)
+	return writeFileAtomic(e.checkpointPath(cp.ID), data, stateFileMode)
 }
 
 // writeFileAtomic writes a file through a temporary file in its directory,

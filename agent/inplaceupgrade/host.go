@@ -69,7 +69,7 @@ func (f HTTPFetcher) Fetch(ctx context.Context, url, path string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET %s: %s", url, resp.Status)
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, stateFileMode)
 	if err != nil {
 		return err
 	}

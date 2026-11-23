@@ -4,7 +4,7 @@
 // Package drainertest checks the least-privilege drainer identity of
 // config/inplace/workload/drainer.yaml behind a real API server (envtest):
 // what the extension needs works, everything else is refused.
-package drainertest
+package drainertest_test
 
 import (
 	"bytes"
@@ -58,6 +58,7 @@ func applyManifest(t *testing.T, c client.Client, path string) {
 	}
 }
 
+//nolint:gocyclo,funlen // one envtest API server for all permission cases.
 func TestDrainerIdentity(t *testing.T) {
 	env := &envtest.Environment{}
 	cfg, err := env.Start()

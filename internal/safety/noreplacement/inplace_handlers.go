@@ -45,8 +45,8 @@ func dryRun(req *admission.Request) bool {
 }
 
 // scopeFor resolves the protected scope + the trusted cluster UID for a namespace.
-func scopeFor(ctx context.Context, ns string, regs map[string]NamespaceRegistration, lookup ClusterLookup) (Scope, string) {
-	scope := ResolveRegisteredScope(ctx, ns, regs, lookup)
+func scopeFor(ctx context.Context, ns string, regs map[string]NamespaceRegistration, lookup ClusterLookup) (scope Scope, clusterUID string) {
+	scope = ResolveRegisteredScope(ctx, ns, regs, lookup)
 	return scope, regs[ns].ClusterUID
 }
 

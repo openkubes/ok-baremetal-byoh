@@ -45,28 +45,28 @@ func TestMoveAnnotationTouched(t *testing.T) {
 
 func TestMachineSet_AllowByDefault(t *testing.T) {
 	// No move annotation touched -> allow even under protected scope and no grant.
-	if d := EvaluateMachineSetInPlace(protectedScope(), false, nil, GrantQuery{}); !d.Allowed {
+	if d := EvaluateMachineSetInPlace(protectedScope(), false, nil, &GrantQuery{}); !d.Allowed {
 		t.Fatalf("replicas/template/status changes must be allowed: %s", d.Reason)
 	}
 	// Unprotected scope -> allow.
-	if d := EvaluateMachineSetInPlace(Scope{Verified: true}, true, nil, GrantQuery{}); !d.Allowed {
+	if d := EvaluateMachineSetInPlace(Scope{Verified: true}, true, nil, &GrantQuery{}); !d.Allowed {
 		t.Fatalf("unprotected namespace must allow")
 	}
 }
 
 func TestMachineSet_MoveAnnotationGated(t *testing.T) {
 	// Touched + valid MD grant authorizing MD-ACK -> allow.
-	if d := EvaluateMachineSetInPlace(protectedScope(), true, mdGrantWithAck(t), msAckQuery()); !d.Allowed {
+	if d := EvaluateMachineSetInPlace(protectedScope(), true, mdGrantWithAck(t), msAckQueryPtr()); !d.Allowed {
 		t.Fatalf("valid MD-ACK grant must allow the move annotation: %s", d.Reason)
 	}
 	// Touched + no grant -> deny.
-	if d := EvaluateMachineSetInPlace(protectedScope(), true, nil, msAckQuery()); d.Allowed {
+	if d := EvaluateMachineSetInPlace(protectedScope(), true, nil, msAckQueryPtr()); d.Allowed {
 		t.Fatalf("move annotation without a grant must deny")
 	}
 	// Touched + wrong transition -> deny.
 	q := msAckQuery()
 	q.Transition = TransitionMDMove
-	if d := EvaluateMachineSetInPlace(protectedScope(), true, mdGrantWithAck(t), q); d.Allowed {
+	if d := EvaluateMachineSetInPlace(protectedScope(), true, mdGrantWithAck(t), &q); d.Allowed {
 		t.Fatalf("non-MD-ACK transition must deny the move annotation")
 	}
 }
@@ -78,27 +78,27 @@ func TestByoMachine_InPlace(t *testing.T) {
 	q := GrantQuery{ClusterUID: "cluster-uid-1", TargetKind: TargetKubeadmControlPlane, TargetUID: "kcp-uid-1", MachineUID: "machine-uid-1", Now: time.Now()}
 
 	// add update-in-progress -> allow
-	if d := EvaluateByoMachineInPlace(protectedScope(), ByoMachineChange{UpdateInProgress: AnnoAdded}, kcp, q); !d.Allowed {
+	if d := EvaluateByoMachineInPlace(protectedScope(), ByoMachineChange{UpdateInProgress: AnnoAdded}, kcp, &q); !d.Allowed {
 		t.Fatalf("add in-progress on InfraMachine must allow: %s", d.Reason)
 	}
 	// remove update-in-progress (cleanup) -> allow
-	if d := EvaluateByoMachineInPlace(protectedScope(), ByoMachineChange{UpdateInProgress: AnnoRemoved}, kcp, q); !d.Allowed {
+	if d := EvaluateByoMachineInPlace(protectedScope(), ByoMachineChange{UpdateInProgress: AnnoRemoved}, kcp, &q); !d.Allowed {
 		t.Fatalf("cleanup on InfraMachine must allow: %s", d.Reason)
 	}
 	// spec changed -> deny (rebind/reprovision)
-	if d := EvaluateByoMachineInPlace(protectedScope(), ByoMachineChange{SpecChanged: true, UpdateInProgress: AnnoAdded}, kcp, q); d.Allowed {
+	if d := EvaluateByoMachineInPlace(protectedScope(), ByoMachineChange{SpecChanged: true, UpdateInProgress: AnnoAdded}, kcp, &q); d.Allowed {
 		t.Fatalf("ByoMachine spec change must deny")
 	}
 	// owner change -> deny
-	if d := EvaluateByoMachineInPlace(protectedScope(), ByoMachineChange{OwnerRefsChanged: true, UpdateInProgress: AnnoAdded}, kcp, q); d.Allowed {
+	if d := EvaluateByoMachineInPlace(protectedScope(), ByoMachineChange{OwnerRefsChanged: true, UpdateInProgress: AnnoAdded}, kcp, &q); d.Allowed {
 		t.Fatalf("ByoMachine owner change must deny")
 	}
 	// no grant -> deny
-	if d := EvaluateByoMachineInPlace(protectedScope(), ByoMachineChange{UpdateInProgress: AnnoAdded}, nil, q); d.Allowed {
+	if d := EvaluateByoMachineInPlace(protectedScope(), ByoMachineChange{UpdateInProgress: AnnoAdded}, nil, &q); d.Allowed {
 		t.Fatalf("ByoMachine in-place without a grant must deny")
 	}
 	// no recognized toggle -> deny
-	if d := EvaluateByoMachineInPlace(protectedScope(), ByoMachineChange{}, kcp, q); d.Allowed {
+	if d := EvaluateByoMachineInPlace(protectedScope(), ByoMachineChange{}, kcp, &q); d.Allowed {
 		t.Fatalf("no in-place toggle must deny")
 	}
 }
@@ -141,4 +141,9 @@ func TestGrantSelect_LabelRemovalDenied(t *testing.T) {
 	if !d.Allowed {
 		t.Fatalf("keeping the label + valid claim must allow: %s", d.Reason)
 	}
+}
+
+func msAckQueryPtr() *GrantQuery {
+	q := msAckQuery()
+	return &q
 }

@@ -155,6 +155,8 @@ var requiredGrantDataKeys = []string{
 // It fails closed on any unknown key, missing required key, malformed value, or
 // an empty immutable field. The claim slot (GrantClaimKey) is optional: when
 // present and non-empty the grant is Claimed.
+//
+//nolint:gocyclo // a strict field-by-field parser that fails closed on each malformed key.
 func ParseGrant(data map[string]string) (*Grant, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("grant is empty")
@@ -279,6 +281,8 @@ type GrantQuery struct {
 // For dry-run requests the single-use claim is NOT required and is never treated
 // as consumed (M1 §1.6), so that CAPI's CanUpdateMachine diff probe can proceed
 // without falling back to a dangerous replacement on a singleton control plane.
+//
+//nolint:gocyclo,gocritic // a flat fail-closed checklist of the grant bindings (M1 §1.5); the query is taken by value so that the predicate cannot change it.
 func VerifyGrant(scope Scope, grant *Grant, q GrantQuery) Decision {
 	if !scope.Verified {
 		return deny(reasonScopeUnverified)

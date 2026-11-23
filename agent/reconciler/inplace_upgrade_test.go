@@ -104,7 +104,7 @@ var _ = Describe("Byohost Agent In-Place Upgrade", func() {
 	})
 
 	It("reports Running before it changes the host, then the verified versions", func() {
-		Expect(reconcile().Requeue).To(BeTrue())
+		Expect(reconcile().RequeueAfter).To(BeNumerically(">", 0))
 		Expect(upgrader.calls).To(BeEmpty())
 		status := get().Status.InPlaceUpgrade
 		Expect(status.Phase).To(Equal(infrastructurev1beta1.InPlaceUpgradeRunning))

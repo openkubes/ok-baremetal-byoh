@@ -12,7 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// BUILD STATUS: compiles on go 1.26 (verified); behaviour verified in CAPD (PENDING).
+// BUILD STATUS: compiles on go 1.26 (verified); behavior verified in CAPD (PENDING).
 //
 // TargetResolver resolves the grant TARGET (kind + UID) of a worker object by
 // walking the CAPI owner chain, read-only. The grant binds the KubeadmControlPlane
@@ -30,15 +30,15 @@ type TargetResolver struct {
 func (r TargetResolver) ForMachine(ctx context.Context, m *clusterv1.Machine) (TargetKind, string, error) {
 	ref := controllerRef(m.OwnerReferences)
 	switch ref.Kind {
-	case "KubeadmControlPlane":
+	case string(TargetKubeadmControlPlane):
 		return TargetKubeadmControlPlane, ref.UID, nil
-	case "MachineSet":
+	case string(TargetMachineSet):
 		var ms clusterv1.MachineSet
 		if err := r.Reader.Get(ctx, client.ObjectKey{Namespace: m.Namespace, Name: ref.Name}, &ms); err != nil {
 			return "", "", fmt.Errorf("resolve MachineSet %s: %w", ref.Name, err)
 		}
 		md := controllerRef(ms.OwnerReferences)
-		if md.Kind == "MachineDeployment" {
+		if md.Kind == string(TargetMachineDeployment) {
 			return TargetMachineDeployment, md.UID, nil
 		}
 		// Standalone MachineSet (not owned by a MachineDeployment).

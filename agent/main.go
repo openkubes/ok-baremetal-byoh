@@ -212,28 +212,7 @@ func main() {
 	if skipInstallation {
 		logger.Info("skip-installation flag set, skipping installer initialisation")
 	}
-	hostReconciler := &reconciler.HostReconciler{
-		Client:              k8sClient,
-		CmdRunner:           cloudinit.CmdRunner{},
-		FileWriter:          cloudinit.FileWriter{},
-		TemplateParser:      setupTemplateParser(),
-		Recorder:            mgr.GetEventRecorder("hostagent-controller"),
-		SkipK8sInstallation: skipInstallation,
-		UninstallScriptPath: reconciler.DefaultUninstallScriptPath,
-	}
-	// The checkpoints and the packages of in-place upgrades stay in the
-	// working directory, next to the uninstall script.
-	stateDir, err := os.Getwd()
-	if err != nil {
-		logger.Error(err, "unable to get the working directory")
-		return
-	}
-	hostReconciler.Upgrader = &inplaceupgrade.Executor{
-		Runner:   inplaceupgrade.ExecRunner{},
-		Fetcher:  inplaceupgrade.HTTPFetcher{},
-		StateDir: stateDir,
-		Hostname: hostName,
-	}
+	hostReconciler := newHostReconciler(k8sClient, mgr, hostName)
 	if err = hostReconciler.SetupWithManager(context.TODO(), mgr); err != nil {
 		logger.Error(err, "unable to create controller")
 		return
@@ -241,6 +220,27 @@ func main() {
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		logger.Error(err, "problem running manager")
 		return
+	}
+}
+
+// newHostReconciler returns the reconciler of the ByoHost of the host. The
+// checkpoints and packages of in-place upgrades stay in the working directory
+// (/var/lib/byoh-hostagent with the package), next to the uninstall script.
+func newHostReconciler(k8sClient client.Client, mgr ctrl.Manager, hostName string) *reconciler.HostReconciler {
+	return &reconciler.HostReconciler{
+		Client:              k8sClient,
+		CmdRunner:           cloudinit.CmdRunner{},
+		FileWriter:          cloudinit.FileWriter{},
+		TemplateParser:      setupTemplateParser(),
+		Recorder:            mgr.GetEventRecorder("hostagent-controller"),
+		SkipK8sInstallation: skipInstallation,
+		UninstallScriptPath: reconciler.DefaultUninstallScriptPath,
+		Upgrader: &inplaceupgrade.Executor{
+			Runner:   inplaceupgrade.ExecRunner{},
+			Fetcher:  inplaceupgrade.HTTPFetcher{},
+			StateDir: ".",
+			Hostname: hostName,
+		},
 	}
 }
 

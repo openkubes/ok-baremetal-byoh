@@ -15,12 +15,39 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
-// mirrorPodAnnotation marks the mirror pod of a static pod.
-const mirrorPodAnnotation = "kubernetes.io/config.mirror"
+// drainerCluster reports whether a kubeconfig cluster is the API endpoint of
+// the Cluster with an embedded CA and no overrides.
+func drainerCluster(c *clientcmdapi.Cluster, server string) bool {
+	return c.Server == server && len(c.CertificateAuthorityData) != 0 && c.CertificateAuthority == "" &&
+		!c.InsecureSkipTLSVerify && c.ProxyURL == "" && c.TLSServerName == ""
+}
+
+// tokenOnly reports whether a kubeconfig user authenticates with a bearer
+// token and nothing else.
+func tokenOnly(u *clientcmdapi.AuthInfo) bool {
+	if u.Token == "" || u.TokenFile != "" || u.Exec != nil || u.AuthProvider != nil || u.Username != "" || u.Password != "" {
+		return false
+	}
+	if len(u.ClientCertificateData) != 0 || u.ClientCertificate != "" || len(u.ClientKeyData) != 0 || u.ClientKey != "" {
+		return false
+	}
+	return u.Impersonate == "" && len(u.ImpersonateGroups) == 0 && u.ImpersonateUID == "" && len(u.ImpersonateUserExtra) == 0
+}
+
+// mirrorPodAnnotation marks the mirror pod of a static pod, and
+// drainerRequestTimeout bounds each request of the drainer.
+const (
+	mirrorPodAnnotation   = "kubernetes.io/config.mirror"
+	drainerRequestTimeout = 30 * time.Second
+)
 
 // DrainerSecretSuffix names the management Secret <cluster>-inplace-drainer
 // with the kubeconfig (key "value") of the least-privilege drainer identity in
@@ -49,12 +76,48 @@ func (w WorkloadNodes) clientset(ctx context.Context, cluster client.ObjectKey) 
 	if len(data) == 0 {
 		return nil, fmt.Errorf("the drainer kubeconfig %s has no value", key)
 	}
-	config, err := clientcmd.RESTConfigFromKubeConfig(data)
+	owner := &clusterv1.Cluster{}
+	if err := w.Reader.Get(ctx, cluster, owner); err != nil {
+		return nil, fmt.Errorf("reading Cluster %s: %w", cluster, err)
+	}
+	endpoint := owner.Spec.ControlPlaneEndpoint
+	config, err := DrainerRESTConfig(data, fmt.Sprintf("https://%s:%d", endpoint.Host, endpoint.Port))
+	if err != nil {
+		return nil, fmt.Errorf("the drainer kubeconfig %s: %w", key, err)
+	}
+	return kubernetes.NewForConfig(config)
+}
+
+// DrainerRESTConfig accepts only the kubeconfig that drainer-credential.sh
+// writes: one cluster with an embedded CA and the API endpoint of the Cluster,
+// one user with a bearer token. Exec and auth-provider plugins, token files,
+// client certificates, basic auth, impersonation, proxies and insecure TLS are
+// refused, so that the Secret can neither run code in the extension nor point
+// it at another API server.
+func DrainerRESTConfig(data []byte, server string) (*rest.Config, error) {
+	cfg, err := clientcmd.Load(data)
 	if err != nil {
 		return nil, err
 	}
-	config.Timeout = 30 * time.Second
-	return kubernetes.NewForConfig(config)
+	if len(cfg.Clusters) != 1 || len(cfg.AuthInfos) != 1 || len(cfg.Contexts) != 1 {
+		return nil, fmt.Errorf("must have exactly one cluster, user and context")
+	}
+	for _, c := range cfg.Clusters {
+		if !drainerCluster(c, server) {
+			return nil, fmt.Errorf("the cluster must be %s with an embedded CA, without proxy or TLS overrides", server)
+		}
+	}
+	for _, u := range cfg.AuthInfos {
+		if !tokenOnly(u) {
+			return nil, fmt.Errorf("the user must have a bearer token only")
+		}
+	}
+	config, err := clientcmd.NewDefaultClientConfig(*cfg, nil).ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+	config.Timeout = drainerRequestTimeout
+	return config, nil
 }
 
 // Drain implements NodeAccess. It cordons the Node and asks for the eviction
@@ -68,7 +131,8 @@ func (w WorkloadNodes) Drain(ctx context.Context, cluster client.ObjectKey, node
 	if err != nil {
 		return err
 	}
-	if err := setUnschedulable(ctx, cs, node, true); err != nil {
+	err = setUnschedulable(ctx, cs, node, true)
+	if err != nil {
 		return err
 	}
 	pods, err := cs.CoreV1().Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{

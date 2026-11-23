@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -33,8 +34,11 @@ type PinnedDeb struct {
 	SHA256  string `json:"sha256"`
 }
 
+// pinnedDebNames are the packages that a lock pins for each version.
+var pinnedDebNames = []string{"kubeadm", "kubelet", "kubectl"}
+
 var (
-	versionRE     = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+	versionRE     = regexp.MustCompile(`^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$`)
 	fingerprintRE = regexp.MustCompile(`^[0-9A-F]{40}$`)
 	sha256RE      = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
@@ -76,9 +80,7 @@ func (p PinnedPackages) validate(version string) error {
 	}
 	seen := map[string]bool{}
 	for _, deb := range p.Debs {
-		switch deb.Name {
-		case "kubeadm", "kubelet", "kubectl":
-		default:
+		if !slices.Contains(pinnedDebNames, deb.Name) {
 			return fmt.Errorf("unexpected package %q", deb.Name)
 		}
 		if seen[deb.Name] {
@@ -92,7 +94,7 @@ func (p PinnedPackages) validate(version string) error {
 			return fmt.Errorf("package %s has no SHA256", deb.Name)
 		}
 	}
-	if len(seen) != 3 {
+	if len(seen) != len(pinnedDebNames) {
 		return fmt.Errorf("kubeadm, kubelet and kubectl must be pinned")
 	}
 	return nil

@@ -24,6 +24,16 @@ import (
 // previous one without a decision.
 const ApprovalAnnotation = "inplace.openkubes.org/approved-upgrade"
 
+// RetryAfterSeconds of the waiting answers: a short wait for a write that
+// races, a medium one for reads of the workload cluster, a long one for a
+// decision or a drain.
+const (
+	retryShort  = 5
+	retryMedium = 10
+	retryLong   = 30
+	machineKind = "Machine"
+)
+
 // NodeAccess drains and verifies the Nodes of a workload cluster.
 type NodeAccess interface {
 	// Drain cordons the Node and evicts its pods, respecting
@@ -89,7 +99,7 @@ func (h *ExtensionHandlers) resolve(ctx context.Context, desired *clusterv1.Mach
 		return nil, &o
 	}
 	if t.machine.Spec.Version != t.to {
-		o := waiting(5, "Machine %s has the version %s, the update is for %s", desired.Name, t.machine.Spec.Version, t.to)
+		o := waiting(retryShort, "Machine %s has the version %s, the update is for %s", desired.Name, t.machine.Spec.Version, t.to)
 		return nil, &o
 	}
 	if !t.machine.DeletionTimestamp.IsZero() {
@@ -100,55 +110,72 @@ func (h *ExtensionHandlers) resolve(ctx context.Context, desired *clusterv1.Mach
 		o := failed("reading Cluster %s: %v", t.machine.Spec.ClusterName, err)
 		return nil, &o
 	}
-	ref := t.machine.Spec.InfrastructureRef
-	if ref.Kind != byoMachineKind || ref.APIGroup != infrav1.GroupVersion.Group {
-		o := failed("Machine %s has the infrastructure %s.%s, not a ByoMachine", desired.Name, ref.Kind, ref.APIGroup)
-		return nil, &o
+	byoMachine, o := h.controlledByoMachine(ctx, t.machine)
+	if o != nil {
+		return nil, o
 	}
-	byoMachine := &infrav1.ByoMachine{}
-	if err := h.Client.Get(ctx, client.ObjectKey{Namespace: desired.Namespace, Name: ref.Name}, byoMachine); err != nil {
-		o := failed("reading ByoMachine %s: %v", ref.Name, err)
-		return nil, &o
+	host, o := h.attachedHost(ctx, byoMachine)
+	if o != nil {
+		return nil, o
 	}
-	owned := false
-	for _, owner := range byoMachine.OwnerReferences {
-		if owner.Kind == "Machine" && owner.UID == t.machine.UID && owner.Controller != nil && *owner.Controller {
-			owned = true
-		}
-	}
-	if !owned {
-		o := failed("ByoMachine %s is not controlled by Machine %s (%s)", byoMachine.Name, t.machine.Name, t.machine.UID)
-		return nil, &o
-	}
-	hosts := &infrav1.ByoHostList{}
-	if err := h.Client.List(ctx, hosts, client.InNamespace(desired.Namespace)); err != nil {
-		o := failed("listing ByoHosts: %v", err)
-		return nil, &o
-	}
-	for i := range hosts.Items {
-		if r := hosts.Items[i].Spec.ByoMachineRef; r != nil && r.UID == byoMachine.UID {
-			if t.host != nil {
-				o := failed("ByoMachine %s is attached to more than one ByoHost", byoMachine.Name)
-				return nil, &o
-			}
-			t.host = &hosts.Items[i]
-		}
-	}
-	if t.host == nil {
-		o := failed("no ByoHost is attached to ByoMachine %s (%s)", byoMachine.Name, byoMachine.UID)
-		return nil, &o
-	}
+	t.host = host
 	t.node = t.machine.Status.NodeRef.Name
 	if t.node == "" {
 		o := failed("Machine %s has no Node", t.machine.Name)
 		return nil, &o
 	}
 	if t.machine.Status.NodeInfo == nil || t.machine.Status.NodeInfo.KubeletVersion == "" {
-		o := waiting(10, "Machine %s does not report the kubelet version of its Node yet", t.machine.Name)
+		o := waiting(retryMedium, "Machine %s does not report the kubelet version of its Node yet", t.machine.Name)
 		return nil, &o
 	}
 	t.from = t.machine.Status.NodeInfo.KubeletVersion
 	return t, nil
+}
+
+// controlledByoMachine returns the ByoMachine of the Machine, which must be
+// controlled by exactly that Machine (UID).
+func (h *ExtensionHandlers) controlledByoMachine(ctx context.Context, machine *clusterv1.Machine) (*infrav1.ByoMachine, *outcome) {
+	ref := machine.Spec.InfrastructureRef
+	if ref.Kind != byoMachineKind || ref.APIGroup != infrav1.GroupVersion.Group {
+		o := failed("Machine %s has the infrastructure %s.%s, not a ByoMachine", machine.Name, ref.Kind, ref.APIGroup)
+		return nil, &o
+	}
+	byoMachine := &infrav1.ByoMachine{}
+	if err := h.Client.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: ref.Name}, byoMachine); err != nil {
+		o := failed("reading ByoMachine %s: %v", ref.Name, err)
+		return nil, &o
+	}
+	for _, owner := range byoMachine.OwnerReferences {
+		if owner.Kind == machineKind && owner.UID == machine.UID && owner.Controller != nil && *owner.Controller {
+			return byoMachine, nil
+		}
+	}
+	o := failed("ByoMachine %s is not controlled by Machine %s (%s)", byoMachine.Name, machine.Name, machine.UID)
+	return nil, &o
+}
+
+// attachedHost returns the one ByoHost attached to the ByoMachine (by UID).
+func (h *ExtensionHandlers) attachedHost(ctx context.Context, byoMachine *infrav1.ByoMachine) (*infrav1.ByoHost, *outcome) {
+	hosts := &infrav1.ByoHostList{}
+	if err := h.Client.List(ctx, hosts, client.InNamespace(byoMachine.Namespace)); err != nil {
+		o := failed("listing ByoHosts: %v", err)
+		return nil, &o
+	}
+	var host *infrav1.ByoHost
+	for i := range hosts.Items {
+		if r := hosts.Items[i].Spec.ByoMachineRef; r != nil && r.UID == byoMachine.UID {
+			if host != nil {
+				o := failed("ByoMachine %s is attached to more than one ByoHost", byoMachine.Name)
+				return nil, &o
+			}
+			host = &hosts.Items[i]
+		}
+	}
+	if host == nil {
+		o := failed("no ByoHost is attached to ByoMachine %s (%s)", byoMachine.Name, byoMachine.UID)
+		return nil, &o
+	}
+	return host, nil
 }
 
 // updateByoMachine drives the in-place upgrade of the host of a ByoMachine.
@@ -190,16 +217,16 @@ func (h *ExtensionHandlers) request(ctx context.Context, t *target, id string) o
 		return *wait
 	}
 	if t.host.Annotations[ApprovalAnnotation] != t.to {
-		return waiting(30, "waiting for the approval of the upgrade of ByoHost %s to %s (annotation %s)", t.host.Name, t.to, ApprovalAnnotation)
+		return waiting(retryLong, "waiting for the approval of the upgrade of ByoHost %s to %s (annotation %s)", t.host.Name, t.to, ApprovalAnnotation)
 	}
 	if busy, err := h.otherUpgradeRunning(ctx, t); err != nil {
 		return failed("%v", err)
 	} else if busy != "" {
-		return waiting(30, "ByoHost %s of Cluster %s runs an in-place upgrade; hosts are upgraded one at a time", busy, t.cluster.Name)
+		return waiting(retryLong, "ByoHost %s of Cluster %s runs an in-place upgrade; hosts are upgraded one at a time", busy, t.cluster.Name)
 	}
 	cluster := client.ObjectKeyFromObject(t.cluster)
 	if err := h.Nodes.Drain(ctx, cluster, t.node); err != nil {
-		return waiting(30, "draining Node %s: %v", t.node, err)
+		return waiting(retryLong, "draining Node %s: %v", t.node, err)
 	}
 	req := &infrav1.InPlaceUpgradeRequest{
 		ID: id, ClusterName: t.cluster.Name, ClusterUID: t.cluster.UID,
@@ -214,7 +241,7 @@ func (h *ExtensionHandlers) request(ctx context.Context, t *target, id string) o
 	t.host.Spec.InPlaceUpgrade = req
 	if err := h.Client.Patch(ctx, t.host, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})); err != nil {
 		if apierrors.IsConflict(err) {
-			return waiting(5, "ByoHost %s changed while the upgrade was requested", t.host.Name)
+			return waiting(retryShort, "ByoHost %s changed while the upgrade was requested", t.host.Name)
 		}
 		return failed("requesting the upgrade on ByoHost %s: %v", t.host.Name, err)
 	}
@@ -245,7 +272,7 @@ func upgradeRole(t *target, machines []clusterv1.Machine) (infrav1.InPlaceUpgrad
 		return infrav1.InPlaceUpgradeControlPlane, nil
 	}
 	if controlPlanes == 0 || upgraded != controlPlanes {
-		o := waiting(30, "waiting for the control plane: %d of %d control-plane Machines report %s", upgraded, controlPlanes, t.to)
+		o := waiting(retryLong, "waiting for the control plane: %d of %d control-plane Machines report %s", upgraded, controlPlanes, t.to)
 		return "", &o
 	}
 	return infrav1.InPlaceUpgradeWorker, nil
@@ -298,19 +325,25 @@ func (h *ExtensionHandlers) progress(ctx context.Context, t *target, req *infrav
 	default:
 		return failed("ByoHost %s reports the unknown phase %q", t.host.Name, s.Phase)
 	}
+	return h.verifySucceeded(ctx, t, s)
+}
+
+// verifySucceeded checks an upgrade that the agent reports as Succeeded on the
+// Node itself, and uncordons the Node only then.
+func (h *ExtensionHandlers) verifySucceeded(ctx context.Context, t *target, s *infrav1.InPlaceUpgradeStatus) outcome {
 	if s.ObservedKubeletVersion != t.to || s.ObservedNodeVersion != t.to {
 		return failed("ByoHost %s reports Succeeded with kubelet %q and Node %q, not %s", t.host.Name, s.ObservedKubeletVersion, s.ObservedNodeVersion, t.to)
 	}
 	cluster := client.ObjectKeyFromObject(t.cluster)
 	version, err := h.Nodes.KubeletVersion(ctx, cluster, t.node)
 	if err != nil {
-		return waiting(10, "reading Node %s: %v", t.node, err)
+		return waiting(retryMedium, "reading Node %s: %v", t.node, err)
 	}
 	if version != t.to {
 		return failed("the agent of ByoHost %s verified %s, but Node %s reports %s", t.host.Name, t.to, t.node, version)
 	}
 	if err := h.Nodes.Uncordon(ctx, cluster, t.node); err != nil {
-		return waiting(10, "uncordoning Node %s: %v", t.node, err)
+		return waiting(retryMedium, "uncordoning Node %s: %v", t.node, err)
 	}
 	return done("Node %s runs %s, verified by the agent of ByoHost %s and on the Node at %s", t.node, t.to, t.host.Name, h.now().UTC().Format(time.RFC3339))
 }

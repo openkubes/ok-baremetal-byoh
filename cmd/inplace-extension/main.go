@@ -1,6 +1,6 @@
 // Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
 // SPDX-License-Identifier: Apache-2.0
-//
+
 // inplace-extension is the OpenKubes BYOH RuntimeSDK extension server. It serves
 // the CanUpdateMachine, CanUpdateMachineSet and UpdateMachine hooks. CanUpdate*
 // is a read-only decision; UpdateMachine requests the in-place upgrade of the
@@ -65,9 +65,9 @@ func run() error {
 	// declined (the CAPD lab simulates DockerMachines only).
 	packages := inplace.PackageLock{}
 	if *packageLock != "" {
-		data, err := os.ReadFile(*packageLock)
-		if err != nil {
-			return fmt.Errorf("read the package lock: %w", err)
+		data, readErr := os.ReadFile(*packageLock)
+		if readErr != nil {
+			return fmt.Errorf("read the package lock: %w", readErr)
 		}
 		if packages, err = inplace.ParsePackageLock(data); err != nil {
 			return err
@@ -75,7 +75,8 @@ func run() error {
 	}
 	scheme := runtime.NewScheme()
 	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, clusterv1.AddToScheme, infrav1.AddToScheme} {
-		if err := add(scheme); err != nil {
+		err = add(scheme)
+		if err != nil {
 			return err
 		}
 	}
@@ -89,13 +90,15 @@ func run() error {
 	h.UpgradeTimeout = *upgradeTimeout
 	h.SimulateDockerMachines = *simulate
 
-	for _, eh := range []server.ExtensionHandler{
+	handlers := []server.ExtensionHandler{
 		{Hook: runtimehooksv1.CanUpdateMachine, Name: "can-update-machine", HandlerFunc: h.DoCanUpdateMachine},
 		{Hook: runtimehooksv1.CanUpdateMachineSet, Name: "can-update-machineset", HandlerFunc: h.DoCanUpdateMachineSet},
 		{Hook: runtimehooksv1.UpdateMachine, Name: "update-machine", HandlerFunc: h.DoUpdateMachine},
-	} {
-		if err := srv.AddExtensionHandler(eh); err != nil {
-			return fmt.Errorf("add %s handler: %w", eh.Name, err)
+	}
+	for i := range handlers {
+		err = srv.AddExtensionHandler(handlers[i])
+		if err != nil {
+			return fmt.Errorf("add %s handler: %w", handlers[i].Name, err)
 		}
 	}
 

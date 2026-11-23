@@ -40,4 +40,7 @@ const (
 	// ProtectedNamespaceLabel marks a namespace as in-place-only protected and
 	// is the webhook namespaceSelector key. Value must be "true".
 	ProtectedNamespaceLabel = "safety.openkubes.org/in-place-only"
+
+	// labelValueTrue is the value of the protection and the grant labels.
+	labelValueTrue = "true"
 )

@@ -113,7 +113,7 @@ func GuardMachineUpdate(ctx context.Context, reader GrantReader, resolver Target
 				grantReason = "in-place update requires an authorized upgrade grant (no unexpired, unambiguous grant matches)"
 				log.Info("grant path: no matching grant", "targetKind", kind, "targetUID", targetUID)
 			default:
-				d := EvaluateMachineUpdateInPlace(scope, change, g, clusterUID, dryRun, now)
+				d := EvaluateMachineUpdateInPlace(scope, &change, g, clusterUID, dryRun, now)
 				if d.Allowed {
 					log.Info("ALLOW in-place transition", "grantID", g.GrantID, "dryRun", dryRun)
 					return d
@@ -147,7 +147,8 @@ func GuardByoMachineUpdate(ctx context.Context, reader GrantReader, resolver Tar
 	if err != nil {
 		return deny("could not resolve upgrade grant for ByoMachine")
 	}
-	return EvaluateByoMachineInPlace(scope, change, g, baseQuery(clusterUID, orEmptyGrant(g), dryRun, now))
+	q := baseQuery(clusterUID, orEmptyGrant(g), dryRun, now)
+	return EvaluateByoMachineInPlace(scope, change, g, &q)
 }
 
 // GuardMachineSetUpdate authorizes a protected MachineSet UPDATE (allow-by-default,
@@ -166,7 +167,7 @@ func GuardMachineSetUpdate(ctx context.Context, reader GrantReader, scope Scope,
 	}
 	q := baseQuery(clusterUID, orEmptyGrant(g), dryRun, now)
 	q.Transition = TransitionMDAcknowledge
-	return EvaluateMachineSetInPlace(scope, touched, g, q)
+	return EvaluateMachineSetInPlace(scope, touched, g, &q)
 }
 
 // orEmptyGrant avoids a nil-deref in baseQuery when no grant was found; the
