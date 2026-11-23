@@ -127,6 +127,9 @@ func (v *ByoHostValidator) handleCreate(req *admission.Request) admission.Respon
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 	if !isHost(req) {
+		if errs := ValidateInPlaceUpgradeRequest(&byoHost.Spec); len(errs) > 0 {
+			return admission.Denied(fmt.Sprintf("cannot create ByoHost %s/%s: %s", byoHost.Namespace, byoHost.Name, errs.ToAggregate().Error()))
+		}
 		return admission.Allowed("")
 	}
 	if response := checkHostName(req, byoHost); response != nil {
@@ -143,7 +146,18 @@ func (v *ByoHostValidator) handleUpdate(req *admission.Request) admission.Respon
 	if err := v.decoder.Decode(*req, byoHost); err != nil {
 		return admission.Errored(http.StatusBadRequest, err)
 	}
+	oldHost := &ByoHost{}
+	if err := v.decoder.DecodeRaw(req.OldObject, oldHost); err != nil {
+		return admission.Errored(http.StatusBadRequest, err)
+	}
 	if !isHost(req) {
+		// Only a spec update changes spec.inPlaceUpgrade; RBAC decides who
+		// may make it (docs/scaleway-kubeadm-e2e/inplace-upgrade-runbook.md).
+		if req.SubResource != statusSubResource {
+			if errs := validateInPlaceUpgradeUpdate(oldHost, byoHost); len(errs) > 0 {
+				return admission.Denied(fmt.Sprintf("cannot update ByoHost %s/%s: %s", byoHost.Namespace, byoHost.Name, errs.ToAggregate().Error()))
+			}
+		}
 		return admission.Allowed("")
 	}
 	if req.SubResource != statusSubResource {
@@ -151,6 +165,9 @@ func (v *ByoHostValidator) handleUpdate(req *admission.Request) admission.Respon
 	}
 	if response := checkHostName(req, byoHost); response != nil {
 		return *response
+	}
+	if errs := validateHostInPlaceUpgradeStatus(oldHost, byoHost); len(errs) > 0 {
+		return admission.Denied(fmt.Sprintf("%s cannot update the status of ByoHost %s/%s: %s", req.UserInfo.Username, byoHost.Namespace, byoHost.Name, errs.ToAggregate().Error()))
 	}
 	return admission.Allowed("")
 }

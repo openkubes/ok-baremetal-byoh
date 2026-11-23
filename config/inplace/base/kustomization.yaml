@@ -1,0 +1,23 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# In-place upgrade components for a management cluster: the No-Replacement
+# guard, the RuntimeSDK extension, their webhooks and the ExtensionConfig.
+# Deploy only through an overlay that adds the trusted registry, the protected
+# namespaces and the namespaced RBAC (overlays/ha1), and only after the CAPI
+# feature gates RuntimeSDK and InPlaceUpdates are on
+# (docs/scaleway-kubeadm-e2e/inplace-upgrade-runbook.md).
+namespace: okx-inplace-system
+resources:
+  - namespace.yaml
+  - guard.yaml
+  - extension.yaml
+  - webhooks.yaml
+  - extensionconfig.yaml
+  - hardening.yaml
+configMapGenerator:
+  - name: okx-inplace-packages
+    files:
+      - packages.json=packages-v1.37.2.json
+generatorOptions:
+  disableNameSuffixHash: false

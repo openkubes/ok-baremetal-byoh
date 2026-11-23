@@ -1,4 +1,4 @@
-name: Publish BYOH Controller to GHCR
+name: Publish BYOH images to GHCR
 
 on:
   workflow_run:
@@ -51,6 +51,17 @@ jobs:
             DOCKER_BUILDX_PUSH=true \
             IMG="$IMAGE"
 
+      - name: Build and publish the in-place guard and extension (AMD64 + ARM64)
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          SHORT_SHA="${SOURCE_SHA:0:12}"
+          make docker-buildx-guard docker-buildx-extension \
+            IMAGE_PLATFORMS=linux/amd64,linux/arm64 \
+            DOCKER_BUILDX_PUSH=true \
+            IMG_GUARD="ghcr.io/openkubes/no-replacement-guard:git-${SHORT_SHA}" \
+            IMG_EXTENSION="ghcr.io/openkubes/inplace-extension:git-${SHORT_SHA}"
+
       - name: Verify published image and report digest
         env:
           SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -58,19 +69,13 @@ jobs:
           set -euo pipefail
 
           SHORT_SHA="${SOURCE_SHA:0:12}"
-          IMAGE="ghcr.io/openkubes/byoh-controller:git-${SHORT_SHA}"
-
-          docker buildx imagetools inspect "$IMAGE"
-
-          DIGEST="$(docker buildx imagetools inspect "$IMAGE" \
-            --format '{{.Manifest.Digest}}')"
-
-          test -n "$DIGEST"
-          [[ "$DIGEST" == sha256:* ]]
-
-          {
-            echo "### BYOH Controller Published"
-            printf "Image: \`%s\`\\n" "$IMAGE"
-            printf "Digest: \`%s\`\\n" "$DIGEST"
-            printf "Immutable reference: \`ghcr.io/openkubes/byoh-controller@%s\`\\n" "$DIGEST"
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "### BYOH images published" >> "$GITHUB_STEP_SUMMARY"
+          for NAME in byoh-controller no-replacement-guard inplace-extension; do
+            IMAGE="ghcr.io/openkubes/${NAME}:git-${SHORT_SHA}"
+            docker buildx imagetools inspect "$IMAGE"
+            DIGEST="$(docker buildx imagetools inspect "$IMAGE" \
+              --format '{{.Manifest.Digest}}')"
+            test -n "$DIGEST"
+            [[ "$DIGEST" == sha256:* ]]
+            printf "Immutable reference: \`ghcr.io/openkubes/%s@%s\`\\n" "$NAME" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          done

@@ -1,0 +1,144 @@
+# OpenKubes No-Replacement Guard (MY guard) for the guarded CAPD E2E.
+# registry.json (binds the WORKLOAD Cluster UID) is a ConfigMap generated at
+# runtime by scenario-guarded.sh and mounted here; the guard is (re)started after
+# the workload is provisioned, so it never blocks normal provisioning.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: no-replacement-guard-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: no-replacement-guard, namespace: no-replacement-guard-system }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: okx-approver, namespace: no-replacement-guard-system }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: okx-initiator, namespace: no-replacement-guard-system }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: { name: no-replacement-guard }
+rules:
+  - apiGroups: ["cluster.x-k8s.io"]
+    resources: ["clusters"]
+    verbs: ["get", "list", "watch"]
+  # TargetResolver climbs Machine -> MachineSet -> MachineDeployment (read-only).
+  - apiGroups: ["cluster.x-k8s.io"]
+    resources: ["machinesets", "machines"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: { name: no-replacement-guard }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: no-replacement-guard }
+subjects:
+  - kind: ServiceAccount
+    name: no-replacement-guard
+    namespace: no-replacement-guard-system
+---
+# Approver may CREATE grant ConfigMaps (never claim); enforced further by the webhook.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: okx-approver, namespace: default }
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: okx-approver, namespace: default }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: okx-approver }
+subjects:
+  - kind: ServiceAccount
+    name: okx-approver
+    namespace: no-replacement-guard-system
+---
+# Initiator may UPDATE grant ConfigMaps (only to add the claim; webhook enforces).
+# `patch` is required because the scenario sets the claim via `kubectl patch`.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: okx-initiator, namespace: default }
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: okx-initiator, namespace: default }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: okx-initiator }
+subjects:
+  - kind: ServiceAccount
+    name: okx-initiator
+    namespace: no-replacement-guard-system
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata: { name: selfsigned, namespace: no-replacement-guard-system }
+spec: { selfSigned: {} }
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: { name: no-replacement-guard-serving-cert, namespace: no-replacement-guard-system }
+spec:
+  secretName: no-replacement-guard-serving-cert
+  dnsNames:
+    - no-replacement-guard-webhook-service.no-replacement-guard-system.svc
+    - no-replacement-guard-webhook-service.no-replacement-guard-system.svc.cluster.local
+  issuerRef: { name: selfsigned, kind: Issuer }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: no-replacement-guard-webhook-service, namespace: no-replacement-guard-system }
+spec:
+  selector: { app: no-replacement-guard }
+  ports: [{ port: 443, targetPort: 9443 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: no-replacement-guard, namespace: no-replacement-guard-system }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: no-replacement-guard } }
+  template:
+    metadata: { labels: { app: no-replacement-guard } }
+    spec:
+      serviceAccountName: no-replacement-guard
+      containers:
+        - name: guard
+          image: okx/no-replacement-guard:e2e   # patched to the kind-loaded tag by bootstrap
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: BYOH_NO_REPLACEMENT_GUARD_ENABLED, value: "true" }
+            - { name: BYOH_GRANT_APPROVER_USERS,  value: "system:serviceaccount:no-replacement-guard-system:okx-approver" }
+            - { name: BYOH_GRANT_INITIATOR_USERS, value: "system:serviceaccount:no-replacement-guard-system:okx-initiator" }
+          ports: [{ containerPort: 9443 }]
+          # Ready only once the webhook server serves (otherwise rollout status returns
+          # before admission works and the first calls fail with connection refused).
+          readinessProbe:
+            httpGet: { path: /readyz, port: 9440, scheme: HTTP }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: 9440, scheme: HTTP }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - { name: tls, mountPath: /tls, readOnly: true }
+            - { name: registry, mountPath: /etc/openkubes/no-replacement, readOnly: true }
+      volumes:
+        - name: tls
+          secret: { secretName: no-replacement-guard-serving-cert }
+        - name: registry
+          configMap: { name: no-replacement-registry }   # generated at runtime

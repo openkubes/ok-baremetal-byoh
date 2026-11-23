@@ -1,0 +1,112 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Namespaced rights in the protected namespace ha1.
+# The extension reads the CAPI objects of ha1 and writes only
+# spec.inPlaceUpgrade of its ByoHosts (the ByoHost webhook validates it).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: okx-inplace-extension
+  namespace: ha1
+rules:
+  - apiGroups: ["cluster.x-k8s.io"]
+    resources: ["clusters", "machines"]
+    verbs: ["get", "list"]
+  - apiGroups: ["infrastructure.cluster.x-k8s.io"]
+    resources: ["byomachines"]
+    verbs: ["get"]
+  - apiGroups: ["infrastructure.cluster.x-k8s.io"]
+    resources: ["byohosts"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: okx-inplace-extension
+  namespace: ha1
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: okx-inplace-extension
+subjects:
+  - kind: ServiceAccount
+    name: inplace-extension
+    namespace: okx-inplace-system
+---
+# The extension reads only the drainer kubeconfig of Cluster ha1 (never the
+# admin kubeconfig ha1-kubeconfig).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: okx-inplace-extension-kubeconfig
+  namespace: ha1
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["ha1-inplace-drainer"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: okx-inplace-extension-kubeconfig
+  namespace: ha1
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: okx-inplace-extension-kubeconfig
+subjects:
+  - kind: ServiceAccount
+    name: inplace-extension
+    namespace: okx-inplace-system
+---
+# The approver creates grant ConfigMaps; the grant webhook forbids a claim.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: okx-upgrade-approver
+  namespace: ha1
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: okx-upgrade-approver
+  namespace: ha1
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: okx-upgrade-approver
+subjects:
+  - kind: ServiceAccount
+    name: okx-upgrade-approver
+    namespace: okx-inplace-system
+---
+# The initiator only adds the claim to a grant (the webhook enforces it).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: okx-upgrade-initiator
+  namespace: ha1
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: okx-upgrade-initiator
+  namespace: ha1
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: okx-upgrade-initiator
+subjects:
+  - kind: ServiceAccount
+    name: okx-upgrade-initiator
+    namespace: okx-inplace-system

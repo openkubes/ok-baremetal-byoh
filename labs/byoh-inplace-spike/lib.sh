@@ -13,6 +13,14 @@ CAPI_VERSION="${CAPI_VERSION:-v1.14.4}"
 EXT_NS="test-extension-system"
 EXT_IMAGE="${EXT_IMAGE:-gcr.io/k8s-staging-cluster-api/test-extension:${CAPI_VERSION}}" # or locally built tag
 CAPI_SRC="${CAPI_SRC:-}"                       # path to a cluster-api checkout @ CAPI_VERSION (for image build)
+# Vendored, pre-rendered upstream test-extension manifest (no CAPI checkout needed).
+# Path + expected SHA are keyed by CAPI_VERSION so a manifest only pairs with its own version.
+EXT_MANIFEST="${EXT_MANIFEST:-$SPIKE_HOME/vendor/test-extension-${CAPI_VERSION}.yaml}"
+case "$CAPI_VERSION" in
+  v1.14.4) _EXT_MANIFEST_SHA256_DEFAULT="f5eae26658b9f62edc09e1ea726210d73fc34aa9dc9004f7561d89c3c37484ff" ;;
+  *)       _EXT_MANIFEST_SHA256_DEFAULT="" ;;
+esac
+EXT_MANIFEST_SHA256="${EXT_MANIFEST_SHA256:-$_EXT_MANIFEST_SHA256_DEFAULT}"  # committed default; missing/wrong => fail-closed
 BASE_VERSION="${BASE_VERSION:-v1.33.0}"
 TARGET_VERSION="${TARGET_VERSION:-v1.34.0}"
 # Protected names this spike must NEVER create, use, or delete:

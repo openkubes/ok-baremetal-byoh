@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/openkubes/ok-baremetal-byoh/agent/cloudinit"
+	"github.com/openkubes/ok-baremetal-byoh/agent/inplaceupgrade"
 	"github.com/openkubes/ok-baremetal-byoh/common"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -45,6 +46,15 @@ type HostReconciler struct {
 	// resets the host. The file exists only while the components that the
 	// agent has installed are on the host.
 	UninstallScriptPath string
+	// Upgrader upgrades Kubernetes on the host in place, for
+	// spec.inPlaceUpgrade. A nil Upgrader fails every upgrade.
+	Upgrader InPlaceUpgrader
+}
+
+// InPlaceUpgrader upgrades Kubernetes on the host in place
+// (agent/inplaceupgrade).
+type InPlaceUpgrader interface {
+	Execute(ctx context.Context, req *infrastructurev1beta1.InPlaceUpgradeRequest, onStep func(inplaceupgrade.Step)) (inplaceupgrade.Result, error)
 }
 
 const (
@@ -93,6 +103,8 @@ func (r *HostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctr
 		return ctrl.Result{}, nil
 	case byoHost.Spec.ResetRequested:
 		return ctrl.Result{}, r.reconcileReset(ctx, byoHost)
+	case byoHost.Spec.InPlaceUpgrade != nil:
+		return r.reconcileInPlaceUpgrade(ctx, byoHost)
 	default:
 		return r.reconcileNormal(ctx, byoHost)
 	}

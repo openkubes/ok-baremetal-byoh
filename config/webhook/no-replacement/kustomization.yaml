@@ -1,0 +1,8 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Only the ACTIVE webhook (Machine handler exists) is included. The PENDING M6
+# webhooks (MachineSet / ByoMachine / Grant-ConfigMap) are intentionally NOT
+# referenced here — see pending-m6-webhooks.yaml.
+resources:
+  - machine-webhook.yaml

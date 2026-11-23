@@ -1,0 +1,1425 @@
+# M2+M3 review diff — generated 2026-11-21T16:00:48Z
+# Base: git HEAD 15b668d. Includes untracked file contents. NOT a commit.
+
+############################## TRACKED CHANGE ##############################
+diff --git a/cmd/no-replacement-guard/main.go b/cmd/no-replacement-guard/main.go
+index 30115fc..75cde75 100644
+--- a/cmd/no-replacement-guard/main.go
++++ b/cmd/no-replacement-guard/main.go
+@@ -16,7 +16,9 @@ import (
+ 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+ )
+ 
+-const admissionPath = "/validate-cluster-x-k8s-io-v1beta2-machine-no-replacement"
++// admissionPath is defined once in the noreplacement package and shared with
++// the ValidatingWebhookConfiguration manifests to avoid path drift.
++const admissionPath = noreplacement.MachineAdmissionPath
+ 
+ func run() error {
+ 	// The standalone server must never start with protection off.
+
+############################## NEW (UNTRACKED) FILES ##############################
+diff --git a/labs/byoh-inplace-spike/design/M1-grant-contract-and-transition-matrix.md b/labs/byoh-inplace-spike/design/M1-grant-contract-and-transition-matrix.md
+new file mode 100644
+index 0000000..3906877
+--- /dev/null
++++ b/labs/byoh-inplace-spike/design/M1-grant-contract-and-transition-matrix.md
+@@ -0,0 +1,225 @@
++# Phase 0 · M1 — Grant Contract & Exact KCP/MD Transition Matrix
++
++Status: foundation for Phase 0 implementation (Design r9 / ADR-Platform-049, governed by ADR-Platform-047).
++Scope: authorization contract + guard transition matrix ONLY. No production host executor (see ADR-049 §5 scope boundary).
++
++Source of truth for every CAPI write below: **cluster-api v1.14.3 @ 825a79dc92ddcca6acc935e233201c697a2f7488**
++(go.mod pins `sigs.k8s.io/cluster-api v1.14.3`). Every line reference was read from that tag, not from memory.
++
++Existing OpenKubes guard reused (not reinvented):
++`internal/safety/noreplacement/{policy,update,scope,registry,config,setup,kubernetes,admission}.go`
+++ `cmd/no-replacement-guard/main.go` (admission path `/validate-cluster-x-k8s-io-v1beta2-machine-no-replacement`).
++
++---
++
++## 0. Verified CAPI constants (identity of the in-place writes)
++
++| Constant | Value | Source |
++|---|---|---|
++| `UpdateInProgressAnnotation` (Machine/InfraMachine/BootstrapConfig) | `in-place-updates.internal.cluster.x-k8s.io/update-in-progress` | api/core/v1beta2/machine_types.go:100 |
++| `PendingAcknowledgeMoveAnnotation` (Machine) | `in-place-updates.internal.cluster.x-k8s.io/pending-acknowledge-move` | api/core/v1beta2/machine_types.go:96 |
++| `AcknowledgedMoveAnnotation` (MachineSet) | `in-place-updates.internal.cluster.x-k8s.io/acknowledged-move` | api/core/v1beta2/machineset_types.go:58 |
++| `PendingHooksAnnotation` (Machine) | `runtime.cluster.x-k8s.io/pending-hooks` | api/runtime/v1beta2/extensionconfig_types.go:317 |
++| `MachineDeploymentUniqueLabel` (Machine label) | `machine-template-hash` | api/core/v1beta2/machinedeployment_types.go:73 |
++| `MachineSetReceiveMachinesFromMachineSetsAnnotation` (target MS) | internal move annotation | api/core/v1beta2/machineset_types.go |
++
++Guard-relevant observation: the three in-place annotation domains
++(`in-place-updates.internal.cluster.x-k8s.io`, `runtime.cluster.x-k8s.io`) both end in `.cluster.x-k8s.io`,
++so the **current** `reservedMetadataKey()` (update.go) already treats them as reserved → the current
++`EvaluateMachineUpdate` DENIES every in-place write today. The grant exception is the ONLY new allow-path.
++`machine-template-hash` is unqualified → not reserved → but the MD move is still denied today by the
++owner-reference check in `EvaluateMachineUpdate`. Confirmed: no accidental allow exists.
++
++---
++
++## 1. Authorization Grant Contract (ADR-047 Upgrade Grant, Phase-0 realization)
++
++### 1.1 One shared CAS object (criterion 1)
++Phase 0 realizes the grant as a **single guarded ConfigMap** per in-place operation, in the protected namespace,
++carrying BOTH the immutable grant data and the single claim slot. No new CRD, no new controller.
++
++```
++kind: ConfigMap
++metadata:
++  name: okx-grant-<grantID>
++  namespace: <protected-namespace>
++  labels: { safety.openkubes.org/grant: "true" }
++data:               # --- immutable grant block, written ONCE by the Approver on CREATE ---
++  grantID:               <uuid>
++  clusterUID:            <CAPI Cluster UID>            # bound, verified against live Cluster
++  targetKind:            KubeadmControlPlane | MachineDeployment
++  targetName:            <name>
++  targetUID:             <UID of KCP or MD>
++  machineUID:            <Machine UID>                 # REQUIRED for KCP singleton; omitted for MD (set-move)
++  fromVersion:           v1.33.x
++  toVersion:             v1.34.y
++  transitions:           <canonical list of enumerated transition IDs, see §3>
++  payloadDigest:         sha256:<digest of the actual InstallationSecret payload bytes for toVersion>
++  notAfter:              <RFC3339>
++  permittedUseCount:     "1"
++  requestDigest:         sha256:<who requested + what>   # ADR-047 binding
++  authorizationDigest:   sha256:<approver authorization>  # ADR-047 binding
++binaryData/claim:   # --- claim slot, written ONCE by the Upgrade-Initiator, atomically (see §1.3) ---
++  claim:                 <claimToken> (claimedBy, claimedAt)
++```
++
++### 1.2 Role separation enforced at admission (criterion 1)
++ConfigMaps have no subresources, so field-level write separation is enforced by the guard admitting the
++grant ConfigMap itself (the "guarded ConfigMap"):
++
++| Actor | Allowed write | Enforced rule |
++|---|---|---|
++| **Approver** (SA: approver) | CREATE grant ConfigMap with the immutable `data` block, NO `claim` | On CREATE: `claim` key MUST be absent. After CREATE the `data` block is immutable. |
++| **Upgrade-Initiator** (SA: initiator) | UPDATE adding ONLY the `claim` key, exactly once | On UPDATE: every `data` key byte-identical to stored; the ONLY delta permitted is adding `claim`; if `claim` already present → DENY. |
++| **Guard** (SA: guard) | none | read-only `get`; never writes the grant or the claim. |
++| anyone | mutate/delete any `data` key, or re-claim | DENY (fail-closed). |
++
++RBAC backs this (approver cannot `update`, initiator cannot change `data`, guard is `get`-only), and the
++admission rule is the field-level enforcement RBAC alone cannot express.
++
++### 1.3 Atomic single-use claim (criterion 4: "zwei konkurrierende Claims: genau einer gewinnt")
++The claim is an **out-of-band atomic CAS**, independent of any CAPI write:
++- The Initiator reads the grant (gets its `resourceVersion`), then issues an UPDATE adding `claim`,
++  conditioned on that `resourceVersion` (apiserver optimistic concurrency).
++- Two concurrent claims: the apiserver admits exactly one (the other gets HTTP 409 Conflict); additionally the
++  guard denies any UPDATE whose old object already carries `claim`. Exactly one winner — by construction, twice over.
++- The guard **verifies** the claim read-only; it never mints or consumes it. `permittedUseCount=1` + "claim present"
++  is the consumed state.
++
++### 1.4 Unclear claim-write outcome (criterion 1: "zuerst den dauerhaften Zustand prüfen")
++If the Initiator's claim UPDATE returns an ambiguous result (timeout / connection reset / unknown), the Initiator
++MUST re-read the durable grant object and inspect whether `claim` landed **before** any retry.
++- `claim` present and equal to its token ⇒ success; do NOT retry.
++- `claim` absent ⇒ safe to retry under a fresh `resourceVersion`.
++- `claim` present but foreign ⇒ lost the race; abort.
++Identical requests alone are never a retry trigger (criterion 1): retry requires positive proof the write did not land.
++This mirrors ADR-047 INV-047-11 (INDETERMINATE claim recovery via bounded idempotent re-submission).
++
++### 1.5 Guard verification predicate (read-only)
++For a protected, **non-dry-run** in-place admission the guard ALLOWS iff ALL hold, else DENY (fail-closed):
++1. scope verified & protected (`ResolveRegisteredScope`, bound to live Cluster UID) — reused unchanged;
++2. grant object present, `notAfter` not passed, `clusterUID` == live Cluster UID;
++3. `targetKind/targetUID` match the owner chain of the object under admission;
++4. the admission diff version delta == `fromVersion`→`toVersion` (where the transition carries a version);
++5. the admission diff **shape ⊆ the enumerated transition** (§3) named by `transitions`;
++6. `payloadDigest` == sha256 of the **actual InstallationSecret payload bytes** (criterion 2) — never a digest
++   recomputed from the admission request bytes (that was the rejected greenfield error);
++7. `claim` present and single-use valid (`permittedUseCount` not exceeded).
++The guard performs NO write. PASS_DENIED remains the real CAPI-DELETE/audit denial signal (unchanged).
++
++### 1.6 Dry-run handling (criterion 2: KCP dry-run is part of the matrix)
++`CanUpdateMachine` issues **server-side dry-run SSA patches** that carry the version bump
++(inplace_canupdatemachine.go:160 Machine, :169 currentInfraMachine, :178 desiredInfraMachine, all `ssa.WithDryRun{}`).
++These reach admission with `req.DryRun=true` and **persist nothing**.
++Guard rule for `req.DryRun=true`: verify predicate 1–6 (grant present/valid/shape/version/payload), but **predicate 7
++is NOT required and the claim is NEVER consumed**. Allow the shape-valid dry-run probe; deny otherwise.
++Rationale: denying the dry-run version bump would make `canUpdateMachine` return false → KCP falls back to
++**replacement** → fatal on a singleton control plane. Dry-run cannot mutate, so allowing it is safe. This is exactly
++ADR-047's "read-only admission is dry-run safe".
++
++---
++
++## 2. Actors & ordering (claim-before-intent, no coordinator)
++
++```
++Approver  --CREATE grant (immutable)-->  grant ConfigMap
++Initiator --set KCP/MD .spec.version (intent)  AND  --atomic claim (out-of-band)-->  grant ConfigMap
++          (claim is set before CAPI performs its first PERSISTENT in-place write)
++CAPI/KCP/MS controllers --dry-run probe (no claim needed)--> ... --first persistent write (claim verified)-->
++Host agent  [Phase 0: CAPD test handler, NOT a production executor]
++```
++The first persistent in-place write is the `UpdateInProgressAnnotation` MergeFrom patch
++(inplace_trigger.go for KCP; startMoveMachines for MD). Everything before it (`CanUpdateMachine`) is dry-run only.
++
++---
++
++## 3. Exact transition matrix (enumerated, source-verified)
++
++All transitions below are **Machine/InfraMachine UID-stable** (Name/Namespace/UID unchanged) and are DENIED by the
++current guard today; each becomes an allow ONLY under a valid, claimed, shape-matching grant.
++
++### 3.1 KCP control-plane path — object: **Machine** (controlplane/kubeadm/reconcilers/kubeadmcontrolplane/inplace_trigger.go)
++
++| ID | Phase | Admission op (field manager) | Exact diff on Machine | Dry-run? | Claim |
++|---|---|---|---|---|---|
++| KCP-DRY | CanUpdate | UPDATE/PATCH SSA `kcpManagerName`, DryRun | desired spec incl. `spec.version`=to (probe) | yes | not consumed |
++| KCP-1 | Trigger | PATCH MergeFrom (kcp client) | add annotation `update-in-progress=""` (only if absent); spec unchanged | no | **verify** |
++| KCP-2 | Trigger | PATCH SSA `kcpManagerName` (desiredMachine) | `spec.version` from→to (+ kcp-owned desired labels/annos); ownerRefs/finalizers/infraRef/bootstrap/providerID unchanged | no | verify |
++| KCP-3 | Trigger | PATCH MergeFrom (hooks.MarkAsPending) | add `pending-hooks` containing `UpdateMachine` | no | verify |
++| KCP-C1 | Cleanup | PATCH MergeFrom (MarkAsDone) | remove `UpdateMachine` from `pending-hooks` | no | verify (same grant) |
++| KCP-C2 | Cleanup | PATCH MergeFrom | delete annotation `update-in-progress` | no | verify (same grant) |
++
++Node version (`status.nodeInfo.kubeletVersion`) is written via the **status subresource**
++(machine_controller_inplace_update.go) — out of scope of the main-resource webhook (§5: webhook scoped to
++`machines`, not `machines/status`; disjoint main vs status authz per ADR-047).
++
++### 3.2 KCP path — object: **InfraMachine (ByoMachine)** (same inplace_trigger.go, SSA `kcpManagerName`)
++
++| ID | Diff on InfraMachine | Claim |
++|---|---|---|
++| KCP-IM | labels=nil; annotations set to {clonedFrom-name, clonedFrom-groupKind, `update-in-progress`=""} | verify |
++| KCP-IM-C | cleanup: delete `update-in-progress` (machine_controller_inplace_update.go:244-247) | verify (same grant) |
++
++### 3.3 MachineDeployment worker path — object: **Machine** (core/reconcilers/machineset/machineset_controller.go)
++
++| ID | Phase | Admission op (field manager) | Exact diff on Machine | Claim |
++|---|---|---|---|---|
++| MD-MOVE | source scale-down (startMoveMachines :1173-1203) | **single** PATCH MergeFrom (ms client) | (a) controller ownerRef MachineSet replaced source-MS→target-MS (same Machine UID); (b) label `machine-template-hash` source→target value; (c) add `update-in-progress=""`; (d) add `pending-acknowledge-move=""` | **verify** |
++| MD-FIN-M | target finalize (completeMoveMachine :505) | PATCH SSA `machineSetManagerName` (desiredMachine) | `spec.version`=target template version, `spec.failureDomain` set (+ ms-owned desired) | verify |
++| MD-TRIG | target trigger (triggerInPlaceUpdate :367) | PATCH MergeFrom | add `pending-hooks`(UpdateMachine); delete `pending-acknowledge-move` | verify |
++| MD-C1/C2 | cleanup | PATCH MergeFrom | remove `pending-hooks`; delete `update-in-progress` | verify (same grant) |
++
++### 3.4 MD path — object: **InfraMachine (ByoMachine)** (completeMoveMachine :493 SSA)
++
++| ID | Diff on InfraMachine | Claim |
++|---|---|---|
++| MD-FIN-IM | labels=nil; annotations {clonedFrom-name, clonedFrom-groupKind, `update-in-progress`=""} | verify |
++
++### 3.5 MD path — object: **MachineSet** (acknowledge) — REQUIRED in Phase 0 (decided)
++
++The full MachineDeployment in-place lifecycle is guarded, so MachineSet UPDATE is admitted with a dedicated,
++tightly-scoped handler. Under a valid MD grant the ONLY allowed MachineSet delta is:
++
++| ID | Allowed diff on MachineSet | Hard constraints |
++|---|---|---|
++| MD-ACK | add/extend `in-place-updates.internal.cluster.x-k8s.io/acknowledged-move` (replica-name list) and `...receive-machines-from` annotation | (a) MUST be the **approved target MachineSet** only (its UID == grant `targetUID` when `targetKind=MachineSet`, resolved as the target MS of grant's MD); (b) **exact annotation deltas only** — add/extend acknowledged-move + receive-machines-from, no value rewrite of other keys; (c) bound to the **same MachineDeployment UID** (target MS must carry ownerRef/`MachineDeploymentNameLabel` of the grant's MD); (d) **no `spec` change**, no other label/annotation/ownerRef/finalizer change. |
++
++Everything else on a MachineSet under a protected scope stays **DENY**: any `spec` change (replicas, selector,
++template), any CREATE/DELETE, any ownerReference/finalizer change, any metadata change other than the two
++enumerated move annotations, and any MachineSet that is not the grant's approved target. Fail-closed.
++
++### 3.6 Default-deny (unchanged, BYOH API-object protection — criterion 3/4)
++Everything NOT in 3.1–3.5 stays DENIED under a protected scope, grant or no grant:
++- Machine/InfraMachine **CREATE** (replacement/provisioning), **DELETE** → deny; PASS_DENIED stays the audit proof.
++- Any `spec` change on Machine other than the enumerated `spec.version` from→to.
++- Any ownerReference change other than MD-MOVE's source→target controller ref.
++- Any finalizer change; any reserved metadata change not enumerated above.
++- ByoHost/ByoMachine **detach / rebind / ResetRequested / finalizer strip / installation-secret deletion** → deny
++  (no grant input accepted for these; they are never an in-place transition).
++- Any MachineSet change other than the enumerated MD-ACK delta on the approved target MS (§3.5) → deny.
++- Identity drift (UID/Name/Namespace changed) → deny.
++
++---
++
++## 4. What the guard must gain vs. what already exists
++
++| Needed | Status | Where |
++|---|---|---|
++| Scope resolution bound to Cluster UID | EXISTS, reuse | scope.go / registry.go / kubernetes.go |
++| Deny-all baseline for protected Machine UPDATE/CREATE/DELETE | EXISTS, reuse | policy.go / update.go / admission.go |
++| Grant read + verification predicate (§1.5) | TO-BUILD | new `grant.go` in noreplacement |
++| Dry-run branch (§1.6) | TO-BUILD | admission.go (read `req.DryRun`) |
++| Enumerated transition shape check (§3) | TO-BUILD | new `transition.go` (KCP + MD shapes) |
++| InfraMachine (ByoMachine) admission handler | TO-BUILD | new handler + webhook path |
++| MachineSet admission handler (MD-ACK only, §3.5) | TO-BUILD | new handler + webhook path |
++| Guarded-ConfigMap admission (role/field separation §1.2) | TO-BUILD | new handler + webhook path |
++| Missing ValidatingWebhookConfiguration | TO-BUILD (M3) | config/webhook + cmd/no-replacement-guard |
++| InstallationSecret payload-digest check (§1.5.6) | TO-BUILD | grant.go (reads actual Secret bytes) |
++
++---
++
++## 5. Hard scope boundary for this milestone set (ADR-049 §5)
++NOT in Phase 0: production host executor, `kubeadm upgrade apply/node`, installer `Upgrade()`, agent upgrade
++reconcile, recovery execution, drain/uncordon, etcd backup/restore, Scaleway E2E. `UpdateMachine` is a **CAPD test
++handler** only (reference: cluster-api v1.14.3 `test/extension/handlers/inplaceupdate/handlers.go`). After cleanup the
++grant stays locked; no terminal `Completed`, no writer-quiescence claim.
+diff --git a/internal/safety/noreplacement/grant.go b/internal/safety/noreplacement/grant.go
+new file mode 100644
+index 0000000..0d37053
+--- /dev/null
++++ b/internal/safety/noreplacement/grant.go
+@@ -0,0 +1,352 @@
++// Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
++// SPDX-License-Identifier: Apache-2.0
++
++package noreplacement
++
++import (
++	"crypto/subtle"
++	"fmt"
++	"sort"
++	"strconv"
++	"strings"
++	"time"
++)
++
++// TargetKind is the kind of CAPI owner object an Upgrade Grant is bound to.
++type TargetKind string
++
++const (
++	// TargetKubeadmControlPlane binds a grant to a KCP (control-plane in-place).
++	TargetKubeadmControlPlane TargetKind = "KubeadmControlPlane"
++	// TargetMachineDeployment binds a grant to a MachineDeployment (worker in-place).
++	TargetMachineDeployment TargetKind = "MachineDeployment"
++	// TargetMachineSet is used for the MD-ACK transition, where the admitted
++	// object is the approved target MachineSet of the grant's MachineDeployment.
++	TargetMachineSet TargetKind = "MachineSet"
++)
++
++// Enumerated in-place transition IDs. These are the ONLY shapes that may ever be
++// allowed under a grant; every other object change remains denied (ADR-047).
++// The exact per-object diff for each ID is specified and source-verified in
++// labs/byoh-inplace-spike/design/M1-grant-contract-and-transition-matrix.md.
++const (
++	TransitionKCPSetInProgress   = "KCP-1"     // Machine: add update-in-progress
++	TransitionKCPVersionBump     = "KCP-2"     // Machine: spec.version from->to
++	TransitionKCPPendingHook     = "KCP-3"     // Machine: add pending-hooks(UpdateMachine)
++	TransitionKCPCleanupHook     = "KCP-C1"    // Machine: remove pending-hooks(UpdateMachine)
++	TransitionKCPCleanupFlag     = "KCP-C2"    // Machine: remove update-in-progress
++	TransitionKCPInfraInProgress = "KCP-IM"    // InfraMachine: set clonedFrom+in-progress
++	TransitionKCPInfraCleanup    = "KCP-IM-C"  // InfraMachine: remove in-progress
++	TransitionMDMove             = "MD-MOVE"   // Machine: ownerRef+label+2 annos (single patch)
++	TransitionMDFinalizeMachine  = "MD-FIN-M"  // Machine: spec.version+failureDomain
++	TransitionMDTrigger          = "MD-TRIG"   // Machine: add pending-hooks; drop pending-ack
++	TransitionMDCleanupHook      = "MD-C1"     // Machine: remove pending-hooks
++	TransitionMDCleanupFlag      = "MD-C2"     // Machine: remove update-in-progress
++	TransitionMDFinalizeInfra    = "MD-FIN-IM" // InfraMachine: set clonedFrom+in-progress
++	TransitionMDAcknowledge      = "MD-ACK"    // MachineSet: add acknowledged-move+receive-from
++)
++
++// knownTransitions is the closed set of recognized transition IDs.
++var knownTransitions = map[string]struct{}{
++	TransitionKCPSetInProgress:   {},
++	TransitionKCPVersionBump:     {},
++	TransitionKCPPendingHook:     {},
++	TransitionKCPCleanupHook:     {},
++	TransitionKCPCleanupFlag:     {},
++	TransitionKCPInfraInProgress: {},
++	TransitionKCPInfraCleanup:    {},
++	TransitionMDMove:             {},
++	TransitionMDFinalizeMachine:  {},
++	TransitionMDTrigger:          {},
++	TransitionMDCleanupHook:      {},
++	TransitionMDCleanupFlag:      {},
++	TransitionMDFinalizeInfra:    {},
++	TransitionMDAcknowledge:      {},
++}
++
++// validTargetKind reports whether k is a recognized target kind.
++func validTargetKind(k TargetKind) bool {
++	switch k {
++	case TargetKubeadmControlPlane, TargetMachineDeployment, TargetMachineSet:
++		return true
++	default:
++		return false
++	}
++}
++
++// Grant is the immutable ADR-047 Upgrade Grant together with its single-use
++// claim slot, as read READ-ONLY by the guard from the shared CAS object.
++//
++// The guard never mints, writes or consumes a grant; it only verifies it.
++type Grant struct {
++	GrantID             string
++	ClusterUID          string
++	TargetKind          TargetKind
++	TargetName          string
++	TargetUID           string
++	MachineUID          string // REQUIRED for KCP singleton; empty for MD set-move
++	FromVersion         string
++	ToVersion           string
++	Transitions         map[string]struct{}
++	PayloadDigest       string
++	NotAfter            time.Time
++	PermittedUseCount   int
++	RequestDigest       string
++	AuthorizationDigest string
++
++	// Claim slot, set out-of-band exactly once by the Upgrade-Initiator.
++	Claimed    bool
++	ClaimToken string
++}
++
++// AllowsTransition reports whether this grant enumerates the given transition ID.
++func (g *Grant) AllowsTransition(id string) bool {
++	if g == nil || id == "" {
++		return false
++	}
++	_, ok := g.Transitions[id]
++	return ok
++}
++
++// Grant ConfigMap keys (the shared CAS object; see M1 §1.1).
++const (
++	grantKeyGrantID             = "grantID"
++	grantKeyClusterUID          = "clusterUID"
++	grantKeyTargetKind          = "targetKind"
++	grantKeyTargetName          = "targetName"
++	grantKeyTargetUID           = "targetUID"
++	grantKeyMachineUID          = "machineUID"
++	grantKeyFromVersion         = "fromVersion"
++	grantKeyToVersion           = "toVersion"
++	grantKeyTransitions         = "transitions"
++	grantKeyPayloadDigest       = "payloadDigest"
++	grantKeyNotAfter            = "notAfter"
++	grantKeyPermittedUseCount   = "permittedUseCount"
++	grantKeyRequestDigest       = "requestDigest"
++	grantKeyAuthorizationDigest = "authorizationDigest"
++	// GrantClaimKey is the single claim slot key. It is the ONLY key the
++	// Upgrade-Initiator may add, and it may be added at most once.
++	GrantClaimKey = "claim"
++	// GrantLabel marks a ConfigMap as a protected Upgrade Grant CAS object.
++	GrantLabel = "safety.openkubes.org/grant"
++)
++
++// grantDataKeys is the closed set of immutable grant-data keys (the Approver's
++// write surface). The claim key is deliberately excluded.
++var grantDataKeys = map[string]struct{}{
++	grantKeyGrantID: {}, grantKeyClusterUID: {}, grantKeyTargetKind: {},
++	grantKeyTargetName: {}, grantKeyTargetUID: {}, grantKeyMachineUID: {},
++	grantKeyFromVersion: {}, grantKeyToVersion: {}, grantKeyTransitions: {},
++	grantKeyPayloadDigest: {}, grantKeyNotAfter: {}, grantKeyPermittedUseCount: {},
++	grantKeyRequestDigest: {}, grantKeyAuthorizationDigest: {},
++}
++
++// requiredGrantDataKeys must all be present on a well-formed grant.
++// machineUID is optional (KCP-only); every other data key is required.
++var requiredGrantDataKeys = []string{
++	grantKeyGrantID, grantKeyClusterUID, grantKeyTargetKind, grantKeyTargetName,
++	grantKeyTargetUID, grantKeyFromVersion, grantKeyToVersion, grantKeyTransitions,
++	grantKeyPayloadDigest, grantKeyNotAfter, grantKeyPermittedUseCount,
++	grantKeyRequestDigest, grantKeyAuthorizationDigest,
++}
++
++// ParseGrant strictly parses a grant from the shared CAS object's string map.
++//
++// It fails closed on any unknown key, missing required key, malformed value, or
++// an empty immutable field. The claim slot (GrantClaimKey) is optional: when
++// present and non-empty the grant is Claimed.
++func ParseGrant(data map[string]string) (*Grant, error) {
++	if len(data) == 0 {
++		return nil, fmt.Errorf("grant is empty")
++	}
++
++	// Reject any key that is neither a known data key nor the claim key.
++	for key := range data {
++		if key == GrantClaimKey {
++			continue
++		}
++		if _, ok := grantDataKeys[key]; !ok {
++			return nil, fmt.Errorf("grant contains unknown key %q", key)
++		}
++	}
++
++	for _, key := range requiredGrantDataKeys {
++		v, ok := data[key]
++		if !ok || strings.TrimSpace(v) == "" {
++			return nil, fmt.Errorf("grant is missing required key %q", key)
++		}
++	}
++
++	g := &Grant{
++		GrantID:             data[grantKeyGrantID],
++		ClusterUID:          data[grantKeyClusterUID],
++		TargetKind:          TargetKind(data[grantKeyTargetKind]),
++		TargetName:          data[grantKeyTargetName],
++		TargetUID:           data[grantKeyTargetUID],
++		MachineUID:          strings.TrimSpace(data[grantKeyMachineUID]),
++		FromVersion:         data[grantKeyFromVersion],
++		ToVersion:           data[grantKeyToVersion],
++		PayloadDigest:       data[grantKeyPayloadDigest],
++		RequestDigest:       data[grantKeyRequestDigest],
++		AuthorizationDigest: data[grantKeyAuthorizationDigest],
++	}
++
++	if !validTargetKind(g.TargetKind) {
++		return nil, fmt.Errorf("grant has invalid targetKind %q", g.TargetKind)
++	}
++	if g.FromVersion == g.ToVersion {
++		return nil, fmt.Errorf("grant fromVersion and toVersion must differ")
++	}
++
++	transitions, err := parseTransitions(data[grantKeyTransitions])
++	if err != nil {
++		return nil, err
++	}
++	g.Transitions = transitions
++
++	notAfter, err := time.Parse(time.RFC3339, strings.TrimSpace(data[grantKeyNotAfter]))
++	if err != nil {
++		return nil, fmt.Errorf("grant notAfter is not RFC3339: %w", err)
++	}
++	g.NotAfter = notAfter
++
++	count, err := strconv.Atoi(strings.TrimSpace(data[grantKeyPermittedUseCount]))
++	if err != nil || count != 1 {
++		return nil, fmt.Errorf("grant permittedUseCount must be exactly 1")
++	}
++	g.PermittedUseCount = count
++
++	// KCP singleton grants MUST bind a Machine UID.
++	if g.TargetKind == TargetKubeadmControlPlane && g.MachineUID == "" {
++		return nil, fmt.Errorf("KubeadmControlPlane grant must bind machineUID")
++	}
++
++	if claim, ok := data[GrantClaimKey]; ok && strings.TrimSpace(claim) != "" {
++		g.Claimed = true
++		g.ClaimToken = claim
++	}
++
++	return g, nil
++}
++
++// parseTransitions parses a comma-separated, non-empty list of known transition
++// IDs into a set, rejecting unknown or duplicate IDs.
++func parseTransitions(raw string) (map[string]struct{}, error) {
++	parts := strings.Split(raw, ",")
++	out := make(map[string]struct{}, len(parts))
++	for _, p := range parts {
++		id := strings.TrimSpace(p)
++		if id == "" {
++			continue
++		}
++		if _, ok := knownTransitions[id]; !ok {
++			return nil, fmt.Errorf("grant lists unknown transition %q", id)
++		}
++		if _, dup := out[id]; dup {
++			return nil, fmt.Errorf("grant lists duplicate transition %q", id)
++		}
++		out[id] = struct{}{}
++	}
++	if len(out) == 0 {
++		return nil, fmt.Errorf("grant lists no transitions")
++	}
++	return out, nil
++}
++
++// GrantQuery is the admission context handed to VerifyGrant by the per-object
++// handlers. It carries ONLY facts the handler has independently established:
++// the live cluster UID, the owner object the admitted change binds to, the
++// transition the diff was classified as, and (when relevant) the observed
++// version delta and the digest of the ACTUAL InstallationSecret payload bytes.
++type GrantQuery struct {
++	DryRun          bool
++	ClusterUID      string
++	TargetKind      TargetKind
++	TargetUID       string
++	MachineUID      string
++	Transition      string
++	VersionRelevant bool
++	FromVersion     string
++	ToVersion       string
++	PayloadRelevant bool
++	PayloadDigest   string
++	Now             time.Time
++}
++
++// VerifyGrant is the read-only authorization predicate (M1 §1.5 / §1.6).
++//
++// It returns allow() only when every binding holds; otherwise it fails closed.
++// For dry-run requests the single-use claim is NOT required and is never treated
++// as consumed (M1 §1.6), so that CAPI's CanUpdateMachine diff probe can proceed
++// without falling back to a dangerous replacement on a singleton control plane.
++func VerifyGrant(scope Scope, grant *Grant, q GrantQuery) Decision {
++	if !scope.Verified {
++		return deny(reasonScopeUnverified)
++	}
++	if !scope.Protected {
++		// Unprotected scope is outside the in-place-only policy entirely.
++		return allow()
++	}
++
++	if grant == nil {
++		return deny("in-place update requires an authorized upgrade grant")
++	}
++	if q.Now.IsZero() {
++		return deny("grant verification requires a trusted current time")
++	}
++	if !grant.NotAfter.IsZero() && !q.Now.Before(grant.NotAfter) {
++		return deny("upgrade grant has expired")
++	}
++	if q.ClusterUID == "" || grant.ClusterUID != q.ClusterUID {
++		return deny("upgrade grant is not bound to this cluster")
++	}
++	if !validTargetKind(q.TargetKind) ||
++		grant.TargetKind != q.TargetKind ||
++		grant.TargetUID == "" ||
++		grant.TargetUID != q.TargetUID {
++		return deny("upgrade grant is not bound to this target object")
++	}
++	// KCP singleton: the grant binds an exact Machine UID.
++	if grant.MachineUID != "" && q.MachineUID != "" && grant.MachineUID != q.MachineUID {
++		return deny("upgrade grant is not bound to this Machine")
++	}
++	if q.Transition == "" {
++		return deny("change is not a recognized in-place transition")
++	}
++	if !grant.AllowsTransition(q.Transition) {
++		return deny(fmt.Sprintf("transition %q is not authorized by the upgrade grant", q.Transition))
++	}
++	if q.VersionRelevant {
++		if grant.FromVersion != q.FromVersion || grant.ToVersion != q.ToVersion {
++			return deny("version transition does not match the upgrade grant")
++		}
++	}
++	if q.PayloadRelevant {
++		if grant.PayloadDigest == "" || q.PayloadDigest == "" ||
++			subtle.ConstantTimeCompare([]byte(grant.PayloadDigest), []byte(q.PayloadDigest)) != 1 {
++			return deny("installation payload digest does not match the upgrade grant")
++		}
++	}
++	if !q.DryRun {
++		if !grant.Claimed {
++			return deny("upgrade grant has not been claimed by the upgrade initiator")
++		}
++		if grant.PermittedUseCount < 1 {
++			return deny("upgrade grant single-use has been exhausted")
++		}
++	}
++	return allow()
++}
++
++// TransitionList returns a grant's authorized transition IDs, sorted (for logs/tests).
++func (g *Grant) TransitionList() []string {
++	if g == nil {
++		return nil
++	}
++	out := make([]string, 0, len(g.Transitions))
++	for id := range g.Transitions {
++		out = append(out, id)
++	}
++	sort.Strings(out)
++	return out
++}
+diff --git a/internal/safety/noreplacement/grantclaim.go b/internal/safety/noreplacement/grantclaim.go
+new file mode 100644
+index 0000000..6998901
+--- /dev/null
++++ b/internal/safety/noreplacement/grantclaim.go
+@@ -0,0 +1,105 @@
++// Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
++// SPDX-License-Identifier: Apache-2.0
++
++package noreplacement
++
++import "fmt"
++
++// GrantActor is the authenticated role of the requester mutating the shared
++// grant CAS object. Identity is established from admission userInfo (and backed
++// by RBAC); this policy enforces the field-level separation RBAC cannot express.
++type GrantActor string
++
++const (
++	// ActorApprover creates the immutable grant data block (never the claim).
++	ActorApprover GrantActor = "approver"
++	// ActorInitiator may add the claim slot exactly once (never grant data).
++	ActorInitiator GrantActor = "initiator"
++	// ActorOther is any other identity; it may not mutate a grant at all.
++	ActorOther GrantActor = "other"
++)
++
++// EvaluateGrantConfigMap enforces the role/field separation and single-use claim
++// semantics of the shared CAS grant object (M1 §1.2, §1.3):
++//
++//   - CREATE  (Approver):   immutable data block, NO claim key.
++//   - UPDATE  (Initiator):  the ONLY permitted delta is adding the claim key
++//     exactly once; every data key must be byte-identical.
++//   - DELETE / data mutation / re-claim / wrong actor: denied, fail-closed.
++//
++// The apiserver's optimistic concurrency (resourceVersion CAS) guarantees that
++// of two concurrent claim UPDATEs exactly one is admitted; this policy denies
++// any UPDATE whose OLD object already carries a claim, closing the race from the
++// admission side as well. The guard writes nothing here — it only admits/denies.
++func EvaluateGrantConfigMap(
++	op Operation,
++	actor GrantActor,
++	oldData map[string]string,
++	newData map[string]string,
++) Decision {
++
++	switch op {
++	case Create:
++		if actor != ActorApprover {
++			return deny("only the approver may create an upgrade grant")
++		}
++		// A freshly created grant must be well-formed and must NOT be pre-claimed.
++		if _, hasClaim := newData[GrantClaimKey]; hasClaim {
++			return deny("a new upgrade grant must not contain a claim")
++		}
++		if _, err := ParseGrant(newData); err != nil {
++			return deny(fmt.Sprintf("invalid upgrade grant: %v", err))
++		}
++		return allow()
++
++	case Update:
++		if actor != ActorInitiator {
++			return deny("only the upgrade initiator may update an upgrade grant")
++		}
++		// Single-use: the grant must not already be claimed.
++		if oldClaim, ok := oldData[GrantClaimKey]; ok && oldClaim != "" {
++			return deny("upgrade grant has already been claimed (single-use)")
++		}
++		// The only permitted delta is adding a non-empty claim key.
++		newClaim, hasNewClaim := newData[GrantClaimKey]
++		if !hasNewClaim || newClaim == "" {
++			return deny("upgrade grant update must set the claim")
++		}
++		// Every immutable data key must be byte-identical (no add/remove/change).
++		if !sameExceptClaim(oldData, newData) {
++			return deny("upgrade grant data is immutable; only the claim may be added")
++		}
++		return allow()
++
++	case Delete:
++		return deny("upgrade grant deletion is not permitted during an in-place lifecycle")
++
++	default:
++		return deny(fmt.Sprintf("unsupported upgrade grant operation %q", op))
++	}
++}
++
++// sameExceptClaim reports whether oldData and newData are identical on every key
++// other than the claim slot (which newData is allowed to add). It rejects any
++// added, removed or modified data key.
++func sameExceptClaim(oldData, newData map[string]string) bool {
++	for k, ov := range oldData {
++		if k == GrantClaimKey {
++			continue
++		}
++		nv, ok := newData[k]
++		if !ok || nv != ov {
++			return false
++		}
++	}
++	for k, nv := range newData {
++		if k == GrantClaimKey {
++			continue
++		}
++		ov, ok := oldData[k]
++		if !ok || ov != nv {
++			return false
++		}
++	}
++	return true
++}
+diff --git a/internal/safety/noreplacement/grant_test.go b/internal/safety/noreplacement/grant_test.go
+new file mode 100644
+index 0000000..c1724ff
+--- /dev/null
++++ b/internal/safety/noreplacement/grant_test.go
+@@ -0,0 +1,221 @@
++// Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
++// SPDX-License-Identifier: Apache-2.0
++
++package noreplacement
++
++import (
++	"testing"
++	"time"
++)
++
++func validKCPGrantData() map[string]string {
++	return map[string]string{
++		grantKeyGrantID:             "g-1",
++		grantKeyClusterUID:          "cluster-uid-1",
++		grantKeyTargetKind:          string(TargetKubeadmControlPlane),
++		grantKeyTargetName:          "kcp-1",
++		grantKeyTargetUID:           "kcp-uid-1",
++		grantKeyMachineUID:          "machine-uid-1",
++		grantKeyFromVersion:         "v1.33.4",
++		grantKeyToVersion:           "v1.34.1",
++		grantKeyTransitions:         "KCP-1,KCP-2,KCP-3,KCP-C1,KCP-C2,KCP-IM,KCP-IM-C",
++		grantKeyPayloadDigest:       "sha256:abc",
++		grantKeyNotAfter:            time.Now().Add(1 * time.Hour).Format(time.RFC3339),
++		grantKeyPermittedUseCount:   "1",
++		grantKeyRequestDigest:       "sha256:req",
++		grantKeyAuthorizationDigest: "sha256:auth",
++	}
++}
++
++func validMDGrantData() map[string]string {
++	d := validKCPGrantData()
++	d[grantKeyTargetKind] = string(TargetMachineDeployment)
++	d[grantKeyTargetName] = "md-1"
++	d[grantKeyTargetUID] = "md-uid-1"
++	delete(d, grantKeyMachineUID) // MD set-move binds no single Machine UID
++	d[grantKeyTransitions] = "MD-MOVE,MD-FIN-M,MD-TRIG,MD-C1,MD-C2,MD-FIN-IM"
++	return d
++}
++
++func TestParseGrant_Valid(t *testing.T) {
++	g, err := ParseGrant(validKCPGrantData())
++	if err != nil {
++		t.Fatalf("expected valid grant, got error: %v", err)
++	}
++	if g.Claimed {
++		t.Fatalf("grant without claim key must not be Claimed")
++	}
++	if !g.AllowsTransition(TransitionKCPVersionBump) {
++		t.Fatalf("expected KCP-2 to be allowed")
++	}
++	if g.AllowsTransition(TransitionMDMove) {
++		t.Fatalf("MD-MOVE must not be allowed by a KCP grant")
++	}
++}
++
++func TestParseGrant_ClaimPresent(t *testing.T) {
++	d := validKCPGrantData()
++	d[GrantClaimKey] = "claim-token-xyz"
++	g, err := ParseGrant(d)
++	if err != nil {
++		t.Fatalf("unexpected error: %v", err)
++	}
++	if !g.Claimed || g.ClaimToken != "claim-token-xyz" {
++		t.Fatalf("expected grant to be claimed with token")
++	}
++}
++
++func TestParseGrant_Rejections(t *testing.T) {
++	tests := []struct {
++		name   string
++		mutate func(map[string]string)
++	}{
++		{"unknown key", func(d map[string]string) { d["bogus"] = "x" }},
++		{"missing required", func(d map[string]string) { delete(d, grantKeyClusterUID) }},
++		{"empty required", func(d map[string]string) { d[grantKeyToVersion] = "  " }},
++		{"useCount not 1", func(d map[string]string) { d[grantKeyPermittedUseCount] = "2" }},
++		{"unknown transition", func(d map[string]string) { d[grantKeyTransitions] = "KCP-2,BOGUS" }},
++		{"duplicate transition", func(d map[string]string) { d[grantKeyTransitions] = "KCP-2,KCP-2" }},
++		{"no transitions", func(d map[string]string) { d[grantKeyTransitions] = " , " }},
++		{"from==to", func(d map[string]string) { d[grantKeyToVersion] = d[grantKeyFromVersion] }},
++		{"bad notAfter", func(d map[string]string) { d[grantKeyNotAfter] = "not-a-time" }},
++		{"invalid targetKind", func(d map[string]string) { d[grantKeyTargetKind] = "Pod" }},
++		{"KCP without machineUID", func(d map[string]string) { delete(d, grantKeyMachineUID) }},
++	}
++	for _, tc := range tests {
++		t.Run(tc.name, func(t *testing.T) {
++			d := validKCPGrantData()
++			tc.mutate(d)
++			if _, err := ParseGrant(d); err == nil {
++				t.Fatalf("expected rejection for %q, got none", tc.name)
++			}
++		})
++	}
++}
++
++func protectedScope() Scope { return Scope{Verified: true, Protected: true} }
++
++func baseKCPQuery() GrantQuery {
++	return GrantQuery{
++		DryRun:          false,
++		ClusterUID:      "cluster-uid-1",
++		TargetKind:      TargetKubeadmControlPlane,
++		TargetUID:       "kcp-uid-1",
++		MachineUID:      "machine-uid-1",
++		Transition:      TransitionKCPVersionBump,
++		VersionRelevant: true,
++		FromVersion:     "v1.33.4",
++		ToVersion:       "v1.34.1",
++		PayloadRelevant: false,
++		Now:             time.Now(),
++	}
++}
++
++func claimedKCPGrant(t *testing.T) *Grant {
++	t.Helper()
++	d := validKCPGrantData()
++	d[GrantClaimKey] = "claim-1"
++	g, err := ParseGrant(d)
++	if err != nil {
++		t.Fatalf("setup grant: %v", err)
++	}
++	return g
++}
++
++func TestVerifyGrant_AllowClaimed(t *testing.T) {
++	d := VerifyGrant(protectedScope(), claimedKCPGrant(t), baseKCPQuery())
++	if !d.Allowed {
++		t.Fatalf("expected allow, got deny: %s", d.Reason)
++	}
++}
++
++func TestVerifyGrant_Denials(t *testing.T) {
++	tests := []struct {
++		name   string
++		grant  func(*testing.T) *Grant
++		mutate func(*GrantQuery)
++	}{
++		{"nil grant", func(*testing.T) *Grant { return nil }, func(*GrantQuery) {}},
++		{"wrong cluster", claimedKCPGrant, func(q *GrantQuery) { q.ClusterUID = "other" }},
++		{"wrong target uid", claimedKCPGrant, func(q *GrantQuery) { q.TargetUID = "other" }},
++		{"wrong target kind", claimedKCPGrant, func(q *GrantQuery) { q.TargetKind = TargetMachineDeployment }},
++		{"wrong machine uid", claimedKCPGrant, func(q *GrantQuery) { q.MachineUID = "other" }},
++		{"transition empty", claimedKCPGrant, func(q *GrantQuery) { q.Transition = "" }},
++		{"transition not granted", claimedKCPGrant, func(q *GrantQuery) { q.Transition = TransitionMDMove }},
++		{"version mismatch", claimedKCPGrant, func(q *GrantQuery) { q.ToVersion = "v1.99.9" }},
++		{"zero now", claimedKCPGrant, func(q *GrantQuery) { q.Now = time.Time{} }},
++	}
++	for _, tc := range tests {
++		t.Run(tc.name, func(t *testing.T) {
++			q := baseKCPQuery()
++			tc.mutate(&q)
++			d := VerifyGrant(protectedScope(), tc.grant(t), q)
++			if d.Allowed {
++				t.Fatalf("expected deny for %q, got allow", tc.name)
++			}
++		})
++	}
++}
++
++func TestVerifyGrant_Expired(t *testing.T) {
++	d := validKCPGrantData()
++	d[GrantClaimKey] = "claim-1"
++	d[grantKeyNotAfter] = time.Now().Add(-1 * time.Minute).Format(time.RFC3339)
++	g, err := ParseGrant(d)
++	if err != nil {
++		t.Fatalf("setup: %v", err)
++	}
++	if VerifyGrant(protectedScope(), g, baseKCPQuery()).Allowed {
++		t.Fatalf("expired grant must be denied")
++	}
++}
++
++// Two competing claims: the loser never acquires the claim, so its real
++// (non-dry-run) in-place write must be denied for lack of a claim.
++func TestVerifyGrant_UnclaimedRealWriteDenied(t *testing.T) {
++	g, err := ParseGrant(validKCPGrantData()) // no claim
++	if err != nil {
++		t.Fatalf("setup: %v", err)
++	}
++	if VerifyGrant(protectedScope(), g, baseKCPQuery()).Allowed {
++		t.Fatalf("unclaimed grant must deny a real in-place write")
++	}
++}
++
++// Dry-run must be allowed WITHOUT a claim (M1 §1.6) so CanUpdateMachine's diff
++// probe does not force a replacement on a singleton control plane.
++func TestVerifyGrant_DryRunAllowedWithoutClaim(t *testing.T) {
++	g, err := ParseGrant(validKCPGrantData()) // no claim
++	if err != nil {
++		t.Fatalf("setup: %v", err)
++	}
++	q := baseKCPQuery()
++	q.DryRun = true
++	if !VerifyGrant(protectedScope(), g, q).Allowed {
++		t.Fatalf("dry-run probe must be allowed without a claim")
++	}
++}
++
++func TestVerifyGrant_PayloadDigest(t *testing.T) {
++	g := claimedKCPGrant(t) // PayloadDigest sha256:abc
++	q := baseKCPQuery()
++	q.PayloadRelevant = true
++	q.PayloadDigest = "sha256:abc"
++	if !VerifyGrant(protectedScope(), g, q).Allowed {
++		t.Fatalf("matching payload digest must allow")
++	}
++	q.PayloadDigest = "sha256:WRONG"
++	if VerifyGrant(protectedScope(), g, q).Allowed {
++		t.Fatalf("mismatched payload digest must deny")
++	}
++}
++
++func TestVerifyGrant_Scope(t *testing.T) {
++	if VerifyGrant(Scope{}, claimedKCPGrant(t), baseKCPQuery()).Allowed {
++		t.Fatalf("unverified scope must deny")
++	}
++	// Unprotected scope is outside the policy; allow regardless of grant.
++	if !VerifyGrant(Scope{Verified: true, Protected: false}, nil, baseKCPQuery()).Allowed {
++		t.Fatalf("unprotected scope must allow")
++	}
++}
+diff --git a/internal/safety/noreplacement/grantclaim_test.go b/internal/safety/noreplacement/grantclaim_test.go
+new file mode 100644
+index 0000000..44f9d22
+--- /dev/null
++++ b/internal/safety/noreplacement/grantclaim_test.go
+@@ -0,0 +1,104 @@
++// Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
++// SPDX-License-Identifier: Apache-2.0
++
++package noreplacement
++
++import "testing"
++
++func TestGrantConfigMap_CreateByApprover(t *testing.T) {
++	d := VerifyGrantCreate(t, ActorApprover, validKCPGrantData())
++	if !d.Allowed {
++		t.Fatalf("approver create of a valid grant must be allowed: %s", d.Reason)
++	}
++}
++
++// helper wrappers keep the table tests readable.
++func VerifyGrantCreate(t *testing.T, actor GrantActor, newData map[string]string) Decision {
++	t.Helper()
++	return EvaluateGrantConfigMap(Create, actor, nil, newData)
++}
++
++func TestGrantConfigMap_CreateRejections(t *testing.T) {
++	t.Run("non-approver create", func(t *testing.T) {
++		if EvaluateGrantConfigMap(Create, ActorInitiator, nil, validKCPGrantData()).Allowed {
++			t.Fatalf("only the approver may create a grant")
++		}
++	})
++	t.Run("create with pre-set claim", func(t *testing.T) {
++		d := validKCPGrantData()
++		d[GrantClaimKey] = "sneaky"
++		if EvaluateGrantConfigMap(Create, ActorApprover, nil, d).Allowed {
++			t.Fatalf("a new grant must not be pre-claimed")
++		}
++	})
++	t.Run("create with invalid data", func(t *testing.T) {
++		d := validKCPGrantData()
++		delete(d, grantKeyClusterUID)
++		if EvaluateGrantConfigMap(Create, ActorApprover, nil, d).Allowed {
++			t.Fatalf("invalid grant data must be rejected at create")
++		}
++	})
++}
++
++func TestGrantConfigMap_InitiatorClaim(t *testing.T) {
++	old := validKCPGrantData() // unclaimed
++	newData := validKCPGrantData()
++	newData[GrantClaimKey] = "claim-1"
++	if !EvaluateGrantConfigMap(Update, ActorInitiator, old, newData).Allowed {
++		t.Fatalf("initiator adding a claim to an unclaimed grant must be allowed")
++	}
++}
++
++// Two competing claims: the first wins; the second observes a claim already
++// present on the OLD object and is denied (exactly one winner).
++func TestGrantConfigMap_SecondClaimDenied(t *testing.T) {
++	old := validKCPGrantData()
++	old[GrantClaimKey] = "claim-first" // already claimed
++	newData := validKCPGrantData()
++	newData[GrantClaimKey] = "claim-second"
++	if EvaluateGrantConfigMap(Update, ActorInitiator, old, newData).Allowed {
++		t.Fatalf("a second claim must be denied (single-use)")
++	}
++}
++
++func TestGrantConfigMap_UpdateRejections(t *testing.T) {
++	t.Run("non-initiator update", func(t *testing.T) {
++		old := validKCPGrantData()
++		newData := validKCPGrantData()
++		newData[GrantClaimKey] = "c"
++		if EvaluateGrantConfigMap(Update, ActorApprover, old, newData).Allowed {
++			t.Fatalf("only the initiator may claim")
++		}
++	})
++	t.Run("update without claim", func(t *testing.T) {
++		old := validKCPGrantData()
++		newData := validKCPGrantData() // no claim added
++		if EvaluateGrantConfigMap(Update, ActorInitiator, old, newData).Allowed {
++			t.Fatalf("an update that does not set the claim must be denied")
++		}
++	})
++	t.Run("mutate a data key while claiming", func(t *testing.T) {
++		old := validKCPGrantData()
++		newData := validKCPGrantData()
++		newData[grantKeyToVersion] = "v9.9.9" // tamper
++		newData[GrantClaimKey] = "c"
++		if EvaluateGrantConfigMap(Update, ActorInitiator, old, newData).Allowed {
++			t.Fatalf("grant data must be immutable on claim")
++		}
++	})
++	t.Run("add a data key while claiming", func(t *testing.T) {
++		old := validKCPGrantData()
++		newData := validKCPGrantData()
++		newData["extraKey"] = "x"
++		newData[GrantClaimKey] = "c"
++		if EvaluateGrantConfigMap(Update, ActorInitiator, old, newData).Allowed {
++			t.Fatalf("adding a data key must be denied")
++		}
++	})
++}
++
++func TestGrantConfigMap_DeleteDenied(t *testing.T) {
++	if EvaluateGrantConfigMap(Delete, ActorApprover, validKCPGrantData(), nil).Allowed {
++		t.Fatalf("grant deletion must be denied during an in-place lifecycle")
++	}
++}
+diff --git a/internal/safety/noreplacement/webhookpaths.go b/internal/safety/noreplacement/webhookpaths.go
+new file mode 100644
+index 0000000..43f9b6e
+--- /dev/null
++++ b/internal/safety/noreplacement/webhookpaths.go
+@@ -0,0 +1,35 @@
++// Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
++// SPDX-License-Identifier: Apache-2.0
++
++package noreplacement
++
++// Admission webhook paths. These are the single source of truth shared by the
++// standalone guard server (cmd/no-replacement-guard) and the ValidatingWebhook
++// Configuration manifests under config/webhook/no-replacement/. The YAML paths
++// MUST match these exactly.
++//
++// ProtectedNamespaceLabel is the label a namespace MUST carry for the webhook
++// to route its objects to the guard. Unlabeled namespaces are never intercepted
++// (webhook namespaceSelector), which keeps unprotected clusters/namespaces
++// unaffected. Protected namespaces must ALSO be present in the trusted registry
++// (/etc/openkubes/no-replacement/registry.json) that binds them to a Cluster UID;
++// the label is only the routing filter, the registry is the authority.
++const (
++	// MachineAdmissionPath guards CAPI core Machines (ACTIVE: handler exists).
++	MachineAdmissionPath = "/validate-cluster-x-k8s-io-v1beta2-machine-no-replacement"
++
++	// MachineSetAdmissionPath guards the MD-ACK transition on the approved
++	// target MachineSet only (PENDING: handler lands in M6).
++	MachineSetAdmissionPath = "/validate-cluster-x-k8s-io-v1beta2-machineset-no-replacement"
++
++	// ByoMachineAdmissionPath guards the BYOH InfraMachine (PENDING: M6).
++	ByoMachineAdmissionPath = "/validate-infrastructure-cluster-x-k8s-io-v1beta1-byomachine-no-replacement"
++
++	// GrantConfigMapAdmissionPath enforces the guarded-ConfigMap field/role
++	// separation on grant objects only (PENDING: handler lands in M6).
++	GrantConfigMapAdmissionPath = "/validate-core-v1-configmap-upgrade-grant"
++
++	// ProtectedNamespaceLabel marks a namespace as in-place-only protected and
++	// is the webhook namespaceSelector key. Value must be "true".
++	ProtectedNamespaceLabel = "safety.openkubes.org/in-place-only"
++)
+diff --git a/internal/safety/noreplacement/webhook_negative_test.go b/internal/safety/noreplacement/webhook_negative_test.go
+new file mode 100644
+index 0000000..18d0612
+--- /dev/null
++++ b/internal/safety/noreplacement/webhook_negative_test.go
+@@ -0,0 +1,102 @@
++// Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
++// SPDX-License-Identifier: Apache-2.0
++
++package noreplacement
++
++import (
++	"context"
++	"testing"
++	"time"
++)
++
++// These negative tests exercise the policy layer end-to-end (scope resolution +
++// grant verification + grant-ConfigMap role separation) for the three cases GPT
++// asked for after M3: unprotected namespace, missing grant, wrong requester.
++//
++// They are runnable OFFLINE (stdlib only). The webhook ROUTING scope
++// (namespaceSelector / objectSelector) and live apiserver admission behaviour are
++// NOT covered here — those are marked PENDING and verified on the Mac / in CI.
++
++func negTestRegistrations() map[string]NamespaceRegistration {
++	return map[string]NamespaceRegistration{
++		"protected-ns": {
++			Protected:   true,
++			ClusterName: "cluster-1",
++			ClusterUID:  "cluster-uid-1",
++		},
++		"unprotected-ns": {Protected: false},
++	}
++}
++
++func negTestLookup() ClusterLookup {
++	return func(_ context.Context, ns, name string) (string, error) {
++		if ns == "protected-ns" && name == "cluster-1" {
++			return "cluster-uid-1", nil
++		}
++		return "", ErrClusterUnavailable
++	}
++}
++
++// Unprotected namespace: scope resolves to verified-but-unprotected, so the
++// in-place grant requirement does NOT apply and the change is allowed. This is
++// the guard-side half of "no effect on unprotected namespaces" (the other half
++// is the webhook namespaceSelector — PENDING, verified in k8s).
++func TestNegative_UnprotectedNamespaceNotGated(t *testing.T) {
++	scope := ResolveRegisteredScope(context.Background(), "unprotected-ns", negTestRegistrations(), negTestLookup())
++	if !scope.Verified || scope.Protected {
++		t.Fatalf("unprotected-ns must resolve to verified, unprotected; got %+v", scope)
++	}
++	// Even with no grant at all, an unprotected namespace is not gated.
++	if d := VerifyGrant(scope, nil, baseKCPQuery()); !d.Allowed {
++		t.Fatalf("unprotected namespace must not be gated by the grant requirement: %s", d.Reason)
++	}
++}
++
++// Unregistered namespace fails closed (scope unverified) — this is safe (no
++// bypass); routing such a namespace is prevented by the webhook namespaceSelector.
++func TestNegative_UnregisteredNamespaceFailsClosed(t *testing.T) {
++	scope := ResolveRegisteredScope(context.Background(), "random-ns", negTestRegistrations(), negTestLookup())
++	if scope.Verified {
++		t.Fatalf("unregistered namespace must not be verified; got %+v", scope)
++	}
++}
++
++// Missing grant in a protected namespace: real in-place write is denied.
++func TestNegative_ProtectedNamespaceMissingGrant(t *testing.T) {
++	scope := ResolveRegisteredScope(context.Background(), "protected-ns", negTestRegistrations(), negTestLookup())
++	if !scope.Verified || !scope.Protected {
++		t.Fatalf("protected-ns must resolve to verified+protected; got %+v", scope)
++	}
++	if d := VerifyGrant(scope, nil, baseKCPQuery()); d.Allowed {
++		t.Fatalf("protected namespace with no grant must deny a real in-place write")
++	}
++}
++
++// Wrong requester on the grant CAS object: neither an approver nor an unknown
++// actor may add a claim; only the initiator may, and only once.
++func TestNegative_WrongRequesterCannotClaim(t *testing.T) {
++	old := validKCPGrantData()
++	claimed := validKCPGrantData()
++	claimed[GrantClaimKey] = "c"
++
++	for _, actor := range []GrantActor{ActorApprover, ActorOther} {
++		if d := EvaluateGrantConfigMap(Update, actor, old, claimed); d.Allowed {
++			t.Fatalf("actor %q must not be allowed to set the claim", actor)
++		}
++	}
++	// And an unknown actor may not create a grant either.
++	if d := EvaluateGrantConfigMap(Create, ActorOther, nil, validKCPGrantData()); d.Allowed {
++		t.Fatalf("a non-approver must not create a grant")
++	}
++}
++
++// Sanity: the happy path still holds alongside the negatives.
++func TestNegative_InitiatorClaimStillAllowed(t *testing.T) {
++	old := validKCPGrantData()
++	claimed := validKCPGrantData()
++	claimed[GrantClaimKey] = "c"
++	if d := EvaluateGrantConfigMap(Update, ActorInitiator, old, claimed); !d.Allowed {
++		t.Fatalf("the initiator must still be able to claim: %s", d.Reason)
++	}
++	_ = time.Now
++}
+diff --git a/config/webhook/no-replacement/machine-webhook.yaml b/config/webhook/no-replacement/machine-webhook.yaml
+new file mode 100644
+index 0000000..14394de
+--- /dev/null
++++ b/config/webhook/no-replacement/machine-webhook.yaml
+@@ -0,0 +1,49 @@
++# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
++# SPDX-License-Identifier: Apache-2.0
++#
++# No-Replacement Guard — ACTIVE webhook (handler exists today).
++#
++# Scope invariants (GPT/ADR-047 rule 1: no effect on unprotected clusters/namespaces):
++#   * namespaceSelector restricts interception to namespaces LABELLED
++#     safety.openkubes.org/in-place-only=true. Unlabeled namespaces are never
++#     routed here, so unprotected clusters are completely unaffected.
++#   * A protected namespace MUST ALSO be present in the guard's trusted registry
++#     (/etc/openkubes/no-replacement/registry.json). The label is only the
++#     routing filter; the registry is the Cluster-UID authority. The guard fails
++#     closed for a labelled-but-unregistered namespace, so the two MUST be kept
++#     consistent by whoever onboards a protected cluster.
++#   * Resource is `machines` ONLY — never `machines/status` (status subresource
++#     is a disjoint authorization path; node version is written there and must
++#     not traverse this webhook).
++#
++# The path is the single source of truth noreplacement.MachineAdmissionPath,
++# also used by cmd/no-replacement-guard/main.go.
++apiVersion: admissionregistration.k8s.io/v1
++kind: ValidatingWebhookConfiguration
++metadata:
++  name: byoh-no-replacement-guard
++  annotations:
++    # caBundle is injected by cert-manager in the full deployment (PENDING: the
++    # guard Certificate/Service/Deployment glue is wired during full guard wiring).
++    cert-manager.io/inject-ca-from: system/no-replacement-guard-serving-cert
++webhooks:
++  - name: vmachine.no-replacement.openkubes.org
++    admissionReviewVersions: ["v1"]
++    failurePolicy: Fail
++    sideEffects: None
++    matchPolicy: Equivalent
++    timeoutSeconds: 10
++    namespaceSelector:
++      matchLabels:
++        safety.openkubes.org/in-place-only: "true"
++    clientConfig:
++      service:
++        name: no-replacement-guard-webhook-service
++        namespace: system
++        path: /validate-cluster-x-k8s-io-v1beta2-machine-no-replacement
++    rules:
++      - apiGroups: ["cluster.x-k8s.io"]
++        apiVersions: ["v1beta2"]
++        operations: ["CREATE", "UPDATE", "DELETE"]
++        resources: ["machines"]
++        scope: Namespaced
+diff --git a/config/webhook/no-replacement/pending-m6-webhooks.yaml b/config/webhook/no-replacement/pending-m6-webhooks.yaml
+new file mode 100644
+index 0000000..1da422b
+--- /dev/null
++++ b/config/webhook/no-replacement/pending-m6-webhooks.yaml
+@@ -0,0 +1,97 @@
++# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
++# SPDX-License-Identifier: Apache-2.0
++#
++# ============================= PENDING — DO NOT APPLY =============================
++# These webhooks route to guard paths whose HANDLERS DO NOT EXIST YET (they land
++# in M6). Because failurePolicy is Fail, applying this file before the handlers
++# are registered would FAIL-CLOSED every matching request in protected namespaces
++# and break the cluster. It is intentionally NOT referenced by kustomization.yaml.
++# Activate it only together with the M6 handlers, after the joint M2+M3 review.
++# =================================================================================
++#
++# All webhooks below share the scope invariants documented in machine-webhook.yaml
++# (namespaceSelector = protected-only; registry is the Cluster-UID authority).
++apiVersion: admissionregistration.k8s.io/v1
++kind: ValidatingWebhookConfiguration
++metadata:
++  name: byoh-no-replacement-guard-pending-m6
++  annotations:
++    cert-manager.io/inject-ca-from: system/no-replacement-guard-serving-cert
++webhooks:
++  # --- MachineSet: guards ONLY the MD-ACK move-authorization annotations. ---
++  # DESIGN NOTE (deliberate deviation from a literal "deny-all" reading of M1 §3.5):
++  # The in-place MD move LEGITIMATELY scales spec.replicas on the source and target
++  # MachineSets and creates the target MachineSet. A deny-all MachineSet webhook
++  # with failurePolicy: Fail would break in-place upgrades. Therefore the M6
++  # MachineSet handler is ALLOW-BY-DEFAULT and denies ONLY when the move-authorization
++  # annotations (in-place-updates.internal.cluster.x-k8s.io/acknowledged-move and
++  # .../receive-machines-from) are added or changed WITHOUT a valid MachineDeployment
++  # grant that binds this exact target MachineSet (its UID) to the grant's MD UID.
++  # Replica scaling, status, CREATE/DELETE and all other metadata are NOT denied.
++  - name: vmachineset.no-replacement.openkubes.org
++    admissionReviewVersions: ["v1"]
++    failurePolicy: Fail
++    sideEffects: None
++    matchPolicy: Equivalent
++    timeoutSeconds: 10
++    namespaceSelector:
++      matchLabels:
++        safety.openkubes.org/in-place-only: "true"
++    clientConfig:
++      service:
++        name: no-replacement-guard-webhook-service
++        namespace: system
++        path: /validate-cluster-x-k8s-io-v1beta2-machineset-no-replacement
++    rules:
++      - apiGroups: ["cluster.x-k8s.io"]
++        apiVersions: ["v1beta2"]
++        operations: ["CREATE", "UPDATE"]
++        resources: ["machinesets"]
++        scope: Namespaced
++  # --- BYOH InfraMachine (ByoMachine): deny-by-default, grant-gated in-place annos. ---
++  - name: vbyomachine.no-replacement.openkubes.org
++    admissionReviewVersions: ["v1"]
++    failurePolicy: Fail
++    sideEffects: None
++    matchPolicy: Equivalent
++    timeoutSeconds: 10
++    namespaceSelector:
++      matchLabels:
++        safety.openkubes.org/in-place-only: "true"
++    clientConfig:
++      service:
++        name: no-replacement-guard-webhook-service
++        namespace: system
++        path: /validate-infrastructure-cluster-x-k8s-io-v1beta1-byomachine-no-replacement
++    rules:
++      - apiGroups: ["infrastructure.cluster.x-k8s.io"]
++        apiVersions: ["v1beta1"]
++        operations: ["CREATE", "UPDATE", "DELETE"]
++        resources: ["byomachines"]
++        scope: Namespaced
++  # --- Grant ConfigMap: enforces approver/initiator field separation + single claim. ---
++  # objectSelector restricts this to grant CAS objects only (label safety.openkubes.org/grant),
++  # so ordinary ConfigMaps in a protected namespace are never intercepted.
++  - name: vgrantconfigmap.no-replacement.openkubes.org
++    admissionReviewVersions: ["v1"]
++    failurePolicy: Fail
++    sideEffects: None
++    matchPolicy: Equivalent
++    timeoutSeconds: 10
++    namespaceSelector:
++      matchLabels:
++        safety.openkubes.org/in-place-only: "true"
++    objectSelector:
++      matchLabels:
++        safety.openkubes.org/grant: "true"
++    clientConfig:
++      service:
++        name: no-replacement-guard-webhook-service
++        namespace: system
++        path: /validate-core-v1-configmap-upgrade-grant
++    rules:
++      - apiGroups: [""]
++        apiVersions: ["v1"]
++        operations: ["CREATE", "UPDATE", "DELETE"]
++        resources: ["configmaps"]
++        scope: Namespaced
+diff --git a/config/webhook/no-replacement/kustomization.yaml b/config/webhook/no-replacement/kustomization.yaml
+new file mode 100644
+index 0000000..465054f
+--- /dev/null
++++ b/config/webhook/no-replacement/kustomization.yaml
+@@ -0,0 +1,8 @@
++# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
++# SPDX-License-Identifier: Apache-2.0
++#
++# Only the ACTIVE webhook (Machine handler exists) is included. The PENDING M6
++# webhooks (MachineSet / ByoMachine / Grant-ConfigMap) are intentionally NOT
++# referenced here — see pending-m6-webhooks.yaml.
++resources:
++  - machine-webhook.yaml
+diff --git a/config/webhook/no-replacement/README.md b/config/webhook/no-replacement/README.md
+new file mode 100644
+index 0000000..03a807d
+--- /dev/null
++++ b/config/webhook/no-replacement/README.md
+@@ -0,0 +1,40 @@
++# No-Replacement Guard — Admission Webhook Configuration (M3)
++
++This directory holds the ValidatingWebhookConfiguration that was previously
++MISSING. It routes admission requests to the EXISTING standalone guard server
++(`cmd/no-replacement-guard`) — no second admission infrastructure is introduced.
++
++## Files
++| File | Status | Contents |
++|---|---|---|
++| `machine-webhook.yaml` | ACTIVE | Machine webhook; handler exists today (`internal/safety/noreplacement`). |
++| `pending-m6-webhooks.yaml` | PENDING (M6) | MachineSet / ByoMachine / Grant-ConfigMap webhooks; handlers land in M6. NOT applied. |
++| `kustomization.yaml` | — | References only the active webhook. |
++
++## Hard scope rules (GPT/ADR-047 rule 1 — no effect on unprotected clusters/namespaces)
++- `failurePolicy: Fail`, `sideEffects: None`, `admissionReviewVersions: [v1]` on every webhook.
++- `namespaceSelector matchLabels safety.openkubes.org/in-place-only=true` — ONLY labelled
++  (protected) namespaces are intercepted. Unprotected namespaces are never routed to the guard.
++- A protected namespace MUST ALSO appear in the trusted registry
++  (`/etc/openkubes/no-replacement/registry.json`). The label routes; the registry binds the
++  Cluster UID and is the authority. The guard fails closed for a labelled-but-unregistered namespace.
++- `machines` only — NEVER `machines/status` (status is a disjoint authz path; node version lives there).
++- Grant ConfigMaps are additionally narrowed by `objectSelector safety.openkubes.org/grant=true`,
++  so ordinary ConfigMaps are never intercepted.
++- Webhook paths are the single source of truth in `noreplacement/webhookpaths.go`, shared with
++  `cmd/no-replacement-guard/main.go` to prevent YAML/Go drift.
++
++## MachineSet admission — deliberate design (read before review)
++A literal "deny-all MachineSet change" (M1 §3.5) would BREAK in-place upgrades: the MD move
++legitimately scales `spec.replicas` on the source/target MachineSets and creates the target MS.
++Therefore the M6 MachineSet handler is **allow-by-default** and denies ONLY the move-authorization
++annotations (`acknowledged-move`, `receive-machines-from`) when they are set/changed WITHOUT a valid
++MachineDeployment grant binding this exact target MS (UID) to the grant's MD UID. This still fully
++gates the dangerous capability (authorizing machine moves) without blocking the lifecycle.
++
++## PENDING (not part of M3; wired during full guard wiring after the joint M2+M3 review)
++- M6 handlers for MachineSet / ByoMachine / Grant-ConfigMap (the three PENDING webhook paths).
++- The grant-exception path in the Machine handler (today it still denies all in-place writes).
++- Guard Deployment + `no-replacement-guard-webhook-service` Service + cert-manager Certificate
++  (`no-replacement-guard-serving-cert`) + RBAC for the guard SA.
++- Live Kubernetes verification (schema validation + apiserver admission behaviour).

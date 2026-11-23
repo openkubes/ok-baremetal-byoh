@@ -1,0 +1,87 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# In-place RuntimeSDK extension (cmd/inplace-extension). It writes only
+# spec.inPlaceUpgrade of ByoHosts (the ByoHost webhook validates it) and
+# reaches the workload Nodes with the <cluster>-inplace-drainer Secret. All its
+# rights are namespaced Roles of the protected namespaces (overlay).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: inplace-extension
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: inplace-extension-serving-cert
+spec:
+  secretName: inplace-extension-webhook-service-cert
+  dnsNames:
+    - inplace-extension-webhook-service.okx-inplace-system.svc
+    - inplace-extension-webhook-service.okx-inplace-system.svc.cluster.local
+  issuerRef:
+    name: okx-inplace-selfsigned
+    kind: Issuer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inplace-extension-webhook-service
+spec:
+  selector:
+    app: inplace-extension
+  ports:
+    - port: 443
+      targetPort: 9444
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inplace-extension
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inplace-extension
+  template:
+    metadata:
+      labels:
+        app: inplace-extension
+    spec:
+      serviceAccountName: inplace-extension
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          # The overlay pins the image by digest.
+          image: ghcr.io/openkubes/inplace-extension:UNPINNED
+          args:
+            - --package-lock=/etc/openkubes/inplace/packages.json
+            - --upgrade-timeout=2h
+          ports:
+            - {containerPort: 9444, name: webhook}
+            - {containerPort: 9440, name: health}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 9440}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: 9440}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - {name: tls, mountPath: /tls, readOnly: true}
+            - {name: packages, mountPath: /etc/openkubes/inplace, readOnly: true}
+      volumes:
+        - name: tls
+          secret:
+            secretName: inplace-extension-webhook-service-cert
+        - name: packages
+          configMap:
+            name: okx-inplace-packages

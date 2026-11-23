@@ -1,0 +1,19 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Registers the extension for the protected namespaces only.
+apiVersion: runtime.cluster.x-k8s.io/v1beta2
+kind: ExtensionConfig
+metadata:
+  name: okx-inplace-extension
+  annotations:
+    runtime.cluster.x-k8s.io/inject-ca-from-secret: okx-inplace-system/inplace-extension-webhook-service-cert
+spec:
+  clientConfig:
+    service:
+      name: inplace-extension-webhook-service
+      namespace: okx-inplace-system
+      port: 443
+  namespaceSelector:
+    matchLabels:
+      safety.openkubes.org/in-place-only: "true"
