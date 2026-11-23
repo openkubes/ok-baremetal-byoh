@@ -57,3 +57,6 @@ labs/**/.state/
 labs/**/*.bak
 labs/**/*.bak-before-*
 labs/**/*.pre-*
+
+# Run state of the guarded CAPD lab (audit logs, kubeconfig baselines, evidence archives): never committed.
+labs/byoh-inplace-spike/guarded/.state-guarded/

@@ -105,4 +105,19 @@ eq "verdict FAIL_INCOMPLETE(poll gap)" "$(bash "$CLS" decline_verdict "$AUD" "$O
 mk "$OBS" "$(S 1 null)" "$(S 2 null)" "$(S 3 null)" "$DONE"; : > "$AUD"
 eq "verdict FAIL_INCOMPLETE(audit gap)" "$(bash "$CLS" decline_verdict "$AUD" "$OBS" "$EXT" "$KCP" ipw-decline cp0)" "FAIL_INCOMPLETE"
 
+# ================= ext_manifest_select (vendored manifest gating) =================
+VMAN="$TMP/vendor.yaml"
+printf '%s\n' '# capi-test-extension-version: v1.14.4' 'apiVersion: v1' 'kind: Namespace' > "$VMAN"
+VSHA="$(shasum -a 256 "$VMAN" | cut -d' ' -f1)"
+eq "ext select USE_VENDORED"     "$(bash "$CLS" ext_manifest_select "$VMAN" "$VSHA" v1.14.4)" "USE_VENDORED"
+eq "ext select FAIL_SHA_MISSING" "$(bash "$CLS" ext_manifest_select "$VMAN" "" v1.14.4)" "FAIL_SHA_MISSING"
+eq "ext select FAIL_SHA_MISMATCH" "$(bash "$CLS" ext_manifest_select "$VMAN" deadbeef v1.14.4)" "FAIL_SHA_MISMATCH"
+eq "ext select FAIL_VERSION"     "$(bash "$CLS" ext_manifest_select "$VMAN" "$VSHA" v9.9.9)" "FAIL_VERSION"
+SRCD="$TMP/capi"; mkdir -p "$SRCD/test/extension/config/default"
+eq "ext select USE_CAPI_SRC"     "$(bash "$CLS" ext_manifest_select "$TMP/none.yaml" "" v1.14.4 "$SRCD")" "USE_CAPI_SRC"
+eq "ext select FAIL_NO_SOURCE"   "$(bash "$CLS" ext_manifest_select "$TMP/none.yaml" "" v1.14.4 "$TMP/missing")" "FAIL_NO_SOURCE"
+bash "$CLS" ext_manifest_select "$VMAN" "$VSHA" v1.14.4 >/dev/null && ok "ext rc USE_VENDORED=0" || no "ext rc USE_VENDORED=0"
+bash "$CLS" ext_manifest_select "$VMAN" deadbeef v1.14.4 >/dev/null && no "ext rc mismatch nonzero" || ok "ext rc mismatch nonzero"
+bash "$CLS" ext_manifest_select "$TMP/none.yaml" "" v1.14.4 "$TMP/missing" >/dev/null && no "ext rc no-source nonzero" || ok "ext rc no-source nonzero"
+
 echo "-----"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

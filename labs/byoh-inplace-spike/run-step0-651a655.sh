@@ -141,6 +141,7 @@ VERDICT="$(grep -oE 'verdict=[A-Z_]+' "$SPIKE/.state/report-decline.txt" 2>/dev/
 GIT_FULL="$(git -C "$REPO" rev-parse "$COMMIT" 2>/dev/null || true)"
 K8S_VER="$(jq -r '[.items[].status.nodeInfo.kubeletVersion]|unique|join(",")' "$SPIKE/.state/nodes-after-decline.json" 2>/dev/null || true)"
 CAPI_VER="$(printf '%s' "${CAPI_IMGS:-}" | grep -oE ':v1\.[0-9.]+' | head -1 | tr -d ':' || true)"
+EXT_MAN_SHA256="$(jq -r '.ext_manifest_sha256 // empty' "$SPIKE/.state/run.json" 2>/dev/null || true)"
 # MANDATORY provenance: OVERALL=PASS requires ALL of these present (else FAIL, regardless of verdict)
 MISSING=""
 [ -n "$CAPI_VER" ]      || MISSING="$MISSING capi_version"
@@ -148,16 +149,18 @@ MISSING=""
 [ -n "$GIT_FULL" ]      || MISSING="$MISSING guard_source_commit"
 [ -n "${IID:-}" ]       || MISSING="$MISSING guard_image_id"
 [ -n "${DAEMON_ID:-}" ] || MISSING="$MISSING docker_daemon_id"
+[ -n "$EXT_MAN_SHA256" ] || MISSING="$MISSING ext_manifest_sha256"
 MISSING="${MISSING# }"
 if [ "$RC" -eq 0 ] && [ "$VERDICT" = "PASS_DENIED" ] && [ -z "$MISSING" ]; then OVERALL=PASS; else OVERALL=FAIL; fi
 jq -n --arg run_id "$RUN_ID" --arg ts "$TS" --arg overall "$OVERALL" --arg verdict "${VERDICT:-NONE}" \
       --argjson rc "$RC" --arg commit "${GIT_FULL:-}" --arg tag "$IMG_TAG" --arg img "$IMG" \
       --arg iid "${IID:-}" --arg iarch "${IARCH:-}" --arg capi "${CAPI_VER:-}" --arg k8s "${K8S_VER:-}" \
-      --arg daemon "${DAEMON_ID:-}" --arg scen "$SCEN_SHA256" --arg runner "$RUNNER_SHA256" --arg lib "$LIB_SHA256" --arg missing "$MISSING" \
+      --arg daemon "${DAEMON_ID:-}" --arg scen "$SCEN_SHA256" --arg runner "$RUNNER_SHA256" --arg lib "$LIB_SHA256" \
+      --arg xm "$EXT_MAN_SHA256" --arg missing "$MISSING" \
   '{test:"step0-decline-guard", run_id:$run_id, timestamp_utc:$ts, overall:$overall, verdict:$verdict,
     scenario_rc:$rc, guard_source_commit:$commit, guard_image:$img, guard_image_tag:$tag,
     guard_image_id:$iid, guard_image_arch:$iarch, capi_version:$capi, kubernetes_version:$k8s,
-    docker_daemon_id:$daemon, scenario_sha256:$scen, runner_sha256:$runner, lib_sha256:$lib,
+    docker_daemon_id:$daemon, scenario_sha256:$scen, runner_sha256:$runner, lib_sha256:$lib, ext_manifest_sha256:$xm,
     missing_provenance:($missing|if .=="" then [] else split(" ") end)}' > "$EV/run-manifest.json"
 {
   echo "# Step-0 decline-guard - test protocol"
@@ -177,6 +180,7 @@ jq -n --arg run_id "$RUN_ID" --arg ts "$TS" --arg overall "$OVERALL" --arg verdi
   echo "- scenario.sh sha256: $SCEN_SHA256"
   echo "- runner sha256:      $RUNNER_SHA256"
   echo "- lib.sh sha256:      $LIB_SHA256"
+  echo "- ext manifest sha256: ${EXT_MAN_SHA256:-<MISSING>}"
   echo
   echo "## Expected"
   echo "- at maxSurge:0 on the singleton CP, a declined in-place update makes CAPI attempt a CP Machine DELETE;"

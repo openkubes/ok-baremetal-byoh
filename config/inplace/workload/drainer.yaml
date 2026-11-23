@@ -1,0 +1,76 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Applied to the WORKLOAD cluster. The in-place extension drains with this
+# identity instead of the admin kubeconfig of the cluster: it may read Nodes,
+# cordon and uncordon them, list pods and evict them (PodDisruptionBudgets
+# apply), nothing else. The ValidatingAdmissionPolicy limits its Node patches
+# to spec.unschedulable. hack/inplace/drainer-credential.sh puts a short-lived
+# token of it into the management Secret <cluster>-inplace-drainer.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: okx-inplace-drainer
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: okx-inplace-drainer
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: okx-inplace-drainer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: okx-inplace-drainer
+subjects:
+  - kind: ServiceAccount
+    name: okx-inplace-drainer
+    namespace: kube-system
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: okx-inplace-drainer-cordon-only
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["nodes"]
+  matchConditions:
+    - name: drainer
+      expression: "request.userInfo.username == 'system:serviceaccount:kube-system:okx-inplace-drainer'"
+  validations:
+    - expression: >-
+        object.metadata.?labels.orValue({}) == oldObject.metadata.?labels.orValue({}) &&
+        object.metadata.?annotations.orValue({}) == oldObject.metadata.?annotations.orValue({}) &&
+        object.spec.?taints.orValue([]) == oldObject.spec.?taints.orValue([]) &&
+        object.spec.?podCIDR.orValue('') == oldObject.spec.?podCIDR.orValue('') &&
+        object.spec.?podCIDRs.orValue([]) == oldObject.spec.?podCIDRs.orValue([]) &&
+        object.spec.?providerID.orValue('') == oldObject.spec.?providerID.orValue('') &&
+        object.spec.?configSource == oldObject.spec.?configSource
+      message: "okx-inplace-drainer may only change spec.unschedulable of a Node"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: okx-inplace-drainer-cordon-only
+spec:
+  policyName: okx-inplace-drainer-cordon-only
+  validationActions: ["Deny"]

@@ -129,4 +129,23 @@ decline_verdict() {
 owns() { [ -n "${1:-}" ] && [ "${1:-}" = "${2:-}" ]; }          # $1 object-label-runid  $2 current-runid
 can_delete_cluster() { [ "${1:-}" = 1 ] && [ "${2:-}" = 1 ]; }  # $1 api_reachable(0/1)  $2 owner_marker_present(0/1)
 
+# ---- vendored test-extension manifest selection (pure; unit-tested) --------------------------
+# Decides which manifest source bootstrap uses, fail-closed. Prints one verdict token:
+#   USE_VENDORED | USE_CAPI_SRC | FAIL_SHA_MISSING | FAIL_SHA_MISMATCH | FAIL_VERSION | FAIL_NO_SOURCE
+# $1 manifest_path  $2 expected_sha256  $3 capi_version  $4 capi_src_dir(optional)
+ext_manifest_select() {
+  local man="${1:-}" sha="${2:-}" ver="${3:-}" src="${4:-}"
+  if [ -f "$man" ]; then
+    [ -n "$sha" ] || { echo FAIL_SHA_MISSING; return 1; }
+    printf '%s  %s\n' "$sha" "$man" | shasum -a 256 -c - >/dev/null 2>&1 \
+      || { echo FAIL_SHA_MISMATCH; return 1; }
+    grep -Fxq "# capi-test-extension-version: $ver" "$man" \
+      || { echo FAIL_VERSION; return 1; }
+    echo USE_VENDORED; return 0
+  elif [ -n "$src" ] && [ -d "$src/test/extension/config/default" ]; then
+    echo USE_CAPI_SRC; return 0
+  fi
+  echo FAIL_NO_SOURCE; return 1
+}
+
 "${1:?fn}" "${@:2}"

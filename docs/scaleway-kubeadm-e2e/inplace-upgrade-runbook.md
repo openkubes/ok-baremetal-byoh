@@ -1,52 +1,135 @@
 # Scaleway BYOH in-place upgrade runbook
 
-> **Maturity: PLANNED — not yet executed under CAPI control.** This runbook describes the
-> intended **CAPI / RuntimeSDK-driven** in-place upgrade. The RuntimeSDK extension and the
-> BYOH host executor are **not** yet validated end-to-end. Do not treat any step here as a
-> proven production procedure.
+> **Maturity: IMPLEMENTED, NOT YET EXECUTED on real hosts.** The host executor, the real
+> `UpdateMachine` handler, the guard and the tooling exist and pass their unit and envtest
+> suites, but the CAPI-driven upgrade has not run on a real BYOH host yet. The first run is a
+> gated E2E (below) and is recorded in
+> [inplace-upgrade-testprotocol.md](inplace-upgrade-testprotocol.md) only if it succeeds.
 
-This runbook complements the existing upgrade automation baseline
-([upgrade-make-runbook.md](upgrade-make-runbook.md)) and must be read together with the
-testing/evidence rules in
-[../development/byoh/testing-and-evidence.md](../development/byoh/testing-and-evidence.md).
+Read together with the testing/evidence rules in
+[../development/byoh/testing-and-evidence.md](../development/byoh/testing-and-evidence.md) and the
+No-Replacement contract [../adr/ADR-001-byoh-no-replacement-safety.md](../adr/ADR-001-byoh-no-replacement-safety.md).
 
-## Two clearly separate things
-### A. Historical manual upgrade (2026-11-19) — validated, disposable lab
-A manual upgrade of the two Scaleway hosts from **v1.36.6 → v1.37.2** was performed on
-2026-11-19 with **CAPI paused**: CP `kubeadm upgrade apply`, worker `kubeadm upgrade node`,
-apt `v1.36 → v1.37`, kubelet/kubectl. **CAPI metadata deliberately stayed at v1.36.6**
-(KCP `spec.version`, MachineDeployment template, existing Machines), and **no etcd backup**
-was taken (disposable test). Full record:
-[upgrade-1.37.md](upgrade-1.37.md). This is the **reference procedure / executor basis** —
-it is history, not the CAPI-driven flow below.
+## History: manual upgrade (2026-11-19)
+Two Scaleway hosts were upgraded by hand from **v1.36.6 → v1.37.2** with **CAPI paused**
+(`kubeadm upgrade apply` / `kubeadm upgrade node`, apt `v1.36 → v1.37`, kubelet/kubectl), CAPI
+metadata left at v1.36.6 and no etcd backup ([upgrade-1.37.md](upgrade-1.37.md)). The executor
+below performs the same host steps under CAPI control.
 
-### B. Planned CAPI / RuntimeSDK-driven upgrade — not yet implemented
-The target flow performs the same on-host upgrade **under CAPI control** via the RuntimeSDK
-in-place hooks, keeping CAPI metadata and the real node `kubeletVersion` in sync, while the
-No-Replacement guard prevents any Machine replacement. **This is planned**; the extension
-and host executor are **experimental/unvalidated** (see
-[../development/byoh/architecture.md](../development/byoh/architecture.md) §RuntimeSDK
-in-place upgrade model).
+## Mechanism
+1. **Intent.** The initiator changes `KubeadmControlPlane.spec.version` (then the MachineDeployment
+   template version). The guard's intent webhook allows it only under an upgrade grant bound to
+   the KCP/MD UID and the exact `fromVersion → toVersion`; every other spec change, any replica
+   change (also through `/scale`), a surge above 0, CREATE and DELETE are denied.
+2. **CanUpdateMachine / CanUpdateMachineSet** (`internal/inplace/extension`). The extension takes over
+   a version-only change for a ByoMachine when the transition is forward, ≤ 1 minor, and the target
+   is pinned in the package lock (`config/inplace/base/packages-v1.37.2.json`). Otherwise it
+   declines, and the CAPI fallback (Machine delete/create) is denied by the guard: the rollout stops
+   visibly instead of replacing a Machine.
+3. **UpdateMachine** (stateless, repeatable). For the Machine it reads the live Machine (UID must
+   equal the hook's), its Cluster, the ByoMachine controlled by that Machine UID and the single
+   ByoHost attached to that ByoMachine UID. It refuses a second upgrade while another host of the
+   cluster runs one, makes a worker wait until every control-plane Machine reports the target
+   (kubelet ≤ API server), waits for the per-host approval annotation
+   `inplace.openkubes.org/approved-upgrade: <target>` on the ByoHost (set by an administrator; the hold point
+   between hosts), drains the Node (evictions honour PodDisruptionBudgets; DaemonSet and
+   static pods stay; a pod without a controller stops the drain), then writes
+   `ByoHost.spec.inPlaceUpgrade` with an ID derived from Machine UID + target. Role:
+   `ControlPlaneFirst` (`kubeadm upgrade apply`) for the first control plane, `ControlPlane` and
+   `Worker` (`kubeadm upgrade node`) for the others.
+4. **Host executor** (`agent/inplaceupgrade`, run by the agent). The agent first records
+   `status.inPlaceUpgrade.phase=Running`, then runs, with a checkpoint per finished step
+   (`/var/lib/byoh-hostagent/inplace-upgrade-<id>.json`, bound to Machine UID, version and role):
+   Preflight (host = Node, kubelet = from/to, worker after the API server, control-plane manifests)
+   → Repository (keyring has exactly the pinned fingerprint; source switched to the target minor)
+   → Download (each .deb verified against its SHA256; a mismatch removes it and fails) → Kubeadm
+   (dpkg + hold, `kubeadm version` = target) → KubeadmUpgrade → Kubelet (kubelet/kubectl, restart)
+   → Verify (kubelet binary, kubelet active, Node `kubeletVersion` and Ready, on control planes the
+   static-pod manifests and mirror pods of the target, running and ready). It never runs
+   `kubeadm reset`, never purges or removes packages and never touches the bootstrap.
+5. **Done.** The extension answers success only when the agent reports `Succeeded` with the target
+   observed on the host **and** the Node, **and** it reads the target on the Node itself; it then
+   uncordons the Node. A `Running` upgrade older than `--upgrade-timeout` (2 h), a `Failed`
+   upgrade, an inconsistent report or an unreadable state is never success.
 
-## Mandatory safety gates (for the planned flow)
-- **etcd backup is mandatory** before any control-plane upgrade (the historical lab skipped
-  it; the CAPI-driven flow must not).
-- Protected clusters are never touched; no unprotected decline on a singleton control plane.
-- **Machine / InfraMachine / host identity preserved** (UIDs unchanged) across the upgrade.
-- **Real node `kubeletVersion` change evidenced** before/after, and CAPI metadata ↔ node
-  version reconciled (no drift like the historical lab's intentional v1.36.6 metadata).
-- Fail-closed throughout; a failed run is recorded as FAIL, never PASS.
+The ByoHost webhook keeps the request immutable while it runs (except a larger `attempt`), binds it
+to `spec.byoMachineRef.uid`, refuses it on a host being reset, and lets an agent report only the
+request in its spec; `Succeeded` needs the observed target versions.
 
-## Evidence (per [../development/byoh/testing-and-evidence.md](../development/byoh/testing-and-evidence.md))
-Full before/after evidence bundle: etcd backup reference, CAPI object snapshots, Machine/
-InfraMachine UIDs, kubelet versions, audit/controller logs, provenance, and a machine-
-readable result — with secrets and kubeconfigs excluded. The durable per-run result is
-recorded in [inplace-upgrade-testprotocol.md](inplace-upgrade-testprotocol.md) **only after
-a successful real upgrade**.
+## Interrupted and failed upgrades (forward recovery)
+- **Agent restart / host reboot during a step:** the status stays `Running`; the agent resumes from
+  its checkpoint and re-runs only the interrupted step (each step is idempotent). Nothing to do.
+- **Extension restart:** stateless; the next UpdateMachine call continues from the ByoHost.
+- **`Failed`:** CAPI keeps the Machine in the in-place update and never falls back to replacement.
+  1. Read `status.inPlaceUpgrade.step/message` and the agent journal on the host.
+  2. Fix the cause on the host **forward** (never `kubeadm reset`, never downgrade packages).
+  3. With separate approval: `kubectl patch byohost <h> --type merge -p '{"spec":{"inPlaceUpgrade":{"attempt":<n+1>}}}'`
+     (rv-bound); the agent resumes from its checkpoint.
+- **Timeout:** same as `Failed`; check whether the step still runs before raising the attempt.
+- **Never:** remove the CAPI in-place annotations or pending hooks by hand, delete a Machine,
+  ByoMachine or ByoHost, or edit the checkpoint file. Each is a separate, explicit decision.
+- **Rollback:** there is none in place (kubeadm does not downgrade). A broken control plane is
+  recovered from the etcd snapshot taken before the control-plane upgrade (writes after the
+  snapshot are lost); this is a separate disaster-recovery procedure.
+
+## Grants
+One grant per KubeadmControlPlane and one per MachineDeployment, **without** `machineUID`: it authorizes the
+version patch of the KCP/MD (intent guard) and the in-place transitions of each of its Machines. Grants bound to a
+Machine UID next to it make the lookup ambiguous and are denied (fail closed). A claimed grant stays usable until
+`notAfter`; keep `notAfter` short (the length of the change window).
+
+## Host commands that must not be interrupted
+`dpkg --install` and `kubeadm upgrade` run in transient systemd units
+`okx-inplace-<id>-<attempt>-<what>.service`. They outlive the agent (restart, crash, `update-agent`) and a step
+timeout only stops the waiting, never the command. A restarted agent waits for a running unit of the same attempt
+instead of starting it again; a unit that failed fails the step (journal: `journalctl -u <unit>`); the next attempt
+runs in a new unit. `update-agent` refuses to restart the agent while such a unit runs. Packages are held again also
+after a failed installation.
+
+## Known limitations (review B10.23c)
+- **Cluster-admin** can delete the webhook configuration, the admission policies or their bindings, and can
+  impersonate the approver/initiator ServiceAccounts directly (impersonation is not admission-checked). These are
+  the audited break-glass paths; alert on changes of `okx-no-replacement-guard`, the `okx-inplace-*` policies and
+  on impersonation of the grant identities.
+- **Namespace writers of `okx-inplace-system`** could still edit ReplicaSets or Pods of the guard (the policies
+  protect the Deployments, the registry, the package lock and the identities). Only platform administrators may
+  write in that namespace (RBAC).
+- **One host at a time** is a check before the drain, not a lock; the per-host approval annotation is the binding
+  hold point (approve one host, wait for its verification, then the next).
+- **Grant holders**: an initiator with a claimed grant can complete a Machine's in-place update without host work
+  (the guard allows the cleanup transitions); the initiator is trusted, the agent status and the Node version show
+  the truth (`progress.sh`, `uids.py compare --expect-version`).
+- The extension waits without a limit for an agent that never accepts a request (never success); an agent that
+  fails after `kubeadm upgrade` and a restored etcd may need its checkpoint removed by an operator before a new
+  attempt; success uncordons the Node even if it was cordoned before the upgrade; the drainer may evict on every
+  Node (PodDisruptionBudgets apply); a registered namespace without the label is not guarded (preflight checks it).
+
+
+While a namespace is protected, the guard denies Machine and KCP/MD CREATE/DELETE, so a teardown
+is impossible by design. Decommission is a separate, approved operation:
+1. Confirm no in-place upgrade is running (`hack/inplace/progress.sh`).
+2. Remove the namespace from the trusted registry ConfigMap and roll the guard (platform admin).
+3. Remove the label `safety.openkubes.org/in-place-only` from the namespace.
+4. Verify a server-side dry-run Machine delete is now admitted, then run the cluster teardown.
+The registry entry is the authority; removing only the label leaves the guard failing closed for
+that namespace (labelled-but-unregistered ≠ unregistered-but-labelled; both are checked).
+
+## Approvals (each separately)
+Package/image locks and their review; deploying guard and extension; enabling `RuntimeSDK` and
+`InPlaceUpdates`; KCP `maxSurge` 1 → 0; protecting the namespace (label + registry); etcd
+snapshot; each grant creation (approver) and claim (initiator); the KCP version patch; the MD
+version patch; any attempt increase; decommission.
+
+## Evidence
+Before/after: etcd snapshot sha256 and restore verification, `hack/inplace/uids.py` snapshots and
+comparison (Machines, ByoMachines, ByoHosts, Nodes; versions), `progress.sh` per step, the
+`monitor.sh` API/etcd logs, guard and extension logs, agent journals; sealed with SHA256SUMS,
+without secrets or kubeconfigs.
 
 ## References
 - Historical manual upgrade: [upgrade-1.37.md](upgrade-1.37.md)
 - Upgrade automation baseline: [upgrade-make-runbook.md](upgrade-make-runbook.md)
-- Lifecycle Make E2E: [make-lifecycle-runbook.md](make-lifecycle-runbook.md)
-- Testing & evidence: [../development/byoh/testing-and-evidence.md](../development/byoh/testing-and-evidence.md)
-- No-Replacement contract: [../adr/ADR-001-byoh-no-replacement-safety.md](../adr/ADR-001-byoh-no-replacement-safety.md); ADR-Platform-047 / ADR-Platform-048 — external project artifacts (promotion pending)
+- Tooling: `hack/inplace/` (preflight, progress, monitor, etcd-snapshot, uids, render-registry; identity checks
+  of the kubeconfigs in `lib.sh`, Cilium compatibility in `cilium_compat.py`; offline tests in `hack/inplace/test`)
+- Deployment: `config/inplace/` (base + `overlays/ha1`)
+- Grant contract: `labs/byoh-inplace-spike/design/M1-grant-contract-and-transition-matrix.md`

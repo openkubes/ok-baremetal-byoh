@@ -18,6 +18,12 @@ const (
 // clusterAPIGroup is the Cluster API core API group.
 const clusterAPIGroup = "cluster.x-k8s.io"
 
+// The API version of the guarded CAPI objects and the resource of Machines.
+const (
+	capiVersion      = "v1beta2"
+	machinesResource = "machines"
+)
+
 // reservedMetadataKey identifies metadata owned by CAPI,
 // infrastructure providers, or the OpenKubes safety boundary.
 func reservedMetadataKey(key string) bool {

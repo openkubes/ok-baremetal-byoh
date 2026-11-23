@@ -1,0 +1,118 @@
+# OpenKubes BYOH in-place RuntimeSDK extension (MY extension, not the in-tree one).
+# Serves CanUpdateMachine/CanUpdateMachineSet (read-only, version-only) + UpdateMachine
+# (CAPD test handler). Image is built from this repo and kind-loaded by bootstrap-guarded.sh.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: inplace-extension-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: inplace-extension
+  namespace: inplace-extension-system
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned
+  namespace: inplace-extension-system
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: inplace-extension-serving-cert
+  namespace: inplace-extension-system
+spec:
+  secretName: inplace-extension-webhook-service-cert
+  dnsNames:
+    - inplace-extension-webhook-service.inplace-extension-system.svc
+    - inplace-extension-webhook-service.inplace-extension-system.svc.cluster.local
+  issuerRef:
+    name: selfsigned
+    kind: Issuer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inplace-extension-webhook-service
+  namespace: inplace-extension-system
+spec:
+  selector:
+    app: inplace-extension
+  ports:
+    - port: 443
+      targetPort: 9444
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inplace-extension
+  namespace: inplace-extension-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inplace-extension
+  template:
+    metadata:
+      labels:
+        app: inplace-extension
+    spec:
+      serviceAccountName: inplace-extension
+      containers:
+        - name: manager
+          image: okx/inplace-extension:e2e   # patched to the kind-loaded tag by bootstrap
+          imagePullPolicy: IfNotPresent
+          # CAPD has DockerMachines: simulate their update; pin no ByoMachine versions.
+          args: ["--simulate-docker-machines", "--package-lock="]
+          ports:
+            - containerPort: 9444
+              name: webhook
+            - containerPort: 9440
+              name: health
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9440
+              scheme: HTTP
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9440
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 2
+          volumeMounts:
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: inplace-extension-webhook-service-cert
+---
+apiVersion: runtime.cluster.x-k8s.io/v1beta2
+kind: ExtensionConfig
+metadata:
+  name: okx-inplace-extension
+  annotations:
+    runtime.cluster.x-k8s.io/inject-ca-from-secret: inplace-extension-system/inplace-extension-webhook-service-cert
+spec:
+  clientConfig:
+    service:
+      name: inplace-extension-webhook-service
+      namespace: inplace-extension-system
+      port: 443
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: In
+        values: ["default"]

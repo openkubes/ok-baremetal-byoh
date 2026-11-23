@@ -1,0 +1,18 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Authorized identities of the ha1 lab (base/hardening.yaml). The lab has one
+# operator, the kind admin user of the management cluster (kubectl auth whoami:
+# kubernetes-admin); approving, claiming and administering stay separate,
+# audited steps (a token per role, minted for the step). Production lists
+# distinct people per role.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: okx-inplace-authorized-identities
+  namespace: okx-inplace-system
+data:
+  platformAdmins: kubernetes-admin
+  approverMinters: kubernetes-admin
+  initiatorMinters: kubernetes-admin
+  upgradeApprovers: kubernetes-admin

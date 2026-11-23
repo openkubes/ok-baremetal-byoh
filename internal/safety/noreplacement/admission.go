@@ -7,9 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -21,6 +23,23 @@ import (
 type MachineAdmissionHandler struct {
 	registrations map[string]NamespaceRegistration
 	lookup        ClusterLookup
+	// grants, when set, enables the grant-authorized in-place UPDATE exception.
+	// When nil the handler keeps its strict deny-by-default behavior.
+	grants GrantReader
+	// resolver climbs the owner chain to the grant target (KCP / MD).
+	resolver TargetResolver
+}
+
+// WithGrantReader returns the handler with the read-only grant reader enabled.
+func (h *MachineAdmissionHandler) WithGrantReader(r GrantReader) *MachineAdmissionHandler {
+	h.grants = r
+	return h
+}
+
+// WithResolver sets the owner-chain target resolver.
+func (h *MachineAdmissionHandler) WithResolver(r TargetResolver) *MachineAdmissionHandler {
+	h.resolver = r
+	return h
 }
 
 // NewMachineAdmissionHandler takes an immutable snapshot of the
@@ -55,10 +74,11 @@ func (h *MachineAdmissionHandler) Handle(
 
 func validMachineResource(req *admission.Request) bool {
 	return req.Resource.Group == clusterAPIGroup &&
-		req.Resource.Version == "v1beta2" &&
-		req.Resource.Resource == "machines"
+		req.Resource.Version == capiVersion &&
+		req.Resource.Resource == machinesResource
 }
 
+//nolint:gocyclo // one admission path per operation, each failing closed.
 func (h *MachineAdmissionHandler) handleMachine(
 	ctx context.Context,
 	req *admission.Request,
@@ -120,11 +140,26 @@ func (h *MachineAdmissionHandler) handleMachine(
 			)
 		}
 
-		decision = EvaluateMachineUpdate(
-			scope,
-			&oldMachine,
-			&newMachine,
-		)
+		if h.grants != nil {
+			dr := req.DryRun != nil && *req.DryRun
+			decision = GuardMachineUpdate(
+				ctx,
+				h.grants,
+				h.resolver,
+				scope,
+				h.registrations[req.Namespace].ClusterUID,
+				&oldMachine,
+				&newMachine,
+				dr,
+				time.Now(),
+			)
+		} else {
+			decision = EvaluateMachineUpdate(
+				scope,
+				&oldMachine,
+				&newMachine,
+			)
+		}
 
 	default:
 		return admission.Denied(
@@ -132,9 +167,17 @@ func (h *MachineAdmissionHandler) handleMachine(
 		)
 	}
 
+	log := logf.FromContext(ctx).WithValues(
+		"machine", req.Namespace+"/"+req.Name, "op", req.Operation,
+		"user", req.UserInfo.Username, "dryRun", req.DryRun != nil && *req.DryRun)
 	if !decision.Allowed {
+		if req.Operation == admissionv1.Update {
+			log = log.WithValues("diff", machineDiffSummary(req.OldObject.Raw, req.Object.Raw))
+		}
+		log.Info("DENY", "reason", decision.Reason)
 		return admission.Denied(decision.Reason)
 	}
 
+	log.V(1).Info("ALLOW")
 	return admission.Allowed("No-Replacement policy satisfied")
 }

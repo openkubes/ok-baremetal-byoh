@@ -1,0 +1,27 @@
+name: In-place tooling
+
+# Offline tests of the in-place upgrade rollout tooling (hack/inplace): identity
+# snapshots, Cilium compatibility (pinned and approved pre-releases only) and the
+# kubeconfig/context identity checks of lib.sh; shellcheck of the scripts.
+on:
+  pull_request:
+    branches: [ main ]
+    paths: [ 'hack/inplace/**', '.github/workflows/inplace-tooling.yml' ]
+  push:
+    branches: [ main ]
+    paths: [ 'hack/inplace/**', '.github/workflows/inplace-tooling.yml' ]
+
+permissions:
+  contents: read
+
+jobs:
+  inplace-tooling:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        persist-credentials: false
+    - name: Unit tests
+      run: for t in hack/inplace/test/test_*.py; do python3 -I "$t"; done
+    - name: shellcheck
+      run: cd hack/inplace && shellcheck -x -S warning ./*.sh
