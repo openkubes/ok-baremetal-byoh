@@ -5,7 +5,8 @@
 # Read-only preflight of an in-place upgrade of a BYOH cluster (five hosts in the
 # Scaleway lab). Usage: preflight.sh TARGET_VERSION [EXPECTED_CONTROL_PLANES EXPECTED_WORKERS]
 # Exit 0 READY, 2 BLOCKED (every failed check is listed), 1 error.
-# Optional: GW_SSH="ssh -o UserKnownHostsFile=... -o StrictHostKeyChecking=yes root@GW" adds the HAProxy check.
+# Optional: GW_SSH="ssh -o UserKnownHostsFile=... -o StrictHostKeyChecking=yes root@GW" adds the HAProxy check;
+# OKX_CILIUM_PRERELEASE=<version> approves a pinned Cilium pre-release of cilium-compat.json for this run.
 . "$(dirname "$0")/lib.sh"
 
 TARGET=${1:?usage: preflight.sh TARGET_VERSION [CONTROL_PLANES WORKERS]}
@@ -76,14 +77,10 @@ health=$(etcdctl_cp "$cp1" endpoint health --cluster 2>&1 | grep -c 'is healthy'
 check "etcd members healthy" "$(is "$health" "$CPS")" "$health/$CPS"
 read -r cdes crdy cimg <<<"$(w -n kube-system get ds cilium -o jsonpath='{.status.desiredNumberScheduled} {.status.numberReady} {.spec.template.spec.containers[0].image}')"
 check "Cilium ready" "$(is "$crdy" "$cdes")" "$crdy/$cdes"
-cver=$(sed -E 's/.*:v([0-9.]+)(@.*)?$/\1/' <<<"$cimg")
-python3 - "$HERE/cilium-compat.json" "$cver" "$TARGET" <<'PY' && cc=ok || cc=no
-import json, sys
-table, version, target = json.load(open(sys.argv[1])), sys.argv[2], sys.argv[3]
-minor = ".".join(target.lstrip("v").split(".")[:2])
-sys.exit(0 if minor in table.get(version, []) else 1)
-PY
-check "Cilium $cver supports ${TARGET%.*}" "$cc" "(hack/inplace/cilium-compat.json)"
+oimg=$(w -n kube-system get deploy cilium-operator -o jsonpath='{.spec.template.spec.containers[0].image}')
+# A pre-release passes only when pinned in cilium-compat.json and approved for this run (OKX_CILIUM_PRERELEASE).
+cdetail=$(python3 -I "$HERE/cilium_compat.py" "$HERE/cilium-compat.json" "$cimg" "$oimg" "$TARGET" "${OKX_CILIUM_PRERELEASE:-}") && cc=ok || cc=no
+check "Cilium supports ${TARGET%.*}" "$cc" "$cdetail"
 if [ -n "${GW_SSH:-}" ]; then
 	up=$($GW_SSH "journalctl -u haproxy -o cat --no-pager | grep -E 'is (UP|DOWN)' | tail -1" || true)
 	active=$(grep -o '[0-9] active' <<<"$up" | cut -d' ' -f1)

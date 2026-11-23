@@ -129,6 +129,7 @@ without secrets or kubeconfigs.
 ## References
 - Historical manual upgrade: [upgrade-1.37.md](upgrade-1.37.md)
 - Upgrade automation baseline: [upgrade-make-runbook.md](upgrade-make-runbook.md)
-- Tooling: `hack/inplace/` (preflight, progress, monitor, etcd-snapshot, uids, render-registry)
+- Tooling: `hack/inplace/` (preflight, progress, monitor, etcd-snapshot, uids, render-registry; identity checks
+  of the kubeconfigs in `lib.sh`, Cilium compatibility in `cilium_compat.py`; offline tests in `hack/inplace/test`)
 - Deployment: `config/inplace/` (base + `overlays/ha1`)
 - Grant contract: `labs/byoh-inplace-spike/design/M1-grant-contract-and-transition-matrix.md`

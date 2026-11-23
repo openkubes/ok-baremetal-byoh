@@ -5,6 +5,12 @@
 > [inplace-upgrade-runbook.md](inplace-upgrade-runbook.md). Tooling: `hack/inplace/`. Management context is always
 > named explicitly (`kind-ok-lab-mgmt`); hosts only over the pinned SSH of ok-scaleway-lab.
 
+Every `hack/inplace` script proves both cluster identities before its first request (`lib.sh`) and refuses
+otherwise: `MGMT_KUBECONFIG` + `MGMT_CONTEXT` (the current-context is never used), `MGMT_SERVER` and
+`MGMT_CA_SHA256` (the management API URL and the sha256 of the context's `certificate-authority-data`, as printed
+by `remote.sh byoh-grants`), `NS`, `CLUSTER` and `CLUSTER_UID` (the UID of the workload Cluster). The workload
+kubeconfig must point at the Cluster's `controlPlaneEndpoint` and trust its `<cluster>-ca` Secret.
+
 Cluster `ha1` (namespace `ha1`): KCP 3 (cp-1..3, stacked etcd), MachineDeployment `ha1-md-0` 2 (w-1, w-2),
 Cilium 1.20.5, CAPI v1.14.4, BYOH controller and agents `15b668d`.
 
@@ -69,8 +75,10 @@ B7. **Readiness check**: 5 Nodes Ready; `uids.py compare` PASS; all Machines UpT
 - B6: remove the ExtensionConfig and set the gates back to false (controllers restart); no Machine is in an
   in-place update before the version patch.
 ## Phase C — prerequisites of the version change
-C1. **Cilium** 1.21.x stable, own gate (`ok-scaleway-lab docs/cilium-upgrade.md`); `preflight.sh` passes the
-    Cilium check.
+C1. **Cilium** 1.21, own gate (`ok-scaleway-lab docs/cilium-upgrade.md`); `preflight.sh` passes the Cilium check.
+    A stable release passes when `hack/inplace/cilium-compat.json` lists the target minor. A pre-release passes
+    only when it is pinned there (agent and operator image digests, reviewed and committed) **and** the operator
+    approves the run with `OKX_CILIUM_PRERELEASE=<version>`; any other running image fails the check.
 C2. **etcd snapshot** (`etcd-snapshot.sh save`, off-host) and **restore verification** (`etcd-snapshot.sh verify`
     with `registry.k8s.io/etcd:3.6.8-0`, throw-away directory); sha256 in the evidence.
 C3. `preflight.sh v1.37.2` READY.

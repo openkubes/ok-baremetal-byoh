@@ -1,4 +1,14 @@
 {
-  "_source": "Documentation/network/kubernetes/compatibility.rst of each Cilium tag (e2e-tested Kubernetes minors); checked 2026-11-23",
-  "1.20.5": ["1.33", "1.34", "1.35", "1.36"]
+  "_source": "Documentation/network/kubernetes/compatibility.rst of each Cilium tag (e2e-tested Kubernetes minors); checked 2026-11-23. Read by cilium_compat.py.",
+  "stable": {
+    "1.20.5": ["1.33", "1.34", "1.35", "1.36"]
+  },
+  "prerelease": {
+    "1.21.0-pre.4": {
+      "kubernetes": ["1.34", "1.35", "1.36", "1.37"],
+      "agent": "quay.io/cilium/cilium:v1.21.0-pre.4@sha256:15ae104d770b0687baa0f3753ed92185744abe77ea4012e2b2f285c97595be86",
+      "operator": "quay.io/cilium/operator-generic:v1.21.0-pre.4@sha256:87d1b064b6cedb31a34a734648eb484d6443a1790c04b60079248893463a1e2f",
+      "approval": "B10.24 experimental ha1 run only (chart digest c913f29730b65d916433a19eed24c557db2c6fa75d4039e03895f0aa09f51bb2); each run also needs OKX_CILIUM_PRERELEASE=1.21.0-pre.4"
+    }
+  }
 }
