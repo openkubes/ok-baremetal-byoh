@@ -353,7 +353,9 @@ byoh-python-check: ## Prepare and verify isolated Python dependencies for BYOH t
 	@bash hack/dev/python-toolchain.sh --check
 
 
-BYOH_HOSTS_INVENTORY ?= config/hosts/scaleway.yaml
+# Local host inventory (ignored by Git), created from
+# config/hosts/my-provider-hosts-inventar.tpl for your hosts and provider.
+BYOH_HOSTS_INVENTORY ?= config/hosts/hosts.yaml
 
 .PHONY: byoh-hosts-preflight
 byoh-hosts-preflight: ## Read-only inventory, SSH, agent and management-tunnel identity checks.
@@ -436,7 +438,7 @@ byoh-cluster-network-up: ## Confirmed SSH workload API forwarding plus isolated 
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-network.py --inventory '$(BYOH_HOSTS_INVENTORY)' --up
 
 .PHONY: byoh-cluster-control-plane-plan
-byoh-cluster-control-plane-plan: ## Read-only Scaleway CAPI v1.36.6 control-plane manifest preflight and server dry-run.
+byoh-cluster-control-plane-plan: ## Read-only CAPI v1.36.6 control-plane manifest preflight and server dry-run (two-host E2E lab).
 	@BYOH_KIND_NAME='$(BYOH_KIND_NAME)' bash hack/dev/python-toolchain.sh hack/dev/byoh-cluster-control-plane-plan.py --inventory '$(BYOH_HOSTS_INVENTORY)'
 
 .PHONY: byoh-hosts-bootstrap-revoke-plan

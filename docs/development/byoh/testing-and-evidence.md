@@ -1,7 +1,7 @@
 # BYOH Reproducibility & Evidence Standard
 
 **Status:** standing engineering convention for ALL BYOH lifecycle work (CAPD spikes,
-guard validation, the Scaleway CAPI-driven in-place upgrade, and beyond). **This
+guard validation, the CAPI-driven in-place upgrade on real hosts, and beyond). **This
 repository is the source of truth for the standard.** Audience: every OpenKubes
 contributor must be able to reproduce any test **without knowledge of the session that
 produced it.**

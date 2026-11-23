@@ -1,3 +1,9 @@
+> **Provider-specific E2E lab records.** Everything in this directory documents the OpenKubes
+> end-to-end lab, which runs on Scaleway: plans, runbooks, results and evidence of real runs. It is
+> kept as historical and test evidence. It is **not** a product requirement and **not** a default:
+> BYOH works on any bare-metal host or virtual machine that meets the host requirements. Current lab
+> operation lives in the separate `ok-scaleway-lab` repository.
+
 > **Verified two-node E2E baseline (20 November 2026):** [Reproducible baseline and explicit limitations](two-node-e2e-baseline-2026-11-20.md). Control-plane + worker Kubernetes v1.36.6 Ready, MD 1/1 and Cilium 2/2; cross-node policy tests and generalized orchestration remain open.
 >
 > **Current Make replay:** See [Make lifecycle runbook](make-lifecycle-runbook.md) for the

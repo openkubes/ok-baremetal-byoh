@@ -58,7 +58,7 @@ The planner is not an upgrade executor. A CAPI-integrated, authorized in-place e
 | Standalone No-Replacement Guard image build definition | Present; image publication/deployment is not claimed |
 | Authorized in-place version transition | Not implemented |
 | Complete non-bypassable Machine admission deployment | Not implemented |
-| CAPI-managed in-place upgrade on real Scaleway bare metal | Not yet demonstrated |
+| CAPI-managed in-place upgrade on real BYOH hosts | Not yet demonstrated |
 | Rolling replacement with independent authorization and capacity/readiness proof | Architecture direction; not implemented as a complete lifecycle capability |
 
 ## Lifecycle safety principles
@@ -98,12 +98,12 @@ The No-Replacement policy package is not itself an upgrade executor. The read-on
 
 ## Next engineering milestones
 
-1. Verify the live Scaleway management/workload baseline without mutation.
+1. Verify the live management/workload baseline of the E2E lab without mutation.
 2. Validate the exact CAPI/Kubeadm/BYOH in-place update and fallback behavior for pinned versions.
 3. Define the authorized in-place transition and execution contract.
 4. Complete non-bypassable namespace selection and Machine webhook deployment before operational Guard enablement.
 5. Implement a minimal, plan-bound in-place executor with bounded recovery.
-6. Demonstrate a CAPI-managed Scaleway upgrade while preserving Machine UID and physical-host identity.
+6. Demonstrate a CAPI-managed upgrade on real BYOH hosts while preserving Machine UID and physical-host identity.
 7. Only then expand claims to additional topologies or replacement strategies.
 
 ## References
@@ -113,6 +113,6 @@ The No-Replacement policy package is not itself an upgrade executor. The read-on
 - [BYOH getting started](../getting_started.md)
 - [BYOH host registration](../host_registration.md)
 - [BYOH host lifecycle](../host_lifecycle.md)
-- [Scaleway upgrade runbook](../scaleway-kubeadm-e2e/upgrade-make-runbook.md)
+- [Upgrade runbook of the E2E lab](../scaleway-kubeadm-e2e/upgrade-make-runbook.md) (provider-specific lab record) <!-- provider-neutrality: allow (E2E lab record) -->
 - [ADR-Platform-047 — No-Replacement Protection and In-Place Upgrade Authorization](https://github.com/openkubes/openkubes/blob/main/architecture/decisions/ADR-Platform-047-no-replacement-and-inplace-upgrade-exceptions.md)
 - [ADR-Platform-048 — Infrastructure Lifecycle Strategies](https://github.com/openkubes/openkubes/blob/main/architecture/decisions/ADR-Platform-048-infrastructure-lifecycle-strategies.md)

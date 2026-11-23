@@ -1,8 +1,8 @@
 # OpenKubes BYOH host inventory template (proposal; parser not yet implemented).
-# Copy to config/hosts/scaleway.yaml or another local *.yaml file.
+# Copy to config/hosts/hosts.yaml (the Makefile default) or another local *.yaml file.
 # Do not commit the filled inventory. No private keys, tokens or kubeconfigs here.
 #
-# cp config/hosts/my-provider-hosts-inventar.tpl config/hosts/scaleway.yaml
+# cp config/hosts/my-provider-hosts-inventar.tpl config/hosts/hosts.yaml
 #
 # Host addresses and SSH users are illustrative placeholders.
 apiVersion: openkubes.io/v1alpha1

@@ -24,13 +24,13 @@ work, and the No-Replacement safety guard.
 | No-Replacement admission guard (design + admission concept) | **validated** | [../../adr/ADR-001-byoh-no-replacement-safety.md](../../adr/ADR-001-byoh-no-replacement-safety.md), `cmd/no-replacement-guard` |
 | RuntimeSDK in-place upgrade harness (CAPD Step-0 decline-guard) | **experimental** | [../../../labs/byoh-inplace-spike/README.md](../../../labs/byoh-inplace-spike/README.md) |
 | `make ok-capd-inplace-test` / `make ok-capd-guard-test` | **planned** (stubs) | `Makefile` (`not-yet-implemented.sh`) |
-| CAPI/RuntimeSDK-driven Scaleway in-place upgrade | **planned** | [../../scaleway-kubeadm-e2e/inplace-upgrade-runbook.md](../../scaleway-kubeadm-e2e/inplace-upgrade-runbook.md) |
-| Manual Scaleway v1.36.6→v1.37.2 upgrade (2026-11-19) | **validated (historical, disposable lab)** | [../../scaleway-kubeadm-e2e/upgrade-1.37.md](../../scaleway-kubeadm-e2e/upgrade-1.37.md) |
+| CAPI/RuntimeSDK-driven in-place upgrade on real hosts (E2E lab) | **planned** | [../../scaleway-kubeadm-e2e/inplace-upgrade-runbook.md](../../scaleway-kubeadm-e2e/inplace-upgrade-runbook.md) | <!-- provider-neutrality: allow (E2E lab record) -->
+| Manual v1.36.6→v1.37.2 upgrade in the E2E lab (2026-11-19) | **validated (historical, disposable lab)** | [../../scaleway-kubeadm-e2e/upgrade-1.37.md](../../scaleway-kubeadm-e2e/upgrade-1.37.md) | <!-- provider-neutrality: allow (E2E lab record) -->
 
 ## Related existing documentation (not duplicated here)
 - CAPD tutorial & architecture: [../../ok-capd/tutorial.md](../../ok-capd/tutorial.md), [../../ok-capd/architecture.md](../../ok-capd/architecture.md), [../../ok-capd/troubleshooting.md](../../ok-capd/troubleshooting.md)
 - BYOH controller architecture: [../../architecture/byoh-controller.md](../../architecture/byoh-controller.md)
-- Scaleway kubeadm E2E master plan: [../../scaleway-kubeadm-e2e/README.md](../../scaleway-kubeadm-e2e/README.md)
+- E2E lab master plan (provider-specific lab record): [../../scaleway-kubeadm-e2e/README.md](../../scaleway-kubeadm-e2e/README.md) <!-- provider-neutrality: allow (E2E lab record) -->
 
 ## Architecture Decision Records
 - **In repository:** [ADR-001 — BYOH No-Replacement Safety Contract](../../adr/ADR-001-byoh-no-replacement-safety.md).

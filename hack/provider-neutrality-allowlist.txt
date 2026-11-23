@@ -1,0 +1,16 @@
+# Documented exceptions of hack/check-provider-neutrality.py: one glob of tracked files per line,
+# followed by "# reason". Generic product code and documentation must stay provider-neutral;
+# only labeled lab records, historical evidence and provider-specific lab tooling are listed here.
+# Prefer a single "provider-neutrality: allow (<reason>)" line marker for one labeled reference.
+
+docs/scaleway-kubeadm-e2e/*                 # labeled E2E lab records and evidence (directory README banner)
+scripts/scaleway-e2e/*                      # two-host E2E lab helpers; defaults are the lab's hosts (README)
+tests/offline/test-byoh-e2e.sh              # offline test of the two-host lab helper (fixtures use its hosts)
+hack/dev/byoh-cluster-*.py                  # two-host lab workload tooling; pins the reviewed lab identities (fail-closed)
+hack/dev/test-byoh-cluster-*.py             # tests of the two-host lab workload tooling (lab fixtures)
+hack/dev/byoh-hosts-enroll.py               # calls the two-host lab helper in scripts/scaleway-e2e
+hack/dev/byoh-hosts-bootstrap-renew.py      # calls the two-host lab helper in scripts/scaleway-e2e
+hack/dev/test-byoh-hosts-csr-*.py           # CSR tests with the two-host lab host names as fixtures
+labs/byoh-inplace-spike/*                   # Phase-0 lab; names the real lab only to exclude it ("never run against")
+hack/check-provider-neutrality.py           # the check itself (its patterns)
+hack/test-provider-neutrality.py            # tests of the check (provider names as test data)
