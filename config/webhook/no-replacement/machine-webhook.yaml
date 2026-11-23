@@ -1,0 +1,49 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# No-Replacement Guard — ACTIVE webhook (handler exists today).
+#
+# Scope invariants (GPT/ADR-047 rule 1: no effect on unprotected clusters/namespaces):
+#   * namespaceSelector restricts interception to namespaces LABELLED
+#     safety.openkubes.org/in-place-only=true. Unlabeled namespaces are never
+#     routed here, so unprotected clusters are completely unaffected.
+#   * A protected namespace MUST ALSO be present in the guard's trusted registry
+#     (/etc/openkubes/no-replacement/registry.json). The label is only the
+#     routing filter; the registry is the Cluster-UID authority. The guard fails
+#     closed for a labelled-but-unregistered namespace, so the two MUST be kept
+#     consistent by whoever onboards a protected cluster.
+#   * Resource is `machines` ONLY — never `machines/status` (status subresource
+#     is a disjoint authorization path; node version is written there and must
+#     not traverse this webhook).
+#
+# The path is the single source of truth noreplacement.MachineAdmissionPath,
+# also used by cmd/no-replacement-guard/main.go.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: byoh-no-replacement-guard
+  annotations:
+    # caBundle is injected by cert-manager in the full deployment (PENDING: the
+    # guard Certificate/Service/Deployment glue is wired during full guard wiring).
+    cert-manager.io/inject-ca-from: system/no-replacement-guard-serving-cert
+webhooks:
+  - name: vmachine.no-replacement.openkubes.org
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    sideEffects: None
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector:
+      matchLabels:
+        safety.openkubes.org/in-place-only: "true"
+    clientConfig:
+      service:
+        name: no-replacement-guard-webhook-service
+        namespace: system
+        path: /validate-cluster-x-k8s-io-v1beta2-machine-no-replacement
+    rules:
+      - apiGroups: ["cluster.x-k8s.io"]
+        apiVersions: ["v1beta2"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["machines"]
+        scope: Namespaced

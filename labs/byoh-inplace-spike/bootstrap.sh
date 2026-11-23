@@ -111,13 +111,25 @@ EXT_IMAGE_ID="$(docker image inspect --format '{{.Id}}' "$EXT_IMAGE")"
 kind load docker-image "$EXT_IMAGE" --name "$MGMT_CLUSTER" || die "kind load failed"
 
 # --- 5. Deploy extension + ExtensionConfig; wait for discovery (fail closed) ---
-[ -n "$CAPI_SRC" ] || die "CAPI_SRC required for extension manifests"
-[ -d "$CAPI_SRC/test/extension/config/default" ] || die "extension manifests missing"
-
 EXT_RENDERED="$STATE_DIR/test-extension-rendered.yaml"
 
-kubectl kustomize "$CAPI_SRC/test/extension/config/default" > "$EXT_RENDERED" \
-  || die "extension render failed"
+# Pick the extension-manifest source, fail-closed. The pure decision lives in classify.sh
+# (unit-tested offline). Vendored manifest is verified with `shasum -a 256 -c -` + version header;
+# a missing/wrong SHA or version mismatch aborts. CAPI_SRC render is kept as a fallback.
+EXT_SEL="$(bash "$SPIKE_HOME/classify.sh" ext_manifest_select "$EXT_MANIFEST" "$EXT_MANIFEST_SHA256" "$CAPI_VERSION" "$CAPI_SRC" || true)"
+case "$EXT_SEL" in
+  USE_VENDORED)
+    EXT_MANIFEST_SHA256_USED="$EXT_MANIFEST_SHA256"
+    cp "$EXT_MANIFEST" "$EXT_RENDERED" ;;
+  USE_CAPI_SRC)
+    EXT_MANIFEST_SHA256_USED="capi-src-render"
+    kubectl kustomize "$CAPI_SRC/test/extension/config/default" > "$EXT_RENDERED" \
+      || die "extension render failed" ;;
+  FAIL_SHA_MISSING)  die "EXT_MANIFEST_SHA256 required for vendored manifest $EXT_MANIFEST" ;;
+  FAIL_SHA_MISMATCH) die "vendored extension manifest sha256 mismatch ($EXT_MANIFEST)" ;;
+  FAIL_VERSION)      die "vendored manifest version != $CAPI_VERSION ($EXT_MANIFEST)" ;;
+  *)                 die "no vendored manifest ($EXT_MANIFEST) and no CAPI_SRC checkout at $CAPI_VERSION" ;;
+esac
 
 EXT_IMAGE="$EXT_IMAGE" yq -i '
   (select(.kind == "Deployment") |
@@ -178,8 +190,8 @@ MGMT_UID="$(k get ns kube-system -o jsonpath='{.metadata.uid}')"
 [ -n "$MGMT_UID" ] || die "could not read mgmt kube-system UID"
 EXTCFG_HASH="$(k get extensionconfig test-extension -o jsonpath='{.spec.settings}' | sha | awk '{print $1}')"
 jq -n --arg r "$RUN_ID" --arg m "$MGMT_UID" --arg c "$CAPI_VERSION" --arg i "$EXT_IMAGE_ID" \
-      --arg e "$EXTCFG_HASH" --arg cm "$CERT_MANAGER_VERSION" \
-   '{run_id:$r,mgmt_uid:$m,capi_version:$c,ext_image_id:$i,extcfg_hash:$e,cert_manager:$cm}' > "$RUN_FILE"
+      --arg e "$EXTCFG_HASH" --arg cm "$CERT_MANAGER_VERSION" --arg xm "${EXT_MANIFEST_SHA256_USED:-}" \
+   '{run_id:$r,mgmt_uid:$m,capi_version:$c,ext_image_id:$i,extcfg_hash:$e,cert_manager:$cm,ext_manifest_sha256:$xm}' > "$RUN_FILE"
 k create cm "$OWNER_CM" -n kube-system --from-literal=run-id="$RUN_ID" --dry-run=client -o yaml | k apply -f -
 rm -f "$STATE_DIR"/result-*.json "$STATE_DIR"/report-*.txt 2>/dev/null || true   # prior approvals invalidated
 log "BOOTSTRAP OK  run_id=$RUN_ID  mgmt_uid=$MGMT_UID  capi=$CAPI_VERSION"

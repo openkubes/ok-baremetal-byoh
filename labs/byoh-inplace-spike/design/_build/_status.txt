@@ -1,0 +1,5 @@
+started Sat Nov 21 19:03:18 CET 2026
+go=/opt/homebrew/bin/go
+repo=/Users/arash/temp/kubernauts/ok/ok-baremetal-byoh
+DONE rc_build=0 rc_test=0
+finished Sat Nov 21 19:03:44 CET 2026

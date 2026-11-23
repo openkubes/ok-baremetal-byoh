@@ -1,0 +1,102 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# ============================= PENDING — DO NOT APPLY =============================
+# These webhooks route to guard paths whose HANDLERS DO NOT EXIST YET (they land
+# in M6). Because failurePolicy is Fail, applying this file before the handlers
+# are registered would FAIL-CLOSED every matching request in protected namespaces
+# and break the cluster. It is intentionally NOT referenced by kustomization.yaml.
+# Activate it only together with the M6 handlers, after the joint M2+M3 review.
+# =================================================================================
+#
+# All webhooks below share the scope invariants documented in machine-webhook.yaml
+# (namespaceSelector = protected-only; registry is the Cluster-UID authority).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: byoh-no-replacement-guard-pending-m6
+  annotations:
+    cert-manager.io/inject-ca-from: system/no-replacement-guard-serving-cert
+webhooks:
+  # --- MachineSet: guards ONLY the MD-ACK move-authorization annotations. ---
+  # DESIGN NOTE (deliberate deviation from a literal "deny-all" reading of M1 §3.5):
+  # The in-place MD move LEGITIMATELY scales spec.replicas on the source and target
+  # MachineSets and creates the target MachineSet. A deny-all MachineSet webhook
+  # with failurePolicy: Fail would break in-place upgrades. Therefore the M6
+  # MachineSet handler is ALLOW-BY-DEFAULT and denies ONLY when the move-authorization
+  # annotations (in-place-updates.internal.cluster.x-k8s.io/acknowledged-move and
+  # .../receive-machines-from) are added or changed WITHOUT a valid MachineDeployment
+  # grant that binds this exact target MachineSet (its UID) to the grant's MD UID.
+  # Replica scaling, status, CREATE/DELETE and all other metadata are NOT denied.
+  - name: vmachineset.no-replacement.openkubes.org
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    sideEffects: None
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector:
+      matchLabels:
+        safety.openkubes.org/in-place-only: "true"
+    clientConfig:
+      service:
+        name: no-replacement-guard-webhook-service
+        namespace: system
+        path: /validate-cluster-x-k8s-io-v1beta2-machineset-no-replacement
+    rules:
+      - apiGroups: ["cluster.x-k8s.io"]
+        apiVersions: ["v1beta2"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["machinesets"]
+        scope: Namespaced
+  # --- BYOH InfraMachine (ByoMachine): deny-by-default, grant-gated in-place annos. ---
+  - name: vbyomachine.no-replacement.openkubes.org
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    sideEffects: None
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector:
+      matchLabels:
+        safety.openkubes.org/in-place-only: "true"
+    clientConfig:
+      service:
+        name: no-replacement-guard-webhook-service
+        namespace: system
+        path: /validate-infrastructure-cluster-x-k8s-io-v1beta1-byomachine-no-replacement
+    rules:
+      - apiGroups: ["infrastructure.cluster.x-k8s.io"]
+        apiVersions: ["v1beta1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["byomachines"]
+        scope: Namespaced
+  # --- Grant ConfigMap: enforces approver/initiator field separation + single claim. ---
+  # The webhook is invoked for ALL ConfigMaps in protected namespaces (no objectSelector,
+  # see the inline note below); the handler recognizes grants by name OR label and passes
+  # ordinary ConfigMaps through.
+  - name: vgrantconfigmap.no-replacement.openkubes.org
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    sideEffects: None
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector:
+      matchLabels:
+        safety.openkubes.org/in-place-only: "true"
+    # NO objectSelector: a label-based objectSelector decides whether the API
+    # server CALLS the webhook at all. If a grant object lacked (or dropped) the
+    # label, the webhook would never be invoked and the handler's name-based
+    # recognition could never run (Q2). The webhook therefore fires for EVERY
+    # ConfigMap in the (dedicated, few) protected namespaces; the handler passes
+    # non-grant ConfigMaps through (IsGrantObject = name OR label) and only
+    # applies the guard to recognized grant objects.
+    clientConfig:
+      service:
+        name: no-replacement-guard-webhook-service
+        namespace: system
+        path: /validate-core-v1-configmap-upgrade-grant
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["configmaps"]
+        scope: Namespaced

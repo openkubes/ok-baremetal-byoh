@@ -1,0 +1,72 @@
+# Guarded-lab ValidatingWebhookConfiguration — all four guard webhooks, scoped to
+# protected namespaces only (namespaceSelector), caBundle injected by cert-manager.
+# Paths match noreplacement/webhookpaths.go. Machine uses `machines` (never /status).
+# Grant-ConfigMap has NO objectSelector (Q2 fix): the webhook is always invoked and
+# the handler passes non-grant ConfigMaps through.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: okx-no-replacement-guard
+  annotations:
+    cert-manager.io/inject-ca-from: no-replacement-guard-system/no-replacement-guard-serving-cert
+webhooks:
+  - name: vmachine.no-replacement.openkubes.org
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    sideEffects: None
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector: { matchLabels: { safety.openkubes.org/in-place-only: "true" } }
+    clientConfig:
+      service: { name: no-replacement-guard-webhook-service, namespace: no-replacement-guard-system, path: /validate-cluster-x-k8s-io-v1beta2-machine-no-replacement }
+    rules:
+      - apiGroups: ["cluster.x-k8s.io"]
+        apiVersions: ["v1beta2"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["machines"]
+        scope: Namespaced
+  - name: vmachineset.no-replacement.openkubes.org
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    sideEffects: None
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector: { matchLabels: { safety.openkubes.org/in-place-only: "true" } }
+    clientConfig:
+      service: { name: no-replacement-guard-webhook-service, namespace: no-replacement-guard-system, path: /validate-cluster-x-k8s-io-v1beta2-machineset-no-replacement }
+    rules:
+      - apiGroups: ["cluster.x-k8s.io"]
+        apiVersions: ["v1beta2"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["machinesets"]
+        scope: Namespaced
+  - name: vbyomachine.no-replacement.openkubes.org
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    sideEffects: None
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector: { matchLabels: { safety.openkubes.org/in-place-only: "true" } }
+    clientConfig:
+      service: { name: no-replacement-guard-webhook-service, namespace: no-replacement-guard-system, path: /validate-infrastructure-cluster-x-k8s-io-v1beta1-byomachine-no-replacement }
+    rules:
+      - apiGroups: ["infrastructure.cluster.x-k8s.io"]
+        apiVersions: ["v1beta1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["byomachines"]
+        scope: Namespaced
+  - name: vgrantconfigmap.no-replacement.openkubes.org
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    sideEffects: None
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector: { matchLabels: { safety.openkubes.org/in-place-only: "true" } }
+    clientConfig:
+      service: { name: no-replacement-guard-webhook-service, namespace: no-replacement-guard-system, path: /validate-core-v1-configmap-upgrade-grant }
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["configmaps"]
+        scope: Namespaced
