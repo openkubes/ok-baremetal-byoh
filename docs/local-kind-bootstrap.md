@@ -2,7 +2,7 @@
 
 These commands replay the **manually verified** bootstrap of a separate local
 management cluster. They do **not** deploy the BYOH controller, register hosts,
-provision Scaleway machines or remove Kubernetes resources. This is a developer
+provision machines at an infrastructure provider or remove Kubernetes resources. This is a developer
 workflow, not a second CAPI lifecycle implementation.
 
 ## Isolated bootstrap contract
@@ -76,14 +76,14 @@ initialized. No destructive "reset" target is provided.
 ## Safety boundaries
 
 - Every Kubernetes command uses the dedicated kubeconfig explicitly; the
-  caller's `KUBECONFIG` may still point to Scaleway and must not be used.
+  caller's `KUBECONFIG` may still point to a real cluster and must not be used.
 - Before any CAPI write, the script verifies the Kind name, Docker context's Kind
   API server, kubeconfig context, node name and Kubernetes version.
-- No request is made to `ok-bm-bootstrap` or Scaleway.
+- No request is made to `ok-bm-bootstrap` or any infrastructure provider.
 - The existing upstream `make test-e2e` is separate and should not be run
   against preserved management clusters.
 - The next phase (OpenKubes BYOH installation) is intentionally blocked until
   token idempotence, CSR handling and controller image provenance are verified.
 
-See [the Scaleway end-to-end plan](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/scaleway-kubeadm-e2e/README.md) for
+See [the end-to-end plan of the E2E lab](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/scaleway-kubeadm-e2e/README.md) (provider-specific lab record) for <!-- provider-neutrality: allow (E2E lab record) -->
 later host-registration and workload-cluster phases.

@@ -24,7 +24,7 @@ BYOH management workflow.
 | Runtime state / credentials | Outside the repository |
 
 The workflow never reads or writes the ambient kubeconfig. It does not reuse
-`BYOH_KIND_NAME`, the `byoh-dev` kubeconfig, Scaleway inventories, SSH tunnels
+`BYOH_KIND_NAME`, the `byoh-dev` kubeconfig, infrastructure-provider host inventories, SSH tunnels
 or OpenTofu state. It does not modify `ok-up` or its scripts.
 
 ## Prerequisites

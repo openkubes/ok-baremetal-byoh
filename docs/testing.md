@@ -49,9 +49,9 @@ Explicit list of tests that can affect resources outside the Go process:
   real cluster, no credentials beyond the throwaway ones envtest mints. No
   external side effects.
 
-**Credential invariant:** no test uses real cloud/Scaleway credentials; all
+**Credential invariant:** no test uses real cloud or infrastructure-provider credentials; all
 bootstrap tokens, CSRs and kubeconfigs are generated inside envtest or against
-disposable containers. CI must never inject real Scaleway credentials.
+disposable containers. CI must never inject real provider credentials.
 
 **Runner isolation is not automatic.** A GitHub-hosted runner is ephemeral *per
 job*, but ephemerality alone does **not** guarantee Docker isolation or least

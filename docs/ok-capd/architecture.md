@@ -9,7 +9,7 @@ owns a different Kind cluster and a different kubeconfig:
 - CAPD: `ok-capd-dev`, `~/.config/ok/capd/kubeconfig`
 
 No CAPD target calls a BYOH Make target. No BYOH target calls an ok-capd
-script. No Scaleway inventory, tunnel or OpenTofu state is in scope.
+script. No infrastructure-provider host inventory, tunnel or OpenTofu state is in scope.
 
 ## Management plane
 

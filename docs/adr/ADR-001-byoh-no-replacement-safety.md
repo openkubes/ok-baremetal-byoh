@@ -148,5 +148,5 @@ evidence demonstrating the unsafe fallback.
 A subsequent isolated test MUST verify that the same
 replacement path is blocked under the new contract.
 
-No production or Scaleway hosts are in scope for
+No production hosts or real lab hosts are in scope for
 the initial admission regression tests.

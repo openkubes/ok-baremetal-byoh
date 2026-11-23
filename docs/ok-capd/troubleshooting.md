@@ -10,7 +10,7 @@ automatically.
 
 The workflow fails closed. Inspect the Kind cluster and recover its dedicated
 kubeconfig manually after verifying its identity. Do not copy the active
-`~/.kube/config` or a Scaleway kubeconfig into the CAPD path.
+`~/.kube/config` or the kubeconfig of a real cluster into the CAPD path.
 
 ## Provider inventory is incomplete or has unexpected versions
 

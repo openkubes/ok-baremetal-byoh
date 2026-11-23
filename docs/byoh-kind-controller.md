@@ -118,7 +118,7 @@ development environments.
 - Repeating the workflow does not create extra kind clusters, reinitialize
   CAPI, or mint bootstrap-token Secrets. It does recheck/reapply BYOH
   management-plane manifests.
-- No host enrollment, kubeadm node installation, Scaleway, OpenTofu,
+- No host enrollment, kubeadm node installation, infrastructure provider, OpenTofu,
   RKE2, or production deployment is part of this workflow.
 
 ### Security limitations
