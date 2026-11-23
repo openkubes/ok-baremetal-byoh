@@ -66,6 +66,8 @@ spec:
         - name: manager
           image: okx/inplace-extension:e2e   # patched to the kind-loaded tag by bootstrap
           imagePullPolicy: IfNotPresent
+          # CAPD has DockerMachines: simulate their update; pin no ByoMachine versions.
+          args: ["--simulate-docker-machines", "--package-lock="]
           ports:
             - containerPort: 9444
               name: webhook

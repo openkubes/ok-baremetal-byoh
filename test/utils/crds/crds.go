@@ -35,6 +35,16 @@ func ClusterAPIKubeadmBootstrapDir() (string, error) {
 	return filepath.Join(dir, "bootstrap", "kubeadm", "config", "crd", "bases"), nil
 }
 
+// ClusterAPIKubeadmControlPlaneDir returns the directory of the kubeadm
+// control plane provider CRDs for the Cluster API version this module depends on.
+func ClusterAPIKubeadmControlPlaneDir() (string, error) {
+	dir, err := moduleDir(clusterAPIModule)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "controlplane", "kubeadm", "config", "crd", "bases"), nil
+}
+
 // moduleDir returns the local directory of a module in the build list of the
 // main module, downloading it if necessary.
 func moduleDir(module string) (string, error) {

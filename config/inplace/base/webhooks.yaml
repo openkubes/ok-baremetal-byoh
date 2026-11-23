@@ -1,0 +1,148 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# All guard webhooks fail closed (failurePolicy: Fail) and route only the
+# namespaces labelled safety.openkubes.org/in-place-only=true. The label is the
+# routing filter; the trusted registry binds the Cluster UID, and the guard
+# denies a labelled namespace that is not registered. The paths are the
+# constants of internal/safety/noreplacement/webhookpaths.go.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: okx-no-replacement-guard
+  annotations:
+    cert-manager.io/inject-ca-from: okx-inplace-system/no-replacement-guard-serving-cert
+webhooks:
+  # Machine CREATE/DELETE is denied; an UPDATE needs a claimed grant (never machines/status).
+  - name: vmachine.no-replacement.openkubes.org
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    sideEffects: None
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector:
+      matchLabels:
+        safety.openkubes.org/in-place-only: "true"
+    clientConfig:
+      service:
+        name: no-replacement-guard-webhook-service
+        namespace: okx-inplace-system
+        path: /validate-cluster-x-k8s-io-v1beta2-machine-no-replacement
+    rules:
+      - apiGroups: ["cluster.x-k8s.io"]
+        apiVersions: ["v1beta2"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["machines"]
+        scope: Namespaced
+  # Allow-by-default; only the move-authorization annotations need an MD grant (REVIEW.md §4).
+  - name: vmachineset.no-replacement.openkubes.org
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    sideEffects: None
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector:
+      matchLabels:
+        safety.openkubes.org/in-place-only: "true"
+    clientConfig:
+      service:
+        name: no-replacement-guard-webhook-service
+        namespace: okx-inplace-system
+        path: /validate-cluster-x-k8s-io-v1beta2-machineset-no-replacement
+    rules:
+      - apiGroups: ["cluster.x-k8s.io"]
+        apiVersions: ["v1beta2"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["machinesets"]
+        scope: Namespaced
+  # Deny-by-default; only the grant-gated in-place annotations.
+  - name: vbyomachine.no-replacement.openkubes.org
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    sideEffects: None
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector:
+      matchLabels:
+        safety.openkubes.org/in-place-only: "true"
+    clientConfig:
+      service:
+        name: no-replacement-guard-webhook-service
+        namespace: okx-inplace-system
+        path: /validate-infrastructure-cluster-x-k8s-io-v1beta1-byomachine-no-replacement
+    rules:
+      - apiGroups: ["infrastructure.cluster.x-k8s.io"]
+        apiVersions: ["v1beta1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["byomachines"]
+        scope: Namespaced
+  # No objectSelector: grants are recognized by name or label (REVIEW.md §3.3).
+  - name: vgrantconfigmap.no-replacement.openkubes.org
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    sideEffects: None
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector:
+      matchLabels:
+        safety.openkubes.org/in-place-only: "true"
+    clientConfig:
+      service:
+        name: no-replacement-guard-webhook-service
+        namespace: okx-inplace-system
+        path: /validate-core-v1-configmap-upgrade-grant
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["configmaps"]
+        scope: Namespaced
+  # KCP/MD intent: only a granted version change and maxSurge 0; scale included.
+  - name: vintent.no-replacement.openkubes.org
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    sideEffects: None
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector:
+      matchLabels:
+        safety.openkubes.org/in-place-only: "true"
+    clientConfig:
+      service:
+        name: no-replacement-guard-webhook-service
+        namespace: okx-inplace-system
+        path: /validate-cluster-x-k8s-io-v1beta2-intent-no-replacement
+    rules:
+      - apiGroups: ["controlplane.cluster.x-k8s.io"]
+        apiVersions: ["v1beta2"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["kubeadmcontrolplanes", "kubeadmcontrolplanes/scale"]
+        scope: Namespaced
+      - apiGroups: ["cluster.x-k8s.io"]
+        apiVersions: ["v1beta2"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["machinedeployments", "machinedeployments/scale"]
+        scope: Namespaced
+  # Routing-label protection (REVIEW Q1). objectSelector instead of the
+  # namespaceSelector: the API server evaluates it against the old and the new
+  # Namespace, so removing the label is routed; unlabelled namespaces are not.
+  - name: vnamespace.no-replacement.openkubes.org
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    sideEffects: None
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    objectSelector:
+      matchLabels:
+        safety.openkubes.org/in-place-only: "true"
+    clientConfig:
+      service:
+        name: no-replacement-guard-webhook-service
+        namespace: okx-inplace-system
+        path: /validate-core-v1-namespace-no-replacement
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["namespaces"]
+        scope: Cluster

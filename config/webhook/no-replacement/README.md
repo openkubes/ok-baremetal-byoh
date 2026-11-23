@@ -1,5 +1,9 @@
 # No-Replacement Guard — Admission Webhook Configuration (M3)
 
+> **Superseded for deployment by `config/inplace/base/webhooks.yaml`** (Phase 1: all five guard
+> webhooks incl. the KCP/MD intent webhook, served from `okx-inplace-system`). This directory is
+> kept as the M3 review record.
+
 This directory holds the ValidatingWebhookConfiguration that was previously
 MISSING. It routes admission requests to the EXISTING standalone guard server
 (`cmd/no-replacement-guard`) — no second admission infrastructure is introduced.

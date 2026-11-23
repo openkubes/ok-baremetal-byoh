@@ -46,6 +46,14 @@ type ByoHostSpec struct {
 	// generates for the ByoMachine in ByoMachineRef.
 	// +optional
 	InstallationSecret *corev1.ObjectReference `json:"installationSecret,omitempty"`
+
+	// InPlaceUpgrade asks the host agent to upgrade Kubernetes on the host in
+	// place, for the Machine of the ByoMachine in ByoMachineRef. The in-place
+	// update extension sets it for a CAPI UpdateMachine hook; the agent reports
+	// the progress in status.inPlaceUpgrade. It never resets or replaces the
+	// host.
+	// +optional
+	InPlaceUpgrade *InPlaceUpgradeRequest `json:"inPlaceUpgrade,omitempty"`
 }
 
 // ByoMachineReference refers to a ByoMachine in the namespace of the ByoHost.
@@ -129,6 +137,12 @@ type ByoHostStatus struct {
 	// resets the host.
 	// +optional
 	LastReset *LastReset `json:"lastReset,omitempty"`
+
+	// InPlaceUpgrade is the progress of the in-place upgrade in
+	// spec.inPlaceUpgrade, as the host agent has verified it on the host. It is
+	// absent until the agent first handles an upgrade.
+	// +optional
+	InPlaceUpgrade *InPlaceUpgradeStatus `json:"inPlaceUpgrade,omitempty"`
 }
 
 //+kubebuilder:object:root=true

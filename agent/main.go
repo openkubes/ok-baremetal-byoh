@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/openkubes/ok-baremetal-byoh/agent/cloudinit"
+	"github.com/openkubes/ok-baremetal-byoh/agent/inplaceupgrade"
 	"github.com/openkubes/ok-baremetal-byoh/agent/reconciler"
 	"github.com/openkubes/ok-baremetal-byoh/agent/registration"
 	"github.com/openkubes/ok-baremetal-byoh/agent/version"
@@ -219,6 +220,19 @@ func main() {
 		Recorder:            mgr.GetEventRecorder("hostagent-controller"),
 		SkipK8sInstallation: skipInstallation,
 		UninstallScriptPath: reconciler.DefaultUninstallScriptPath,
+	}
+	// The checkpoints and the packages of in-place upgrades stay in the
+	// working directory, next to the uninstall script.
+	stateDir, err := os.Getwd()
+	if err != nil {
+		logger.Error(err, "unable to get the working directory")
+		return
+	}
+	hostReconciler.Upgrader = &inplaceupgrade.Executor{
+		Runner:   inplaceupgrade.ExecRunner{},
+		Fetcher:  inplaceupgrade.HTTPFetcher{},
+		StateDir: stateDir,
+		Hostname: hostName,
 	}
 	if err = hostReconciler.SetupWithManager(context.TODO(), mgr); err != nil {
 		logger.Error(err, "unable to create controller")

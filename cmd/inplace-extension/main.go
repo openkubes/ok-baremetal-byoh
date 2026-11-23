@@ -2,17 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // inplace-extension is the OpenKubes BYOH RuntimeSDK extension server. It serves
-// the CanUpdateMachine, CanUpdateMachineSet and (Phase-0 CAPD test) UpdateMachine
-// hooks. It performs NO persistent writes in CanUpdate* (read-only decision) and
-// NO real host work in UpdateMachine (CAPD test handler).
-//
-// BUILD STATUS: PENDING. This binary imports CAPI/controller-runtime and is built
-// and integration-tested on the Mac / in CI, not in the offline sandbox.
+// the CanUpdateMachine, CanUpdateMachineSet and UpdateMachine hooks. CanUpdate*
+// is a read-only decision; UpdateMachine requests the in-place upgrade of the
+// ByoHost of a Machine (spec.inPlaceUpgrade), drains and uncordons its Node,
+// and reports success only for an upgrade that the agent and the Node verify.
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"k8s.io/klog/v2"
 	runtimecatalog "sigs.k8s.io/cluster-api/api/runtime/catalog"
@@ -21,6 +25,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	infrav1 "github.com/openkubes/ok-baremetal-byoh/apis/infrastructure/v1beta1"
+	"github.com/openkubes/ok-baremetal-byoh/internal/inplace"
 	extension "github.com/openkubes/ok-baremetal-byoh/internal/inplace/extension"
 )
 
@@ -31,6 +37,11 @@ const (
 )
 
 func run() error {
+	packageLock := flag.String("package-lock", "/etc/openkubes/inplace/packages.json", "the pinned packages of the target versions")
+	upgradeTimeout := flag.Duration("upgrade-timeout", extension.DefaultUpgradeTimeout, "the time after which a running upgrade fails")
+	simulate := flag.Bool("simulate-docker-machines", false, "CAPD lab only: update DockerMachines by waiting, without host work")
+	flag.Parse()
+
 	// controller-runtime suppresses all log output until a logger is installed.
 	// Without this the extension pod produces empty logs, which masks startup
 	// state during integration debugging.
@@ -50,7 +61,33 @@ func run() error {
 		return fmt.Errorf("create runtime extension server: %w", err)
 	}
 
-	h := extension.NewExtensionHandlers()
+	// An empty --package-lock pins nothing: every ByoMachine update is
+	// declined (the CAPD lab simulates DockerMachines only).
+	packages := inplace.PackageLock{}
+	if *packageLock != "" {
+		data, err := os.ReadFile(*packageLock)
+		if err != nil {
+			return fmt.Errorf("read the package lock: %w", err)
+		}
+		if packages, err = inplace.ParsePackageLock(data); err != nil {
+			return err
+		}
+	}
+	scheme := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, clusterv1.AddToScheme, infrav1.AddToScheme} {
+		if err := add(scheme); err != nil {
+			return err
+		}
+	}
+	config := ctrl.GetConfigOrDie()
+	// Every decision reads the live objects: no cache.
+	c, err := client.New(config, client.Options{Scheme: scheme})
+	if err != nil {
+		return fmt.Errorf("create client: %w", err)
+	}
+	h := extension.NewExtensionHandlers(c, packages, extension.WorkloadNodes{Reader: c})
+	h.UpgradeTimeout = *upgradeTimeout
+	h.SimulateDockerMachines = *simulate
 
 	for _, eh := range []server.ExtensionHandler{
 		{Hook: runtimehooksv1.CanUpdateMachine, Name: "can-update-machine", HandlerFunc: h.DoCanUpdateMachine},
@@ -62,7 +99,7 @@ func run() error {
 		}
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	mgr, err := ctrl.NewManager(config, ctrl.Options{
 		WebhookServer:          srv,
 		HealthProbeBindAddress: healthProbeAddr,
 		// This extension exposes no metrics; disabling the metrics server avoids

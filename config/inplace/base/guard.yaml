@@ -1,0 +1,142 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# No-Replacement guard (cmd/no-replacement-guard). It only reads; it never
+# writes a grant or a lifecycle object. The trusted registry is the ConfigMap
+# okx-no-replacement-registry of the overlay: only platform administrators may
+# change it (removing a namespace from it is the decommission step).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: no-replacement-guard
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: okx-no-replacement-guard
+rules:
+  - apiGroups: ["cluster.x-k8s.io"]
+    resources: ["clusters", "machines", "machinesets", "machinedeployments"]
+    verbs: ["get", "list"]
+  - apiGroups: ["controlplane.cluster.x-k8s.io"]
+    resources: ["kubeadmcontrolplanes"]
+    verbs: ["get"]
+  - apiGroups: ["infrastructure.cluster.x-k8s.io"]
+    resources: ["byomachines"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps", "namespaces"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: okx-no-replacement-guard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: okx-no-replacement-guard
+subjects:
+  - kind: ServiceAccount
+    name: no-replacement-guard
+    namespace: okx-inplace-system
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: okx-inplace-selfsigned
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: no-replacement-guard-serving-cert
+spec:
+  secretName: no-replacement-guard-serving-cert
+  dnsNames:
+    - no-replacement-guard-webhook-service.okx-inplace-system.svc
+    - no-replacement-guard-webhook-service.okx-inplace-system.svc.cluster.local
+  issuerRef:
+    name: okx-inplace-selfsigned
+    kind: Issuer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: no-replacement-guard-webhook-service
+spec:
+  selector:
+    app: no-replacement-guard
+  ports:
+    - port: 443
+      targetPort: 9443
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: no-replacement-guard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: no-replacement-guard
+  template:
+    metadata:
+      labels:
+        app: no-replacement-guard
+    spec:
+      serviceAccountName: no-replacement-guard
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: guard
+          # The overlay pins the image by digest.
+          image: ghcr.io/openkubes/no-replacement-guard:UNPINNED
+          env:
+            - name: BYOH_NO_REPLACEMENT_GUARD_ENABLED
+              value: "true"
+            - name: BYOH_GRANT_APPROVER_USERS
+              value: "system:serviceaccount:okx-inplace-system:okx-upgrade-approver"
+            - name: BYOH_GRANT_INITIATOR_USERS
+              value: "system:serviceaccount:okx-inplace-system:okx-upgrade-initiator"
+          ports:
+            - containerPort: 9443
+              name: webhook
+          readinessProbe:
+            httpGet: {path: /readyz, port: 9440}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: 9440}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - {name: tls, mountPath: /tls, readOnly: true}
+            - {name: registry, mountPath: /etc/openkubes/no-replacement, readOnly: true}
+      volumes:
+        - name: tls
+          secret:
+            secretName: no-replacement-guard-serving-cert
+        - name: registry
+          configMap:
+            name: okx-no-replacement-registry
+---
+# The approver creates grants and the initiator claims them; neither can do
+# the other's step (the grant webhook enforces it per field). Their namespaced
+# Roles are in the overlay.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: okx-upgrade-approver
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: okx-upgrade-initiator

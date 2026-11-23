@@ -1,0 +1,21 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# The ha1 lab (openkubes ok-scaleway-lab, namespace ha1). registry.json is
+# rendered at deploy time from the live Cluster UID by
+# hack/inplace/render-registry.sh and reviewed; it is not committed with a UID.
+# The images are pinned by digest at deploy time (images: below).
+resources:
+  - ../../base
+  - rbac.yaml
+  - authorized-identities.yaml
+configMapGenerator:
+  - name: okx-no-replacement-registry
+    namespace: okx-inplace-system
+    files:
+      - registry.json
+images:
+  - name: ghcr.io/openkubes/no-replacement-guard
+    newTag: UNPINNED
+  - name: ghcr.io/openkubes/inplace-extension
+    newTag: UNPINNED

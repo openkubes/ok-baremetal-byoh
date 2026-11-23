@@ -29,6 +29,14 @@ const (
 	// separation on grant objects only (PENDING: handler lands in M6).
 	GrantConfigMapAdmissionPath = "/validate-core-v1-configmap-upgrade-grant"
 
+	// IntentAdmissionPath guards the intent of protected KubeadmControlPlanes
+	// and MachineDeployments (spec and scale subresource).
+	IntentAdmissionPath = "/validate-cluster-x-k8s-io-v1beta2-intent-no-replacement"
+
+	// NamespaceAdmissionPath protects the routing label of the registered
+	// namespaces (REVIEW Q1).
+	NamespaceAdmissionPath = "/validate-core-v1-namespace-no-replacement"
+
 	// ProtectedNamespaceLabel marks a namespace as in-place-only protected and
 	// is the webhook namespaceSelector key. Value must be "true".
 	ProtectedNamespaceLabel = "safety.openkubes.org/in-place-only"

@@ -76,6 +76,8 @@ func run() error {
 	ws.Register(noreplacement.MachineSetAdmissionPath, &webhook.Admission{Handler: guards.MachineSet})
 	ws.Register(noreplacement.ByoMachineAdmissionPath, &webhook.Admission{Handler: guards.ByoMachine})
 	ws.Register(noreplacement.GrantConfigMapAdmissionPath, &webhook.Admission{Handler: guards.Grant})
+	ws.Register(noreplacement.IntentAdmissionPath, &webhook.Admission{Handler: guards.Intent})
+	ws.Register(noreplacement.NamespaceAdmissionPath, &webhook.Admission{Handler: guards.Namespace})
 
 	// Readiness = the webhook server is actually serving, so a rollout only completes
 	// once admission can be answered (the probe also registers the lazy server runnable).

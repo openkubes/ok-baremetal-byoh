@@ -60,6 +60,8 @@ type InPlaceGuards struct {
 	MachineSet *MachineSetAdmissionHandler
 	ByoMachine *ByoMachineAdmissionHandler
 	Grant      *GrantConfigMapAdmissionHandler
+	Intent     *IntentAdmissionHandler
+	Namespace  *NamespaceAdmissionHandler
 }
 
 // SetupInPlaceFromEnvironment builds all four handlers (Machine with the grant
@@ -89,5 +91,7 @@ func SetupInPlaceFromEnvironment(reader client.Reader) (*InPlaceGuards, error) {
 		MachineSet: NewMachineSetAdmissionHandler(regs, lookup, grantReader),
 		ByoMachine: NewByoMachineAdmissionHandler(regs, lookup, grantReader, resolver),
 		Grant:      NewGrantConfigMapAdmissionHandler(actors),
+		Intent:     NewIntentAdmissionHandler(regs, lookup, grantReader),
+		Namespace:  NewNamespaceAdmissionHandler(regs),
 	}, nil
 }

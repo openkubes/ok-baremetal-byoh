@@ -1,0 +1,114 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Admission hardening of the in-place components (S4, S5). RBAC cannot narrow
+# what cluster-admin may do; these policies apply to every requester, including
+# system:masters. The authorized identities are the ConfigMap
+# okx-inplace-authorized-identities of the overlay (comma-separated usernames):
+#   platformAdmins    may write the registry, the package lock, the identities
+#                     and the guard and extension Deployments
+#   approverMinters   may mint tokens of okx-upgrade-approver
+#   initiatorMinters  may mint tokens of okx-upgrade-initiator
+# Without the ConfigMap every matching request is denied (fail closed).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: okx-inplace-grant-identities
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: okx-inplace-system
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["serviceaccounts/token", "pods"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["secrets"]
+  variables:
+    - name: grantSAs
+      expression: "['okx-upgrade-approver', 'okx-upgrade-initiator']"
+    - name: user
+      expression: "request.userInfo.username"
+  validations:
+    - expression: >-
+        request.?subResource.orValue('') != 'token' || !(request.name in variables.grantSAs) ||
+        (request.name == 'okx-upgrade-approver' && variables.user in params.data.approverMinters.split(',')) ||
+        (request.name == 'okx-upgrade-initiator' && variables.user in params.data.initiatorMinters.split(','))
+      messageExpression: "'tokens of ' + request.name + ' are minted only by its authorized identities, not ' + variables.user"
+    - expression: >-
+        request.resource.resource != 'pods' || request.?subResource.orValue('') != '' ||
+        !(object.spec.?serviceAccountName.orValue('') in variables.grantSAs)
+      message: "no pod runs as the upgrade approver or initiator (their tokens are minted only by authorized identities)"
+    - expression: >-
+        request.resource.resource != 'secrets' || object.type != 'kubernetes.io/service-account-token' ||
+        !(object.metadata.?annotations['kubernetes.io/service-account.name'].orValue('') in variables.grantSAs)
+      message: "no long-lived token Secret for the upgrade approver or initiator"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: okx-inplace-grant-identities
+spec:
+  policyName: okx-inplace-grant-identities
+  validationActions: ["Deny"]
+  paramRef:
+    name: okx-inplace-authorized-identities
+    namespace: okx-inplace-system
+    parameterNotFoundAction: Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: okx-inplace-protected-config
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: okx-inplace-system
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["configmaps"]
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["deployments"]
+  variables:
+    - name: admin
+      expression: "request.userInfo.username in params.data.platformAdmins.split(',')"
+    - name: protectedConfigMap
+      expression: >-
+        request.name.startsWith('okx-no-replacement-registry') || request.name.startsWith('okx-inplace-packages') ||
+        request.name == 'okx-inplace-authorized-identities'
+  validations:
+    - expression: "request.resource.resource != 'configmaps' || !variables.protectedConfigMap || variables.admin"
+      messageExpression: "'the No-Replacement registry, the package lock and the authorized identities are written only by platform administrators, not ' + request.userInfo.username"
+    - expression: >-
+        request.resource.resource != 'deployments' || variables.admin ||
+        request.userInfo.username == 'system:serviceaccount:kube-system:deployment-controller'
+      messageExpression: "'the guard and extension Deployments are changed only by platform administrators, not ' + request.userInfo.username"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: okx-inplace-protected-config
+spec:
+  policyName: okx-inplace-protected-config
+  validationActions: ["Deny"]
+  paramRef:
+    name: okx-inplace-authorized-identities
+    namespace: okx-inplace-system
+    parameterNotFoundAction: Deny
