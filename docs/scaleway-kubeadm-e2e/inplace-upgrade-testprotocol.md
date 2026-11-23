@@ -7,7 +7,7 @@
 This protocol will be filled from the captured evidence of the first successful run, per
 [../development/byoh/testing-and-evidence.md](../development/byoh/testing-and-evidence.md)
 (Layer 2 — Test Protocol). The runbook is
-[inplace-upgrade-runbook.md](inplace-upgrade-runbook.md).
+[../inplace-upgrade.md](../inplace-upgrade.md).
 
 ## To be filled after a successful upgrade (template)
 - [ ] **Run-id + UTC timestamp**

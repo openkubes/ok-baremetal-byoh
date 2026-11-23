@@ -6,7 +6,7 @@
 # Deploy only through an overlay that adds the trusted registry, the protected
 # namespaces and the namespaced RBAC (overlays/ha1), and only after the CAPI
 # feature gates RuntimeSDK and InPlaceUpdates are on
-# (docs/scaleway-kubeadm-e2e/inplace-upgrade-runbook.md).
+# (docs/inplace-upgrade.md).
 namespace: okx-inplace-system
 resources:
   - namespace.yaml
