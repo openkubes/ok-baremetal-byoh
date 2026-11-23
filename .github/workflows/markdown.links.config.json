@@ -5,6 +5,9 @@
         },
         {
             "pattern": "^https://kubernetes.slack.com/"
+        },
+        {
+            "pattern": "^https://(www\\.)?scaleway\\.com/"
         }
 ],
     "timeout": "30s",

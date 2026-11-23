@@ -17,4 +17,9 @@ jobs:
         use-verbose-mode: 'yes'
         check-modified-files-only: 'yes'
         base-branch: 'main'
+        # markdown.links.config.json ignores https://scaleway.com/ and
+        # https://www.scaleway.com/ only: their CDN (BunnyCDN) answers every
+        # automated request with 403, also for the home page and for pages
+        # that do not exist, so the status says nothing about the link. All
+        # other URLs, other Scaleway hosts included, are still checked.
         config-file: '.github/workflows/markdown.links.config.json'
