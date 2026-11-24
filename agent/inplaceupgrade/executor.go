@@ -343,8 +343,17 @@ func (e *Executor) arch() string {
 	return runtime.GOARCH
 }
 
+// stateDir is StateDir as an absolute path. The agent sets StateDir to its working directory ("."), and dpkg runs
+// in a transient systemd unit whose working directory is /: a relative package path does not exist there.
+func (e *Executor) stateDir() string {
+	if abs, err := filepath.Abs(e.StateDir); err == nil {
+		return abs
+	}
+	return e.StateDir
+}
+
 func (e *Executor) debPath(req *infrav1.InPlaceUpgradeRequest, deb *infrav1.PinnedDeb) string {
-	return filepath.Join(e.StateDir, "inplace-upgrade-"+req.ID, fmt.Sprintf("%s_%s_%s.deb", deb.Name, deb.Version, e.arch()))
+	return filepath.Join(e.stateDir(), "inplace-upgrade-"+req.ID, fmt.Sprintf("%s_%s_%s.deb", deb.Name, deb.Version, e.arch()))
 }
 
 // download fetches the pinned packages and verifies their digests. A package
@@ -695,7 +704,7 @@ func (e *Executor) sleep(ctx context.Context, d time.Duration) error {
 }
 
 func (e *Executor) checkpointPath(id string) string {
-	return filepath.Join(e.StateDir, "inplace-upgrade-"+id+".json")
+	return filepath.Join(e.stateDir(), "inplace-upgrade-"+id+".json")
 }
 
 // loadCheckpoint returns the checkpoint of the request, or a new one. A

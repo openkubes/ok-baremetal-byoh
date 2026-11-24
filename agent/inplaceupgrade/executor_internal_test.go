@@ -281,6 +281,42 @@ func stepOf(t *testing.T, err error) Step {
 	return stepErr.Step
 }
 
+// The agent runs with StateDir "." (its working directory). dpkg runs in a transient systemd unit, whose working
+// directory is /, so every package path that it gets must be absolute (ha1-cp-1: "dpkg: error: cannot access
+// archive 'inplace-upgrade-<id>/kubeadm_1.37.2-1.1_amd64.deb'"). The checkpoint of a relative StateDir stays where it
+// was: an upgraded agent resumes it.
+func TestRelativeStateDirGivesAbsolutePackagePaths(t *testing.T) {
+	h := newFakeHost(t, false)
+	h.server = to
+	state := t.TempDir()
+	t.Chdir(state)
+	e := newExecutor(t, h, ".")
+	if _, err := e.Execute(context.Background(), request(infrav1.InPlaceUpgradeWorker), nil); err != nil {
+		t.Fatal(err)
+	}
+	installs := 0
+	for _, call := range h.calls {
+		if !strings.HasPrefix(call, "systemd-run") || !strings.Contains(call, " -- dpkg --install ") {
+			continue
+		}
+		installs++
+		for _, path := range strings.Fields(call[strings.Index(call, "--install ")+len("--install "):]) {
+			if !filepath.IsAbs(path) {
+				t.Fatalf("dpkg gets the relative path %q in %q", path, call)
+			}
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("dpkg gets a path that does not exist: %v", err)
+			}
+		}
+	}
+	if installs != 2 {
+		t.Fatalf("%d dpkg installations in transient units, want 2 (kubeadm; kubelet and kubectl): %v", installs, h.calls)
+	}
+	if cp := readCheckpoint(t, state); !slices.Contains(cp.Done, StepKubelet) {
+		t.Fatalf("the checkpoint is not in the working directory: %+v", cp)
+	}
+}
+
 func TestWorkerUpgrade(t *testing.T) {
 	h := newFakeHost(t, false)
 	h.server = to
