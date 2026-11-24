@@ -94,7 +94,10 @@ func (h *ExtensionHandlers) resolve(ctx context.Context, desired *clusterv1.Mach
 		o := failed("reading Machine %s: %v", desired.Name, err)
 		return nil, &o
 	}
-	if t.machine.UID != desired.UID || desired.UID == "" {
+	// Cluster API sends the desired Machine of an UpdateMachine request without its UID (name, namespace, labels,
+	// annotations and spec only), so the Machine is identified by namespace and name and everything below is bound to
+	// the UID of the live Machine. A UID that a caller does send must still be the live one.
+	if desired.UID != "" && t.machine.UID != desired.UID {
 		o := failed("Machine %s has the UID %s, the update is for %s", desired.Name, t.machine.UID, desired.UID)
 		return nil, &o
 	}

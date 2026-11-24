@@ -182,10 +182,35 @@ func (w *world) report(name string, status *infrav1.InPlaceUpgradeStatus) {
 	}
 }
 
+// asSentByCAPI is the Machine of an UpdateMachine request as Cluster API v1.14 builds it (cleanupMachine in
+// core/reconcilers/machine/machine_controller_inplace_update.go): name, namespace, labels, annotations and spec, no
+// UID, no resourceVersion, no status.
+func asSentByCAPI(m *clusterv1.Machine) clusterv1.Machine {
+	return clusterv1.Machine{
+		TypeMeta:   metav1.TypeMeta{APIVersion: clusterv1.GroupVersion.String(), Kind: "Machine"},
+		ObjectMeta: metav1.ObjectMeta{Name: m.Name, Namespace: m.Namespace, Labels: m.Labels, Annotations: m.Annotations},
+		Spec:       *m.Spec.DeepCopy(),
+	}
+}
+
 func (w *world) update(name string) *runtimehooksv1.UpdateMachineResponse {
 	resp := &runtimehooksv1.UpdateMachineResponse{}
-	w.h.DoUpdateMachine(context.Background(), &runtimehooksv1.UpdateMachineRequest{Desired: runtimehooksv1.UpdateMachineRequestObjects{Machine: *w.machine(name)}}, resp)
+	w.h.DoUpdateMachine(context.Background(), &runtimehooksv1.UpdateMachineRequest{Desired: runtimehooksv1.UpdateMachineRequestObjects{Machine: asSentByCAPI(w.machine(name))}}, resp)
 	return resp
+}
+
+// The request of Cluster API carries no Machine UID (seen on ha1: every call failed with "the update is for" and
+// an empty UID). The request written to the host is bound to the UID of the live Machine.
+func TestUpdateMachineRequestWithoutUID(t *testing.T) {
+	w := newWorld(t)
+	w.bump("cp-1")
+	if sent := asSentByCAPI(w.machine("cp-1")); sent.UID != "" {
+		t.Fatalf("the request carries the UID %s", sent.UID)
+	}
+	expect(t, w.update("cp-1"), stateWaiting, "requested as ControlPlaneFirst")
+	if req := w.host("cp-1").Spec.InPlaceUpgrade; req == nil || req.MachineUID != w.machine("cp-1").UID {
+		t.Fatalf("the request is not bound to the live Machine: %+v", req)
+	}
 }
 
 func expect(t *testing.T, resp *runtimehooksv1.UpdateMachineResponse, want state, message string) {
