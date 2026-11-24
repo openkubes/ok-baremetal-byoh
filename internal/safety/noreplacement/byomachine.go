@@ -19,6 +19,8 @@ type ByoMachineChange struct {
 	OwnerRefsChanged  bool
 	FinalizersChanged bool
 	UpdateInProgress  AnnoDelta // update-in-progress added (set) or removed (cleanup)
+	// MetadataChanged: labels or annotations differ (the toggle included).
+	MetadataChanged bool
 }
 
 // classifyByoMachine returns the in-place shape for a ByoMachine diff, or ShapeNone.
@@ -36,6 +38,31 @@ func classifyByoMachine(c ByoMachineChange) Shape {
 	default:
 		return ShapeNone
 	}
+}
+
+// byoMachineUnchanged reports a request that changes nothing a grant has to
+// authorize. Cluster API v1.14.3 sends such requests in every in-place update,
+// before and next to the transitions:
+//
+//   - the server-side dry-run applies of the current and the desired
+//     InfraMachine in CanUpdateMachine (inplace_canupdatemachine.go), without
+//     the update-in-progress toggle. A denial there makes Cluster API fall back
+//     to replacing the Machine, which the Machine gate blocks: the rollout would
+//     stop before the first host. A dry-run persists nothing; it is allowed
+//     while spec, identity, owner references and finalizers are unchanged, so
+//     that a change of the spec is still reported as not updatable in place;
+//   - the apply of an InfraMachine that is already marked, when the trigger is
+//     retried, and applies that only move managed fields: persisted requests
+//     whose spec, identity, owner references, finalizers, labels and
+//     annotations are all unchanged.
+//
+// A persisted change of labels or annotations other than the toggle stays
+// denied.
+func byoMachineUnchanged(c ByoMachineChange, dryRun bool) bool {
+	if c.IdentityChanged || c.SpecChanged || c.OwnerRefsChanged || c.FinalizersChanged || c.UpdateInProgress != AnnoUnchanged {
+		return false
+	}
+	return dryRun || !c.MetadataChanged
 }
 
 // byoMachineTransitionID maps a ByoMachine in-place shape to the grant transition

@@ -1,0 +1,26 @@
+{
+  "apiVersion": "v1",
+  "data": {
+    "authorizationDigest": "sha256:d7eabaefded3dfe28bf3aa4732b0c30fcf37e5d4019b36eadc247eefce8bbe78",
+    "clusterUID": "414317b7-77d4-4bd0-b86e-5cbe38b6c2c7",
+    "fromVersion": "v1.36.6",
+    "grantID": "md-ha1-md-0-v1.37.2-ec5f8213",
+    "notAfter": "2026-11-24T18:00:00Z",
+    "payloadDigest": "sha256:e574496a2057fa767a5ad93dc08edeb66d0c48c597f8a25fc3b506acc94a3350",
+    "permittedUseCount": "1",
+    "requestDigest": "sha256:143d393970ae37d9de783e93d49a698c556f1424287cd440464c9bcb8e4525df",
+    "targetKind": "MachineDeployment",
+    "targetName": "ha1-md-0",
+    "targetUID": "66666666-7777-8888-9999-000000000000",
+    "toVersion": "v1.37.2",
+    "transitions": "MD-MOVE,MD-FIN-M,MD-TRIG,MD-C1,MD-C2,MD-FIN-IM,MD-ACK"
+  },
+  "kind": "ConfigMap",
+  "metadata": {
+    "labels": {
+      "safety.openkubes.org/grant": "true"
+    },
+    "name": "okx-grant-md-ha1-md-0-v1.37.2-ec5f8213",
+    "namespace": "ha1"
+  }
+}

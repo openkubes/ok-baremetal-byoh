@@ -14,15 +14,20 @@ package noreplacement
 
 // Move-authorization annotations on a MachineSet (CAPI v1.14.3).
 const (
+	// The keys of cluster-api v1.14.3 (api/core/v1beta2/machineset_types.go):
+	// AcknowledgedMoveAnnotation on the target, and the pair that routes a
+	// move, MachineSetReceiveMachinesFromMachineSetsAnnotation on the target
+	// and MachineSetMoveMachinesToMachineSetAnnotation on the source.
 	msAcknowledgedMoveAnnotation    = "in-place-updates.internal.cluster.x-k8s.io/acknowledged-move"
-	msReceiveMachinesFromAnnotation = "in-place-updates.internal.cluster.x-k8s.io/receive-machines-from"
+	msReceiveMachinesFromAnnotation = "in-place-updates.internal.cluster.x-k8s.io/receive-machines-from-machinesets"
+	msMoveMachinesToAnnotation      = "in-place-updates.internal.cluster.x-k8s.io/move-machines-to-machineset"
 	machineDeploymentNameLabel      = "cluster.x-k8s.io/deployment-name"
 )
 
 // MoveAnnotationTouched reports whether either move-authorization annotation was
 // added, removed or changed between old and new MachineSet annotation maps.
 func MoveAnnotationTouched(oldAnns, newAnns map[string]string) bool {
-	for _, k := range []string{msAcknowledgedMoveAnnotation, msReceiveMachinesFromAnnotation} {
+	for _, k := range []string{msAcknowledgedMoveAnnotation, msReceiveMachinesFromAnnotation, msMoveMachinesToAnnotation} {
 		ov, oOK := oldAnns[k]
 		nv, nOK := newAnns[k]
 		if oOK != nOK || ov != nv {

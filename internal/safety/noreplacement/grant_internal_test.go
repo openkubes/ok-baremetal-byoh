@@ -80,7 +80,6 @@ func TestParseGrant_Rejections(t *testing.T) {
 		{"from==to", func(d map[string]string) { d[grantKeyToVersion] = d[grantKeyFromVersion] }},
 		{"bad notAfter", func(d map[string]string) { d[grantKeyNotAfter] = "not-a-time" }},
 		{"invalid targetKind", func(d map[string]string) { d[grantKeyTargetKind] = "Pod" }},
-		{"KCP without machineUID", func(d map[string]string) { delete(d, grantKeyMachineUID) }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -217,5 +216,24 @@ func TestVerifyGrant_Scope(t *testing.T) {
 	// Unprotected scope is outside the policy; allow regardless of grant.
 	if !VerifyGrant(Scope{Verified: true, Protected: false}, nil, baseKCPQuery()).Allowed {
 		t.Fatalf("unprotected scope must allow")
+	}
+}
+
+// The documented grant model: one KubeadmControlPlane grant without machineUID
+// authorizes the in-place transitions of every control-plane Machine.
+func TestParseGrant_KCPWithoutMachineUID(t *testing.T) {
+	d := validKCPGrantData()
+	delete(d, grantKeyMachineUID)
+	g, err := ParseGrant(d)
+	if err != nil {
+		t.Fatalf("KCP grant without machineUID rejected: %v", err)
+	}
+	q := baseKCPQuery()
+	for _, m := range []string{"machine-uid-1", "machine-uid-2", "machine-uid-3", ""} {
+		q.MachineUID = m
+		g.Claimed = true
+		if d := VerifyGrant(protectedScope(), g, q); !d.Allowed {
+			t.Errorf("Machine %q denied under a KCP-wide grant: %s", m, d.Reason)
+		}
 	}
 }
