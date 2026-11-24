@@ -27,7 +27,7 @@ import (
 // Packages with exactly its name, version, architecture, file and SHA256. A
 // digest that the repository has not signed is never downloaded.
 func (e *Executor) index(ctx context.Context, req *infrav1.InPlaceUpgradeRequest) error {
-	dir := filepath.Join(e.StateDir, "inplace-upgrade-"+req.ID)
+	dir := filepath.Join(e.stateDir(), "inplace-upgrade-"+req.ID)
 	if err := os.MkdirAll(dir, stateDirMode); err != nil {
 		return err
 	}
