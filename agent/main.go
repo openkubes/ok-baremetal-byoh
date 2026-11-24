@@ -235,6 +235,7 @@ func newHostReconciler(k8sClient client.Client, mgr ctrl.Manager, hostName strin
 		Recorder:            mgr.GetEventRecorder("hostagent-controller"),
 		SkipK8sInstallation: skipInstallation,
 		UninstallScriptPath: reconciler.DefaultUninstallScriptPath,
+		UpgradeUnits:        &inplaceupgrade.UnitChecker{Runner: inplaceupgrade.ExecRunner{}},
 		Upgrader: &inplaceupgrade.Executor{
 			Runner:   inplaceupgrade.ExecRunner{},
 			Fetcher:  inplaceupgrade.HTTPFetcher{},

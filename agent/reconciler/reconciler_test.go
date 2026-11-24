@@ -42,6 +42,7 @@ var _ = Describe("Byohost Agent Tests", func() {
 		recorder            *events.FakeRecorder
 		uninstallScript     string
 		uninstallScriptPath string
+		upgradeUnits        *fakeUpgradeUnits
 	)
 
 	BeforeEach(func() {
@@ -50,6 +51,8 @@ var _ = Describe("Byohost Agent Tests", func() {
 		fakeTemplateParser = &cloudinitfakes.FakeITemplateParser{}
 		recorder = events.NewFakeRecorder(32)
 		uninstallScriptPath = filepath.Join(GinkgoT().TempDir(), "uninstall.sh")
+		// No command of an in-place upgrade runs on the host, unless a test says so.
+		upgradeUnits = &fakeUpgradeUnits{}
 		hostReconciler = &reconciler.HostReconciler{
 			Client:              k8sClient,
 			CmdRunner:           fakeCommandRunner,
@@ -59,6 +62,7 @@ var _ = Describe("Byohost Agent Tests", func() {
 			SkipK8sInstallation: false,
 			PreResetCleanup:     func(context.Context) error { return nil },
 			UninstallScriptPath: uninstallScriptPath,
+			UpgradeUnits:        upgradeUnits,
 		}
 	})
 
@@ -603,6 +607,205 @@ runCmd:
 					Expect(fakeCommandRunner.RunCmdCallCount()).To(Equal(2))
 				})
 
+				// The host is not reset while a command of an in-place upgrade
+				// may still run on it, whatever the ByoHost says.
+				Context("When a command of an in-place upgrade may still run on the host", func() {
+					const busyUnit = "okx-inplace-abc123-0-kubeadm-upgrade.service (active/running)"
+					var cleanupCalls int
+
+					reconcileReset := func() error {
+						_, err := hostReconciler.Reconcile(ctx, controllerruntime.Request{NamespacedName: byoHostLookupKey})
+						return err
+					}
+					hostNow := func() *infrastructurev1beta1.ByoHost {
+						host := &infrastructurev1beta1.ByoHost{}
+						Expect(k8sClient.Get(ctx, byoHostLookupKey, host)).To(Succeed())
+						return host
+					}
+					expectNothingDoneOnTheHost := func() {
+						Expect(cleanupCalls).To(Equal(0), "the kubelet was stopped or sandboxes were removed")
+						Expect(fakeCommandRunner.RunCmdCallCount()).To(Equal(0), "a command ran on the host")
+						Expect(uninstallScriptPath).To(BeAnExistingFile())
+						Expect(uninstallScriptPath + ".node-reset").NotTo(BeAnExistingFile())
+					}
+					expectBlocked := func(reason, message string) {
+						host := hostNow()
+						Expect(host.Status.LastReset).To(BeNil())
+						Expect(host.Spec).To(Equal(byoHost.Spec))
+						condition := v1beta1conditions.Get(host, infrastructurev1beta1.K8sComponentsInstallationSucceeded)
+						Expect(condition.Status).To(Equal(corev1.ConditionFalse))
+						Expect(condition.Reason).To(Equal(reason))
+						Expect(condition.Severity).To(Equal(clusterv1beta1.ConditionSeverityWarning))
+						Expect(condition.Message).To(ContainSubstring(message))
+						// The node is still there: its condition is untouched.
+						Expect(v1beta1conditions.IsTrue(host, infrastructurev1beta1.K8sNodeBootstrapSucceeded)).To(BeTrue())
+					}
+
+					BeforeEach(func() {
+						cleanupCalls = 0
+						hostReconciler.PreResetCleanup = func(context.Context) error {
+							cleanupCalls++
+							return nil
+						}
+					})
+
+					It("should not touch the host and not report a reset while a unit is active", func() {
+						upgradeUnits.busy = []string{busyUnit}
+
+						Expect(reconcileReset()).To(MatchError(ContainSubstring("host reset blocked")))
+						expectNothingDoneOnTheHost()
+						expectBlocked(infrastructurev1beta1.HostResetBlockedByInPlaceUpgradeReason, busyUnit)
+						Expect(eventutils.CollectEvents(recorder.Events)).To(ConsistOf(
+							"Warning HostResetBlockedByInPlaceUpgrade a command of an in-place upgrade has not ended: " + busyUnit))
+					})
+
+					It("should record the blockade once, not on every retry", func() {
+						upgradeUnits.busy = []string{busyUnit}
+						Expect(reconcileReset()).To(HaveOccurred())
+						Expect(eventutils.CollectEvents(recorder.Events)).To(HaveLen(1))
+
+						Expect(reconcileReset()).To(HaveOccurred())
+						Expect(reconcileReset()).To(HaveOccurred())
+						Expect(eventutils.CollectEvents(recorder.Events)).To(BeEmpty())
+						expectNothingDoneOnTheHost()
+
+						// Another unit is a new fact, and is recorded.
+						upgradeUnits.busy = []string{"okx-inplace-abc123-1-kubelet.service (queued systemd job)"}
+						Expect(reconcileReset()).To(HaveOccurred())
+						Expect(eventutils.CollectEvents(recorder.Events)).To(HaveLen(1))
+						expectBlocked(infrastructurev1beta1.HostResetBlockedByInPlaceUpgradeReason, "queued systemd job")
+					})
+
+					It("should not touch the host when the state of the host cannot be established", func() {
+						upgradeUnits.err = errors.New("systemctl list-units: Failed to connect to bus")
+
+						Expect(reconcileReset()).To(MatchError(ContainSubstring("host reset blocked")))
+						expectNothingDoneOnTheHost()
+						expectBlocked(infrastructurev1beta1.HostExecutionStateUnknownReason, "Failed to connect to bus")
+					})
+
+					It("should not reset the host without a check of the units", func() {
+						hostReconciler.UpgradeUnits = nil
+
+						Expect(reconcileReset()).To(MatchError(ContainSubstring("host reset blocked")))
+						expectNothingDoneOnTheHost()
+						expectBlocked(infrastructurev1beta1.HostExecutionStateUnknownReason, "no check of the units")
+					})
+
+					It("should keep the blockade over a restart of the agent", func() {
+						upgradeUnits.busy = []string{busyUnit}
+						Expect(reconcileReset()).To(HaveOccurred())
+
+						// A new agent process: a new reconciler, the same host.
+						restarted := &reconciler.HostReconciler{
+							Client: k8sClient, CmdRunner: fakeCommandRunner, FileWriter: fakeFileWriter, TemplateParser: fakeTemplateParser,
+							Recorder: recorder, PreResetCleanup: hostReconciler.PreResetCleanup, UninstallScriptPath: uninstallScriptPath,
+							UpgradeUnits: upgradeUnits,
+						}
+						_, err := restarted.Reconcile(ctx, controllerruntime.Request{NamespacedName: byoHostLookupKey})
+						Expect(err).To(MatchError(ContainSubstring("host reset blocked")))
+						expectNothingDoneOnTheHost()
+						expectBlocked(infrastructurev1beta1.HostResetBlockedByInPlaceUpgradeReason, busyUnit)
+					})
+
+					It("should reset the host when the unit has ended, and report the reset then", func() {
+						upgradeUnits.busy = []string{busyUnit}
+						Expect(reconcileReset()).To(HaveOccurred())
+						expectNothingDoneOnTheHost()
+						eventutils.DrainEvents(recorder.Events)
+
+						upgradeUnits.busy = nil
+						Expect(reconcileReset()).To(Succeed())
+						Expect(cleanupCalls).To(Equal(1))
+						Expect(fakeCommandRunner.RunCmdCallCount()).To(Equal(2))
+						host := hostNow()
+						Expect(host.Status.LastReset).NotTo(BeNil())
+						Expect(host.Status.LastReset.ByoMachineUID).To(Equal(byoMachine.UID))
+						Expect(v1beta1conditions.Get(host, infrastructurev1beta1.K8sComponentsInstallationSucceeded).Reason).To(Equal(infrastructurev1beta1.K8sNodeAbsentReason))
+						Expect(eventutils.CollectEvents(recorder.Events)).To(ConsistOf(
+							"Normal HostResetUnblocked no command of an in-place upgrade runs any more",
+							"Normal ResetK8sNodeSucceeded k8s Node Reset completed",
+							fmt.Sprintf("Normal ResetHostSucceeded Host reset for ByoMachine %s", byoMachine.Name),
+						))
+					})
+
+					It("should not run the uninstall script, and not report a reset, when a unit is active after the node reset", func() {
+						// Idle before the first change, busy before the uninstall script.
+						upgradeUnits.answers = []unitsAnswer{{}, {busy: []string{busyUnit}}}
+
+						Expect(reconcileReset()).To(MatchError(ContainSubstring("host reset blocked")))
+						Expect(fakeCommandRunner.RunCmdCallCount()).To(Equal(1))
+						_, command := fakeCommandRunner.RunCmdArgsForCall(0)
+						Expect(command).To(Equal(reconciler.KubeadmResetCommand))
+						Expect(uninstallScriptPath).To(BeAnExistingFile())
+						Expect(hostNow().Status.LastReset).To(BeNil())
+						Expect(v1beta1conditions.Get(hostNow(), infrastructurev1beta1.K8sComponentsInstallationSucceeded).Reason).To(Equal(infrastructurev1beta1.HostResetBlockedByInPlaceUpgradeReason))
+
+						// The retry does not repeat kubeadm reset, and finishes when the unit has ended.
+						upgradeUnits.answers = nil
+						Expect(reconcileReset()).To(Succeed())
+						Expect(fakeCommandRunner.RunCmdCallCount()).To(Equal(2))
+						_, command = fakeCommandRunner.RunCmdArgsForCall(1)
+						Expect(command).To(Equal(uninstallScript))
+						Expect(hostNow().Status.LastReset).NotTo(BeNil())
+					})
+
+					It("should resume after a restart of the agent that was blocked before the uninstall script, without resetting the node again", func() {
+						// kubeadm reset has run; a unit is active before the uninstall script.
+						upgradeUnits.answers = []unitsAnswer{{}, {busy: []string{busyUnit}}}
+						Expect(reconcileReset()).To(MatchError(ContainSubstring("host reset blocked")))
+						Expect(fakeCommandRunner.RunCmdCallCount()).To(Equal(1))
+						Expect(cleanupCalls).To(Equal(1))
+						Expect(hostNow().Status.LastReset).To(BeNil())
+						// The progress is on the host, bound to the attachment.
+						checkpoint, err := os.ReadFile(uninstallScriptPath + ".node-reset")
+						Expect(err).NotTo(HaveOccurred())
+						Expect(string(checkpoint)).To(Equal(string(byoMachine.UID)))
+
+						// A new agent process, with nothing in memory.
+						restartedRunner := &cloudinitfakes.FakeICmdRunner{}
+						restartedCleanups := 0
+						restarted := &reconciler.HostReconciler{
+							Client: k8sClient, CmdRunner: restartedRunner, FileWriter: fakeFileWriter, TemplateParser: fakeTemplateParser,
+							Recorder: recorder, UninstallScriptPath: uninstallScriptPath, UpgradeUnits: upgradeUnits,
+							PreResetCleanup: func(context.Context) error {
+								restartedCleanups++
+								return nil
+							},
+						}
+						reconcileRestarted := func() error {
+							_, err := restarted.Reconcile(ctx, controllerruntime.Request{NamespacedName: byoHostLookupKey})
+							return err
+						}
+
+						// Still blocked: nothing runs, the reset is not reported.
+						upgradeUnits.answers, upgradeUnits.busy = nil, []string{busyUnit}
+						Expect(reconcileRestarted()).To(MatchError(ContainSubstring("host reset blocked")))
+						Expect(restartedRunner.RunCmdCallCount()).To(Equal(0))
+						Expect(restartedCleanups).To(Equal(0))
+						Expect(hostNow().Status.LastReset).To(BeNil())
+						Expect(uninstallScriptPath).To(BeAnExistingFile())
+
+						// The unit has ended: only the uninstall script runs. The kubelet
+						// is not stopped again and kubeadm reset is not repeated.
+						upgradeUnits.busy = nil
+						Expect(reconcileRestarted()).To(Succeed())
+						Expect(restartedCleanups).To(Equal(0))
+						Expect(restartedRunner.RunCmdCallCount()).To(Equal(1))
+						_, command := restartedRunner.RunCmdArgsForCall(0)
+						Expect(command).To(Equal(uninstallScript))
+						Expect(uninstallScriptPath).NotTo(BeAnExistingFile())
+						host := hostNow()
+						Expect(host.Status.LastReset).NotTo(BeNil())
+						Expect(host.Status.LastReset.ByoMachineUID).To(Equal(byoMachine.UID))
+					})
+
+					It("should ask before the first change and again before the uninstall script", func() {
+						Expect(reconcileReset()).To(Succeed())
+						Expect(upgradeUnits.calls).To(Equal(2))
+					})
+				})
+
 				It("runs pre-reset cleanup before kubeadm reset and uninstall", func() {
 					cleanupCalled := false
 
@@ -821,3 +1024,28 @@ runCmd:
 		})
 	})
 })
+
+// unitsAnswer is one answer of the check of the units of in-place upgrades.
+type unitsAnswer struct {
+	busy []string
+	err  error
+}
+
+// fakeUpgradeUnits answers the check of the units of in-place upgrades: with
+// answers in turn while there are some, with busy and err otherwise.
+type fakeUpgradeUnits struct {
+	busy    []string
+	err     error
+	answers []unitsAnswer
+	calls   int
+}
+
+func (f *fakeUpgradeUnits) Busy(context.Context) ([]string, error) {
+	f.calls++
+	if len(f.answers) > 0 {
+		answer := f.answers[0]
+		f.answers = f.answers[1:]
+		return answer.busy, answer.err
+	}
+	return f.busy, f.err
+}
