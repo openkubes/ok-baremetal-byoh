@@ -251,6 +251,8 @@ func ExtractByoMachineChange(oldU, newU *unstructured.Unstructured) ByoMachineCh
 		OwnerRefsChanged:  !equality.Semantic.DeepEqual(oldU.GetOwnerReferences(), newU.GetOwnerReferences()),
 		FinalizersChanged: !equality.Semantic.DeepEqual(oldU.GetFinalizers(), newU.GetFinalizers()),
 		UpdateInProgress:  annoDelta(oldU.GetAnnotations(), newU.GetAnnotations(), updateInProgressAnnotation),
+		MetadataChanged: !equality.Semantic.DeepEqual(oldU.GetLabels(), newU.GetLabels()) ||
+			!equality.Semantic.DeepEqual(oldU.GetAnnotations(), newU.GetAnnotations()),
 	}
 }
 

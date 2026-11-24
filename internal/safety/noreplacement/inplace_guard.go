@@ -139,6 +139,9 @@ func GuardByoMachineUpdate(ctx context.Context, reader GrantReader, resolver Tar
 		return allow()
 	}
 	change := ExtractByoMachineChange(oldU, newU)
+	if byoMachineUnchanged(change, dryRun) {
+		return allow()
+	}
 	kind, targetUID, err := resolver.ForByoMachine(ctx, newU)
 	if err != nil {
 		return deny("could not resolve upgrade target for ByoMachine")
