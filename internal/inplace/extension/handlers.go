@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -165,12 +166,18 @@ func (h *ExtensionHandlers) DoCanUpdateMachine(ctx context.Context, req *runtime
 	resp.Status = runtimehooksv1.ResponseStatusSuccess
 }
 
+// machineKindOfTemplate is the kind of the infrastructure Machines that a MachineSet creates. Its template refers
+// to the infrastructure *template* (ByoMachineTemplate), not to a Machine (ByoMachine).
+func machineKindOfTemplate(templateKind string) string {
+	return strings.TrimSuffix(templateKind, "Template")
+}
+
 // DoCanUpdateMachineSet mirrors DoCanUpdateMachine on the MachineSet template spec.
 func (h *ExtensionHandlers) DoCanUpdateMachineSet(ctx context.Context, req *runtimehooksv1.CanUpdateMachineSetRequest, resp *runtimehooksv1.CanUpdateMachineSetResponse) {
 	modified := req.Current.MachineSet.DeepCopy()
 	cur := inplace.SpecView{Version: modified.Spec.Template.Spec.Version}
 	des := inplace.SpecView{Version: req.Desired.MachineSet.Spec.Template.Spec.Version}
-	if err := h.canUpdateVersion(req.Current.MachineSet.Spec.Template.Spec.InfrastructureRef.Kind, cur.Version, des.Version); err != nil {
+	if err := h.canUpdateVersion(machineKindOfTemplate(req.Current.MachineSet.Spec.Template.Spec.InfrastructureRef.Kind), cur.Version, des.Version); err != nil {
 		ctrl.LoggerFrom(ctx).Info("Declining in-place update", "MachineSet", req.Current.MachineSet.Name, "reason", err.Error())
 		des = cur
 	}
