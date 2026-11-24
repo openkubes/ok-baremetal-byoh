@@ -1,4 +1,6 @@
-# Kubernetes Cluster API Provider Bring Your Own Host (BYOH)
+# OpenKubes BYOH – Kubernetes on Your Own Hosts
+
+## Not just bare metal. Bring your own hosts — physical or virtual.
 
 > **OpenKubes fork.** This repository, `openkubes/ok-baremetal-byoh`, is the
 > OpenKubes-maintained Cluster API BYOH infrastructure provider. It is a downstream
