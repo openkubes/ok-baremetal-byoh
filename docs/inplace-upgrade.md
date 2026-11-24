@@ -1,10 +1,11 @@
 # BYOH in-place upgrade runbook
 
-> **Maturity: IMPLEMENTED, NOT YET EXECUTED on real hosts.** The host executor, the real
-> `UpdateMachine` handler, the guard and the tooling exist and pass their unit and envtest
-> suites, but the CAPI-driven upgrade has not run on a real BYOH host yet. The first run is a
-> gated E2E (below) and is recorded in the E2E lab's test protocol
-> ([inplace-upgrade-testprotocol.md](scaleway-kubeadm-e2e/inplace-upgrade-testprotocol.md)) only if it succeeds. <!-- provider-neutrality: allow (E2E lab record) -->
+> **Maturity: EXECUTED ONCE on an E2E lab, NOT production-ready.** On 2026-11-24 Cluster API v1.14.4 drove the
+> in-place upgrade v1.36.6 -> v1.37.2 of a five-host BYOH cluster (three stacked-etcd control planes, two workers)
+> with every Machine, ByoMachine, ByoHost and Node identity preserved; result and limits are in the lab's
+> [test protocol](scaleway-kubeadm-e2e/inplace-upgrade-testprotocol.md). <!-- provider-neutrality: allow (E2E lab record) -->
+> Four product defects were found and fixed during that run; the security review of the guard is still NO-GO for
+> production (deferred hardening). Read [Lessons of the first run](#lessons-of-the-first-run) before the next one.
 
 Read together with the testing/evidence rules in
 [development/byoh/testing-and-evidence.md](development/byoh/testing-and-evidence.md) and the
@@ -114,6 +115,39 @@ is impossible by design. Decommission is a separate, approved operation:
 The registry entry is the authority; removing only the label leaves the guard failing closed for
 that namespace (labelled-but-unregistered ≠ unregistered-but-labelled; both are checked).
 
+## Lessons of the first run
+What the first real run showed, beyond the mechanism above. Each item was observed, not derived.
+
+- **A component that is Ready and discovered proves nothing about the hooks.** Every defect of the run was in a hook
+  or host path that the unit and envtest suites covered with an input Cluster API never sends (a Machine with a
+  UID, a MachineSet whose template names `ByoMachine`). Check the first real hook answer in the extension log
+  before approving a host.
+- **Cluster API caches the answer of `CanUpdateMachineSet` for 24 h** per MachineSet pair, in the memory of its core
+  controller. After a fix of the extension the declining answer stays until `capi-controller-manager` restarts.
+  That restart is an approved step of its own.
+- **A declined hook means replacement.** When the extension declines, Cluster API scales the old MachineSet down
+  and sends Machine DELETEs, every few seconds at first, then every ten minutes. The guard is then the only
+  barrier; it held for 54 minutes in the run. Do not leave a cluster in that state longer than the fix needs.
+- **Workers move between MachineSets.** The Machine keeps its name and UID and changes its controller MachineSet
+  and two labels; the MachineSet controller then applies the same two labels to the ByoMachine. The guard admits
+  that re-alignment only when it is bound to the move (owner Machine by UID and infrastructureRef, target and source
+  MachineSet of one MachineDeployment, claimed grant with `MD-FIN-IM`). Without a valid grant it stays denied and
+  the new MachineSet's reconcile is blocked.
+- **Grant windows.** A grant cannot be deleted or changed, and two valid grants of one target are ambiguous and
+  denied. If the window ends before the rollout does, wait for the grant to expire, then render one with a later
+  `--not-after` (`render_grant.py` gives it another name). Plan the window for the fixes you may need, not for the
+  host steps alone: the five hosts took 30 s to 5 min each, the run took seven hours.
+- **Failed attempt, forward recovery.** A failed step leaves the host as it was at that step; the checkpoint and the
+  downloaded packages survive an agent update (`update-agent` accepts a host whose attempt is `Failed`). Raising
+  `spec.inPlaceUpgrade.attempt` resumed at the failed step. The failed transient unit of the previous attempt does
+  not block the next one.
+- **`kubeadm` upgrades the addons with the last control plane**, not the first: kube-proxy and CoreDNS stay at the
+  old version until every control plane runs the target. etcd runs mixed versions meanwhile.
+- **The API is not uninterrupted.** With a load balancer in front of three API servers, single one-second probes
+  failed during each control-plane upgrade (1, 4 and 6). Measure before promising availability.
+- **Hosts with least-privilege RBAC** (status only) need the agent of #40 or later; older agents log one forbidden
+  patch per upgrade, without effect.
+
 ## Approvals (each separately)
 Package/image locks and their review; deploying guard and extension; enabling `RuntimeSDK` and
 `InPlaceUpdates`; KCP `maxSurge` 1 → 0; protecting the namespace (label + registry); etcd
@@ -129,7 +163,8 @@ without secrets or kubeconfigs.
 ## References
 - Historical manual upgrade: [upgrade-1.37.md](scaleway-kubeadm-e2e/upgrade-1.37.md) <!-- provider-neutrality: allow (E2E lab record) -->
 - Upgrade automation baseline: [upgrade-make-runbook.md](scaleway-kubeadm-e2e/upgrade-make-runbook.md) <!-- provider-neutrality: allow (E2E lab record) -->
-- E2E lab rollout plan: [inplace-upgrade-ha1-rollout.md](scaleway-kubeadm-e2e/inplace-upgrade-ha1-rollout.md) <!-- provider-neutrality: allow (E2E lab record) -->
+- E2E lab rollout plan, as executed: [inplace-upgrade-ha1-rollout.md](scaleway-kubeadm-e2e/inplace-upgrade-ha1-rollout.md) <!-- provider-neutrality: allow (E2E lab record) -->
+- E2E lab test protocol (first successful run): [inplace-upgrade-testprotocol.md](scaleway-kubeadm-e2e/inplace-upgrade-testprotocol.md) <!-- provider-neutrality: allow (E2E lab record) -->
 - Tooling: `hack/inplace/` (preflight, progress, monitor, etcd-snapshot, uids, render-registry; the per-host gate
   `host-step.sh` with `host_step.py`; grants rendered by `render_grant.py`; connectivity/policy checks `netcheck.sh`;
   identity checks of the kubeconfigs in `lib.sh`, Cilium compatibility in `cilium_compat.py`; offline tests in
