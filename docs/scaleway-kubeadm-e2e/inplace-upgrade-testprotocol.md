@@ -31,8 +31,96 @@ Runbook: [../inplace-upgrade.md](../inplace-upgrade.md). Plan that was executed,
 
 Every image and the agent binary were rebuilt independently from `git archive <commit>` and compared bit for bit
 with the published artifact before use (build provenance REPRODUCED in the lab's lock files; the artifacts are not
-signed). The code SHA-256 of each script is not listed here: the scripts are identified by the commits above
-(`hack/inplace` of this repository at the extension/guard commits, and the lab repository's `main`).
+signed). The SHA-256 of every script is in
+[Code SHA-256 of the scripts used in the run](#code-sha-256-of-the-scripts-used-in-the-run).
+
+## Code SHA-256 of the scripts used in the run
+
+Per the evidence standard (Layer 2). "Used in the run" means the file content at the commit the tool was run from;
+"corrected after the run" is the content on `main` after the follow-up fixes and was **not** used for any step of the
+run. All versions are reconstructible from Git (`git show <commit>:<path> | sha256sum`); none is lost.
+
+### This repository, `hack/inplace` (run from an operator checkout)
+Checkout `4fa332e` for the preparation steps until about 14:40Z (controller and agent updates, guard, extension,
+gates, Cilium upgrade and its first netcheck), `20ee70a` from the start check of 14:42Z to the end of the run. The
+only difference between the two is `netcheck/workload.yaml` (#33).
+
+| File | SHA-256 | Commit(s) | Status |
+|---|---|---|---|
+| `hack/inplace/cilium-compat.json` | `79919db10131bb2f2caac58ffcf3cb4e049e7b5dc72a449bb0e6cb3ccf7b6c08` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/cilium_compat.py` | `860360a0b41cd8762cc47799fe56daab50b705935416697eadf4deeb148099dc` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/drainer-credential.sh` | `0e19b5eafd4c90916c6ffa137c2498ab5ec2a4860eeedfe6d2cd955a47b008b1` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/drainer-credential.sh` | `fbba3a5d63fd4a5813055f1062bed113946fd04ed2cdaec891781d1569e2849d` | `5d1093d` (main after the run) | **corrected after the run, not used in it** |
+| `hack/inplace/etcd-snapshot.sh` | `7bfc66b1fb005a77f4e3a883c39a8350ded040457a0910b77ca6bafe2afc8a4d` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/host-step.sh` | `b1bd553ccab657b28bf4bcb56f8f4eedc806c0564a6852c9e198fc30660e3d60` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/host_step.py` | `9240cf7dadab6a0c99b7f31a8b68499960bc4815fa3a5a793898a4a2aea133aa` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/kubeconfig_identity.py` | `a9f3e327f0bc6672cac1f882f1813c29ed36add461306e83d2b7fd344940b700` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/lib.sh` | `76b508a1a2f780f5f90d1c7f384ff444c0254b7136d101b5e6d4c64b4d738e41` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/monitor.sh` | `ec2444adbc677528aec3aa05063d40729b4ea17ef3728d9d76aac6e23a7a952f` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/negative-tests.sh` | `80b1876e9dad11e48085f6f350a538983f700872b0db925dd98bc6e920393655` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/negative-tests.sh` | `f5af5ce288cf9d1dacc9cb0c15cd5d39b55c0c0085715985f0930068300e6379` | `5d1093d` (main after the run) | **corrected after the run, not used in it** |
+| `hack/inplace/netcheck.sh` | `b894ff0434aa61f74079ea2332238faa3089f8f09425da6d2601e78e1487aff5` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/netcheck/policy.yaml` | `65469d0f1677d9402565eab7864532eeacc623c634f2bd5eaf8a8ecee061fbae` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/netcheck/workload.yaml` | `c4838ff346bec38906e24d665a20d4542686c6a33feffb8f1fa151576728ad86` | `4fa332e` | used in the run |
+| `hack/inplace/netcheck/workload.yaml` | `cb8664ed964ce70de4152bc4a7ed2a81f17cf97cc9ae6a9d6062d95ac47f3a7c` | `20ee70a` | used in the run |
+| `hack/inplace/preflight.sh` | `5526a077a8bd0b420e496cdd5d75b5dae0750e6571c8bcb6d6b6b74b07d43f24` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/progress.sh` | `98cb24f2a0042b29d83a26987da3b82918e8e276b270008081621ff19b76fe11` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/render-registry.sh` | `f8c82dbc222bb61ecba426d81f26106302d7117e2bda1500e66e7b754705604b` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/render_grant.py` | `e345b663ae193c0bfc43799587a6bf06bf6f03100cfccb42deb669d809b7dcae` | `4fa332e`, `20ee70a` | used in the run |
+| `hack/inplace/render_grant.py` | `24c4e97935e6f219122824b9d8e13bf603a8dd3b69cb77ab56520d7deb27f719` | `5d1093d` (main after the run) | **corrected after the run, not used in it** |
+| `hack/inplace/uids.py` | `509341aceb14e369990107bbbbd3a771b5dc258e81e98b21f5280dddf5e9fd2b` | `4fa332e`, `20ee70a` | used in the run |
+| `config/inplace/workload/drainer.yaml` (applied by `drainer-credential.sh`) | `3e7a83916235f3d805c6ee427becb12b2cf521f00ab6f8c4755bf28cda125f68` | `20ee70a` | used in the run |
+
+Not every file was executed: `render-registry.sh` ran inside the lab's bundle build, `cilium_compat.py` and
+`kubeconfig_identity.py` are called by `preflight.sh` and `lib.sh`. The fixed `negative-tests.sh` (16 of 16) and the
+fixed `drainer-credential.sh` and `render_grant.py` were run or merged only after the last host; the run itself used
+the versions marked "used in the run", including their defects.
+
+### Lab repository (operator tooling, `kubernauts/ok-scaleway-lab`)
+Each mutating step wrote a commissioning record with the source commit and the Git blob IDs of the scripts it
+pushed; all 62 blob IDs in the 22 records of the day match Git. Commits by step: `c751661` controller update;
+`c1cba14` first agent updates and guard; `2f9b801` protect, extension, gates, ExtensionConfig, first watcher window;
+`aa17141` extension `14f549d`; `df4bfdf` second agent updates; `1fcfc64` extension `7532e79`; `fcbd06a` guard
+`7cac257` and second watcher window.
+
+| File | SHA-256 | Commit(s) | Status |
+|---|---|---|---|
+| `scripts/mgmt/remote.sh` | `b78748d747c92525463b203076f3553e368f673a0610b74913a5a449c4bda738` | `c751661`, `c1cba14` | used in the run |
+| `scripts/mgmt/remote.sh` | `b1d1b377322a95cdba17cca69d765a54710eed4db8bf653a5284d120a766925d` | `2f9b801`, `aa17141`, `df4bfdf`, `1fcfc64`, `fcbd06a` | used in the run |
+| `scripts/mgmt/kind-up.sh` | `ee8459ffff269bc84ef4b6483c34a3e18d4d5eec44141898cd1806a9b530d285` | `c751661`, `c1cba14`, `2f9b801`, `aa17141`, `df4bfdf`, `1fcfc64`, `fcbd06a` | used in the run |
+| `scripts/mgmt/kind-up.sh` | `5a515230c132cdc9b552f63200a4e905313b1b90294042ccaf1f264fd18361e8` | `605910b` (main after the run) | **corrected after the run, not used in it** |
+| `scripts/mgmt/inplace-up.sh` | `d0566fe7321625779f335dc5d2bdda762348ccfc01eddae9756ee9c29e425fa6` | `c751661`, `c1cba14` | used in the run |
+| `scripts/mgmt/inplace-up.sh` | `68b819fa90563639770f365af84e7f9eda854a095a12fa67f2f44d10ec667954` | `2f9b801`, `aa17141`, `df4bfdf`, `1fcfc64`, `fcbd06a` | used in the run |
+| `scripts/mgmt/inplace-up.sh` | `02910d7e4286e22115a0c62e9be5c9fda9dc2951f5367653bad1d229a8db203c` | `605910b` (main after the run) | **corrected after the run, not used in it** |
+| `scripts/node/byoh-install-check.sh` | `74e8b804b81536ab2c7c50321f65def09e6a258a8cacfa259d33f370861c10b1` | `c751661`, `c1cba14`, `2f9b801`, `aa17141`, `df4bfdf`, `1fcfc64`, `fcbd06a` | used in the run |
+| `lib/byoh_enroll.py` | `682731e8b846f211b757660fa876a033a66042e89c8f98015faf171b2114162d` | `c751661`, `c1cba14`, `2f9b801`, `aa17141`, `df4bfdf`, `1fcfc64`, `fcbd06a` | used in the run |
+| `lib/byoh_grants.py` | `42d2b628f334d9de0e85784bdba10a365fe8dd60b72e974d5a6d03f26d0a0bc3` | `c751661`, `c1cba14`, `2f9b801`, `aa17141`, `df4bfdf`, `1fcfc64`, `fcbd06a` | used in the run |
+| `lib/byoh_agent.py` | `2ffefbc9b8853f6940c4007e5bbfcb04114405c588133fe4f0e4b3f4d47a79bc` | `c751661`, `c1cba14`, `2f9b801`, `aa17141`, `df4bfdf`, `1fcfc64`, `fcbd06a` | used in the run |
+| `lib/byoh_bundle.py` | `92baff0e3ccce11a650e6a41e83d7c3c11130d33aef219d315666d5e42f158a2` | `c751661`, `c1cba14`, `2f9b801`, `aa17141`, `df4bfdf`, `1fcfc64`, `fcbd06a` | used in the run |
+| `lib/capi_bundle.py` | `a4345a0bf03d737a3fa705fcef99cca97cbcfa83315c24208c8c4e74ddd9199c` | `c751661`, `c1cba14`, `2f9b801`, `aa17141`, `df4bfdf`, `1fcfc64`, `fcbd06a` | used in the run |
+| `lib/inplace_bundle.py` | `c1c47a49ca3dd31311263858388252dd8d3337f590d6489ebcd17f0638f31400` | `c751661`, `c1cba14`, `2f9b801`, `aa17141`, `df4bfdf`, `1fcfc64`, `fcbd06a` | used in the run |
+| `lib/cilium_ownership.py` | `0fc5eb49626630de6839d4141a32d530be3572c5002cadaf99ec22c7f0202b92` | `c751661`, `c1cba14`, `2f9b801`, `aa17141`, `df4bfdf`, `1fcfc64`, `fcbd06a` | used in the run |
+| `bin/lab` | `640bb96c8e43e43962b9a15d385be2b5912b96cd854a0108ea96cc11b548c89d` | `c751661`, `c1cba14`, `2f9b801`, `aa17141`, `df4bfdf`, `1fcfc64`, `fcbd06a` | used in the run |
+
+### Helper scripts outside Git
+Three small wrappers were written during the run and exist only in the operator's evidence directory. They set
+the identity variables and call the tools above; their hashes are those of the files as they are now, and they were
+not changed after their first use.
+
+| File (in `evidence-b10.24/`) | SHA-256 | Purpose |
+|---|---|---|
+| `b1-baseline/uid-snapshot.sh` | `4988486df6e6012dc719e00e31f9206c6b64541f738226c29c144ac8a0da7dca` | collects the four object lists for `uids.py snapshot` |
+| `cilium-1.21/wk.sh` | `3b955ae9c962dcf88449bd510ec6015b40fd6d0af53e922f4487195b041927a8` | identity-checked `kubectl` against the workload cluster through `lib.sh` |
+| `d2-ha1-cp-1/approve-host.sh` | `02bf264722c14f6c1511b4f3c021d8df17b6ffff1715166048669666322af0d8` | sets the environment and runs `host-step.sh approve` in the operator's terminal |
+
+### What cannot be shown
+- That the operator checkout of this repository was at exactly `4fa332e` and `20ee70a` when each command ran is taken
+  from the session record (the checkout was switched once, before the start check), not from a per-command record:
+  the `hack/inplace` tools do not write the commit they run from. The checkout was clean whenever it was checked.
+- One-off commands typed during the run (`kubectl` reads, the live patch of the netcheck readiness probe, the restart
+  of `capi-controller-manager`, the version patches, the attempt increase, the grant creation and claim) are not
+  scripts and have no hash; they are in the step logs of the evidence.
+- The host-side commands of the agent are part of the agent binary (sha256 above), not scripts.
 
 ## etcd backups (mandatory before the control-plane upgrade)
 Snapshots taken on `ha1-cp-1`, copied off-host, each with matching sha256 on host and operator machine and an
