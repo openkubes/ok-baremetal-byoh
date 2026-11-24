@@ -13,12 +13,30 @@ import (
 	"github.com/openkubes/ok-baremetal-byoh/agent/reconciler"
 	infrastructurev1beta1 "github.com/openkubes/ok-baremetal-byoh/apis/infrastructure/v1beta1"
 	"github.com/openkubes/ok-baremetal-byoh/test/builder"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
 	v1beta1conditions "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions"
 	controllerruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// statusOnlyClient is a host identity with least privilege: it may write the status of its ByoHost, a patch of the
+// ByoHost itself is forbidden (as the per-host RBAC of a hardened management cluster does).
+type statusOnlyClient struct {
+	client.Client
+	denied int
+}
+
+func (c *statusOnlyClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if _, ok := obj.(*infrastructurev1beta1.ByoHost); ok {
+		c.denied++
+		return apierrors.NewForbidden(schema.GroupResource{Group: infrastructurev1beta1.GroupVersion.Group, Resource: "byohosts"}, obj.GetName(), errors.New("only the status may be written"))
+	}
+	return c.Client.Patch(ctx, obj, patch, opts...)
+}
 
 // fakeUpgrader records the upgrades and returns a configured outcome.
 type fakeUpgrader struct {
@@ -121,6 +139,29 @@ var _ = Describe("Byohost Agent In-Place Upgrade", func() {
 		// A finished attempt is not run again.
 		reconcile()
 		Expect(upgrader.calls).To(HaveLen(1))
+	})
+
+	// Seen on the ha1 lab: after the step reports the agent also patched the ByoHost itself (metadata only), which
+	// its identity is not allowed to do: "failed to patch ByoHost ...: is forbidden", once per upgrade.
+	It("writes only the status while it reports the steps", func() {
+		limited := &statusOnlyClient{Client: k8sClient}
+		r.Client = limited
+		reconcile()
+		reconcile()
+		Expect(upgrader.calls).To(Equal([]string{"abc123"}))
+		Expect(limited.denied).To(BeZero(), "the agent patched the ByoHost itself")
+		status := get().Status.InPlaceUpgrade
+		Expect(status.Phase).To(Equal(infrastructurev1beta1.InPlaceUpgradeSucceeded))
+		Expect(status.Step).To(Equal(string(inplaceupgrade.StepVerify)))
+
+		upgrader.err = &inplaceupgrade.StepError{Step: inplaceupgrade.StepKubeadm, Err: errors.New("exit status 2")}
+		h := get()
+		h.Spec.InPlaceUpgrade.Attempt = 1
+		Expect(k8sClient.Update(ctx, h)).To(Succeed())
+		reconcile()
+		reconcile()
+		Expect(limited.denied).To(BeZero(), "the agent patched the ByoHost itself after a failed step")
+		Expect(get().Status.InPlaceUpgrade.Phase).To(Equal(infrastructurev1beta1.InPlaceUpgradeFailed))
 	})
 
 	It("reports a failed step and does not retry it until the attempt grows", func() {

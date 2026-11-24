@@ -83,12 +83,17 @@ func (r *HostReconciler) checkInPlaceUpgrade(byoHost *infrastructurev1beta1.ByoH
 
 // reportInPlaceUpgradeStep patches the step of a running upgrade into the
 // status right away. A failed report only delays the progress in the status.
+//
+// The patch is sent from a copy: the response of the API server must not
+// replace the metadata of byoHost (resourceVersion, managed fields). The patch
+// helper of Reconcile compares byoHost with the object it read at the start,
+// would see a change outside the status and send a patch of the ByoHost itself
+// too, which a host identity that may only write the status is denied.
 func (r *HostReconciler) reportInPlaceUpgradeStep(ctx context.Context, byoHost *infrastructurev1beta1.ByoHost, step inplaceupgrade.Step) {
 	before := byoHost.DeepCopy()
 	byoHost.Status.InPlaceUpgrade.Step = string(step)
-	if err := r.Client.Status().Patch(ctx, byoHost, client.MergeFrom(before)); err != nil {
+	if err := r.Client.Status().Patch(ctx, byoHost.DeepCopy(), client.MergeFrom(before)); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "failed to report the in-place upgrade step", "step", step)
-		byoHost.ResourceVersion = before.ResourceVersion
 	}
 }
 
