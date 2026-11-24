@@ -218,10 +218,12 @@ func ParseGrant(data map[string]string) (*Grant, error) {
 	}
 	g.PermittedUseCount = count
 
-	// KCP singleton grants MUST bind a Machine UID.
-	if g.TargetKind == TargetKubeadmControlPlane && g.MachineUID == "" {
-		return nil, fmt.Errorf("KubeadmControlPlane grant must bind machineUID")
-	}
+	// A KubeadmControlPlane grant may bind one Machine UID, but the documented
+	// model (docs/inplace-upgrade.md, Grants) is one grant per KCP without it:
+	// the KCP intent and the ByoMachine transitions are looked up without a
+	// Machine UID, so Machine-bound grants of several control planes would be
+	// ambiguous (fail-closed). Hosts follow one another only through the
+	// per-host approval annotation and the one-host-at-a-time check.
 
 	if claim, ok := data[GrantClaimKey]; ok && strings.TrimSpace(claim) != "" {
 		g.Claimed = true

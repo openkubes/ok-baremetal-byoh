@@ -123,3 +123,24 @@ func TestGuardMachineUpdate_DenyReasons(t *testing.T) {
 		})
 	}
 }
+
+// One KCP-wide grant serves the lookups of every control-plane Machine and the
+// lookups without a Machine UID (KCP intent, ByoMachine); a Machine-bound grant
+// next to it makes those lookups ambiguous and fails closed.
+func TestGrantFor_KCPWideGrant(t *testing.T) {
+	future := grantNow.Add(time.Hour)
+	wide := grantCM("wide", "", future, "c")
+	for _, m := range []string{"m1", "m2", "m3", ""} {
+		g, err := readerWith(t, wide).GrantFor(context.Background(), "default", "c-uid", TargetKubeadmControlPlane, "kcp-uid", m, grantNow)
+		if err != nil || g == nil || g.GrantID != "wide" {
+			t.Fatalf("lookup for Machine %q = %v, %v; want the KCP-wide grant", m, g, err)
+		}
+	}
+	for _, m := range []string{"m1", ""} {
+		g, err := readerWith(t, wide, grantCM("bound", "m1", future, "c")).GrantFor(context.Background(), "default", "c-uid",
+			TargetKubeadmControlPlane, "kcp-uid", m, grantNow)
+		if err != nil || g != nil {
+			t.Fatalf("lookup for Machine %q next to a Machine-bound grant = %v, %v; want ambiguous (nil)", m, g, err)
+		}
+	}
+}
