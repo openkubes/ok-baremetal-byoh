@@ -1,0 +1,1 @@
+change request B10.24 (test fixture)

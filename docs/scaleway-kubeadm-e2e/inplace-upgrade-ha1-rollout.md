@@ -83,25 +83,71 @@ C2. **etcd snapshot** (`etcd-snapshot.sh save`, off-host) and **restore verifica
     with `registry.k8s.io/etcd:3.6.8-0`, throw-away directory); sha256 in the evidence.
 C3. `preflight.sh v1.37.2` READY.
 
-## Phase D — upgrade (separate approval per step)
-Hold points: the extension requests the upgrade of a host only when an administrator has set the annotation
-`inplace.openkubes.org/approved-upgrade: v1.37.2` on its ByoHost (agents cannot set it). Without it the Machine's
-UpdateMachine hook waits ("waiting for the approval"), so no host starts or follows another without a decision.
-D1. **Control-plane canary.** Approver creates the KCP grant (KCP UID, v1.36.6 → v1.37.2, KCP transitions),
-    initiator claims it. `monitor.sh` running. Patch KCP `spec.version` (rv-bound). KCP (maxSurge 0) selects one
-    Machine and calls UpdateMachine; `progress.sh` shows which ByoHost waits for approval. Annotate **that one
-    ByoHost** only; the extension drains it and requests `ControlPlaneFirst` (`kubeadm upgrade apply`). Verify:
-    agent `Succeeded`, Node v1.37.2 Ready, static pods v1.37.2, etcd 3/3 healthy with the same member IDs,
-    `/readyz` continuous, HAProxy 3 active, `uids.py compare` (no change).
-D2. Second and third control plane: annotate the next waiting ByoHost only after the previous one is verified; the
-    same checks after each (etcd quorum never below 2 healthy members).
-D3. **Workers**: MD grant (MD UID, MD transitions), claim; patch the MD template version. The extension waits until
-    all three control planes report v1.37.2; annotate w-1, verify, then w-2.
-D4. **Final**: `uids.py compare before after --expect-version v1.37.2` PASS; KCP/MD UpToDate; kube-proxy and CoreDNS
-    images; Cilium 5/5; grants verify; `negative-tests.sh` 16/16; fill the test protocol.
+## Phase D — upgrade, one host at a time (separate approval per host)
+**Order.** Cluster API, not the operator, chooses the next Machine (CAPI v1.14.4): the KubeadmControlPlane takes the
+**oldest** outdated Machine (`selectMachineForInPlaceUpdateOrScaleDown` → `MachineInFailureDomainWithMostMachines` →
+`Oldest()`, ties by name; no failure domains in ha1), the MachineSet moves Machines by its deletion order (default
+`Random` = equal priority for healthy Machines, ties by name). For ha1 (Machine creation times, read 2026-11-24):
 
-Never: delete or replace a Machine, ByoMachine, ByoHost or VM; remove CAPI in-place annotations or hooks by hand;
-`kubeadm reset`; continue after a failed check without a new approval.
+| # | Host | Machine | Created | Role |
+|---|---|---|---|---|
+| 1 | ha1-cp-1 | ha1-control-plane-nt28b | 17:27:56Z | ControlPlaneFirst (`kubeadm upgrade apply`) |
+| 2 | **ha1-cp-3** | ha1-control-plane-77sx8 | 18:38:51Z | ControlPlane (`kubeadm upgrade node`) |
+| 3 | **ha1-cp-2** | ha1-control-plane-58967 | 18:41:43Z | ControlPlane |
+| 4 | ha1-w-1 | ha1-md-0-frlf2-4725m | 18:58:52Z | Worker (name sorts first) |
+| 5 | ha1-w-2 | ha1-md-0-frlf2-5dqc9 | 18:58:52Z | Worker |
+
+The control planes therefore go cp-1 → **cp-3 → cp-2**. The order cp-1 → cp-2 → cp-3 cannot be imposed safely: the
+only lever is the `cluster.x-k8s.io/delete-machine` annotation, which marks a Machine for deletion and would delete it
+on a fallback — forbidden. An unhealthy Machine is preferred by both selections; `host-step.sh next` then reports a
+STOP (the sequence no longer matches) instead of approving another host.
+
+**Tools** (`hack/inplace`, all with the identity checks of `lib.sh`): `host-step.sh members|next|verify|approve`
+(the per-host gate; `approve` is the only mutation — rv-bound annotation after a typed confirmation),
+`render_grant.py` (prints a grant, never applies it), `netcheck.sh` with `netcheck/`, `progress.sh`, `monitor.sh`,
+`uids.py`, `preflight.sh`, `etcd-snapshot.sh`. Environment for the whole phase:
+`SEQUENCE=ha1-cp-1,ha1-cp-3,ha1-cp-2,ha1-w-1,ha1-w-2`, `UIDS_BASELINE=<D0 snapshot>`, `ETCD_MEMBERS=<D0 members>`,
+`GW_SSH`, `OKX_CILIUM_PRERELEASE` if a pre-release Cilium runs.
+
+D0. **Start of the window** (read-only + workload test pods; approval): `preflight.sh v1.37.2` READY; `uids.py snapshot`
+    → `UIDS_BASELINE`; `host-step.sh members` → `ETCD_MEMBERS`; `host-step.sh next v1.37.2` = HOLD (no Machine
+    updating); netcheck workload applied, `netcheck.sh open` and (policies applied) `netcheck.sh policy` PASS;
+    `monitor.sh` running in its own terminal for the whole phase.
+D1. **KCP grant and version patch** (approver, initiator; approval): `render_grant.py --kind KubeadmControlPlane …
+    --not-after <end of window>` with the request and approval records of the gate → review → approver creates it;
+    initiator adds the single claim; patch KCP `spec.version: v1.37.2` (rv-bound). One grant for the KCP **without**
+    `machineUID` (requires the guard fix that accepts it; a Machine-bound KCP grant would be ambiguous for the second
+    control plane).
+D2–D4. **Per control plane, in SEQUENCE order** (cp-1, cp-3, cp-2), each its own approval:
+    1. `host-step.sh next v1.37.2` must print `APPROVE: <host>` — exactly one Machine updating, it is the expected
+       host, it waits for its approval, every earlier host is done, no other open approval. HOLD → wait; STOP → stop.
+    2. `host-step.sh approve v1.37.2 <host>` (re-runs the gate and the health gate, then asks for
+       `APPROVE <host> v1.37.2`). The extension drains the Node and requests the upgrade; the agent runs it.
+    3. Watch `progress.sh` / `monitor.sh` (API `/readyz` continuous; etcd quorum never below 2 of 3).
+    4. `host-step.sh verify v1.37.2 <host>` PASS: agent Succeeded, Node Ready at v1.37.2, Machine no longer updating,
+       static pods at v1.37.2, Nodes all Ready, etcd 3/3 with the **same member IDs**, Cilium and CoreDNS ready,
+       HAProxy 3 active, no Machine/ByoMachine/ByoHost/Node added, removed or replaced; then `netcheck.sh open`
+       (and `policy` while the policies are applied) PASS.
+    Only then the next host. The first host also proves `kubeadm upgrade apply` (cluster-wide manifests: kube-proxy,
+    CoreDNS) — check their images after D2.
+D5. **MD grant and template version** (approval): `render_grant.py --kind MachineDeployment …` → approver, initiator
+    claim; patch the MD template `spec.template.spec.version: v1.37.2` (rv-bound). The extension answers "waiting for
+    the control plane" until all three control planes report v1.37.2 — `next` shows HOLD until then.
+D6–D7. **Per worker** (w-1, then w-2): the same four steps as D2–D4 (no static pods; workloads must reschedule after
+    the drain: PodDisruptionBudgets respected).
+D8. **Final**: `uids.py compare <baseline> <now> --expect-version v1.37.2` PASS; KCP and MD UpToDate, no new
+    MachineSet left over; kube-proxy and CoreDNS images; Cilium 5/5; `byoh-grants verify`; `negative-tests.sh` 16/16;
+    netcheck workload removed (approved); evidence sealed; fill the test protocol.
+
+GO for each host only on `APPROVE: <host>` from `next` and a passed `verify` of the previous host. NO-GO / STOP:
+`next` says STOP; any `verify` FAIL; a Machine, ByoMachine, ByoHost or Node created, deleted or replaced; an etcd
+member ID changed or fewer than 2 healthy members; agent `Failed`; a drain that does not finish (PDB) — never force
+it; the API endpoint unavailable beyond the single-host restart. On a failed host: no further approval; forward fix on
+the same host per the runbook (`../inplace-upgrade.md`); never `kubeadm reset`, never Machine replacement.
+
+Never: delete or replace a Machine, ByoMachine, ByoHost or VM; set `cluster.x-k8s.io/delete-machine`; remove CAPI
+in-place annotations or hooks by hand; pre-approve a host that is not waiting; continue after a failed check without
+a new approval.
 
 ## Unregistering and VM destruction
 With the guard active, Machine/KCP/MD/namespace deletion in `ha1` is denied. Before the B10.20 teardown:
