@@ -444,6 +444,55 @@ func TestInfrastructureKinds(t *testing.T) {
 	expect(t, w.update("cp-1"), stateFailed, "does not update ByoMachine Machines")
 }
 
+// A MachineSet refers to the infrastructure template (ByoMachineTemplate), never to a ByoMachine. On ha1 the
+// extension declined the MachineSet of the workers ("does not update ByoMachineTemplate Machines in place") and
+// Cluster API fell back to deleting a Machine, which only the guard stopped.
+func TestCanUpdateMachineSet(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		kind     string
+		to       string
+		simulate bool
+		accept   bool
+	}{
+		{"a pinned upgrade of ByoMachines", "ByoMachineTemplate", toV, false, true},
+		{"an unpinned version", "ByoMachineTemplate", "v1.37.1", false, false},
+		{"a downgrade", "ByoMachineTemplate", "v1.36.5", false, false},
+		{"an unsupported infrastructure", "AWSMachineTemplate", toV, true, false},
+		{"DockerMachines without the simulation", "DockerMachineTemplate", toV, false, false},
+		{"simulated DockerMachines", "DockerMachineTemplate", toV, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWorld(t)
+			w.h.SimulateDockerMachines = tc.simulate
+			current := &clusterv1.MachineSet{ObjectMeta: metav1.ObjectMeta{Name: "md-0-old", Namespace: ns}}
+			current.Spec.Template.Spec = *w.machine("w-1").Spec.DeepCopy()
+			current.Spec.Template.Spec.InfrastructureRef.Kind = tc.kind
+			desired := current.DeepCopy()
+			desired.Spec.Template.Spec.Version = tc.to
+			resp := &runtimehooksv1.CanUpdateMachineSetResponse{}
+			w.h.DoCanUpdateMachineSet(context.Background(), &runtimehooksv1.CanUpdateMachineSetRequest{
+				Current: runtimehooksv1.CanUpdateMachineSetRequestObjects{MachineSet: *current},
+				Desired: runtimehooksv1.CanUpdateMachineSetRequestObjects{MachineSet: *desired},
+			}, resp)
+			if resp.Status != runtimehooksv1.ResponseStatusSuccess {
+				t.Fatal(resp.Message)
+			}
+			var ops []map[string]any
+			if err := json.Unmarshal(resp.MachineSetPatch.Patch, &ops); err != nil {
+				t.Fatal(err)
+			}
+			accepted := len(ops) == 1 && ops[0]["path"] == "/spec/template/spec/version" && ops[0]["value"] == tc.to
+			if accepted != tc.accept || (!tc.accept && len(ops) != 0) {
+				t.Fatalf("patch %s", resp.MachineSetPatch.Patch)
+			}
+			if string(resp.InfrastructureMachineTemplatePatch.Patch) != "[]" || string(resp.BootstrapConfigTemplatePatch.Patch) != "[]" {
+				t.Fatal("the extension patched the infrastructure or the bootstrap template")
+			}
+		})
+	}
+}
+
 func TestCanUpdateMachine(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
