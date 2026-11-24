@@ -35,7 +35,9 @@ spec:
           image: registry.k8s.io/e2e-test-images/agnhost:2.56@sha256:352a050380078cb2a1c246357a0dfa2fcf243ee416b92ff28b44a01d1b4b0294
           args: ["netexec", "--http-port=8080", "--udp-port=-1"]
           ports: [{containerPort: 8080}]
-          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+          # TCP, not GET /healthz: with --udp-port=-1 netexec (agnhost 2.56) answered /healthz with 412
+          # for good on ha1; the pods never got Ready and the Service had no ready endpoints.
+          readinessProbe: {tcpSocket: {port: 8080}, periodSeconds: 5}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: [ALL]}
