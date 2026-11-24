@@ -162,8 +162,10 @@ cluster-templates-v1beta1: kustomize ## Generate cluster templates for v1beta1
 # Run tests
 test: $(GINKGO) generate fmt vet manifests test-coverage ## Run unit tests
 
+# Only the end-to-end suite is skipped here (it runs in its own workflow, e2e.yml). The pattern is a substring of the
+# package path: "test" alone also skipped drainertest, admissiontest and hardeningtest.
 test-coverage: prepare-byoh-docker-host-image $(GINKGO) $(SETUP_ENVTEST) ## Run test-coverage
-	$(ENVTEST_ASSETS) $(GINKGO) --randomize-all -r --cover --coverprofile=cover.out --output-dir=. --skip-package=test .
+	$(ENVTEST_ASSETS) $(GINKGO) --randomize-all -r --cover --coverprofile=cover.out --output-dir=. --skip-package=test/e2e .
 
 agent-test: prepare-byoh-docker-host-image $(GINKGO) $(SETUP_ENVTEST) ## Run agent tests
 	$(ENVTEST_ASSETS) $(GINKGO) --randomize-all -r --coverprofile cover.out $(HOST_AGENT_DIR)
