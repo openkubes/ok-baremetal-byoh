@@ -142,7 +142,12 @@ func GuardByoMachineUpdate(ctx context.Context, reader GrantReader, resolver Tar
 	if byoMachineUnchanged(change, dryRun) {
 		return allow()
 	}
-	kind, targetUID, err := resolver.ForByoMachine(ctx, newU)
+	machine, err := resolver.OwnerMachine(ctx, newU)
+	if err != nil {
+		return deny("could not resolve upgrade target for ByoMachine")
+	}
+	change.SetLabelsFollowMove = resolver.ByoMachineFollowsMove(ctx, oldU, newU, machine)
+	kind, targetUID, err := resolver.ForMachine(ctx, machine)
 	if err != nil {
 		return deny("could not resolve upgrade target for ByoMachine")
 	}
