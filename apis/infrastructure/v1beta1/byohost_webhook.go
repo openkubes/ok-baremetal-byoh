@@ -152,7 +152,7 @@ func (v *ByoHostValidator) handleUpdate(req *admission.Request) admission.Respon
 	}
 	if !isHost(req) {
 		// Only a spec update changes spec.inPlaceUpgrade; RBAC decides who
-		// may make it (docs/scaleway-kubeadm-e2e/inplace-upgrade-runbook.md).
+		// may make it (docs/inplace-upgrade.md).
 		if req.SubResource != statusSubResource {
 			if errs := validateInPlaceUpgradeUpdate(oldHost, byoHost); len(errs) > 0 {
 				return admission.Denied(fmt.Sprintf("cannot update ByoHost %s/%s: %s", byoHost.Namespace, byoHost.Name, errs.ToAggregate().Error()))

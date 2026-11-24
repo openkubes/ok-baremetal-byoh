@@ -2,7 +2,7 @@
 
 > **Status: PLAN.** Prepared in Gates B10.22/B10.23, nothing executed. Every numbered step is its own gate with
 > explicit approval; stop on any failed check; no automatic retry, rollback or cleanup. Mechanism and recovery:
-> [inplace-upgrade-runbook.md](inplace-upgrade-runbook.md). Tooling: `hack/inplace/`. Management context is always
+> [../inplace-upgrade.md](../inplace-upgrade.md). Tooling: `hack/inplace/`. Management context is always
 > named explicitly (`kind-ok-lab-mgmt`); hosts only over the pinned SSH of ok-scaleway-lab.
 
 Every `hack/inplace` script proves both cluster identities before its first request (`lib.sh`) and refuses
