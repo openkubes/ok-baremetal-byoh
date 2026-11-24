@@ -14,6 +14,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+func writeRegistry(t *testing.T, document string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "registry.json")
+	if err := os.WriteFile(path, []byte(document), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestSetupFromEnvironment(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := clusterv1.AddToScheme(scheme); err != nil {
@@ -23,17 +32,16 @@ func TestSetupFromEnvironment(t *testing.T) {
 		WithScheme(scheme).
 		Build()
 
-	registryPath := filepath.Join(t.TempDir(), "registry.json")
-	err := os.WriteFile(registryPath, []byte(`{
+	registryPath := writeRegistry(t, `{
 		"registrations": [{
 			"namespace": "byoh-lab",
 			"clusterName": "ok-byoh",
 			"clusterUID": "uid-123"
 		}]
-	}`), 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
+	}`)
+
+	emptyPath := writeRegistry(t, `{"registrations": []}`)
+	noKeyPath := writeRegistry(t, `{}`)
 
 	tests := []struct {
 		name        string
@@ -64,6 +72,24 @@ func TestSetupFromEnvironment(t *testing.T) {
 			enabled:   "true",
 			file:      filepath.Join(t.TempDir(), "missing.json"),
 			wantError: true,
+		},
+		{
+			name:      "enabled with a registry without registrations key",
+			enabled:   "true",
+			file:      noKeyPath,
+			wantError: true,
+		},
+		{
+			name:      "enabled with an unreadable registry",
+			enabled:   "true",
+			file:      t.TempDir(),
+			wantError: true,
+		},
+		{
+			name:        "enabled with an explicitly empty registry",
+			enabled:     "true",
+			file:        emptyPath,
+			wantHandler: true,
 		},
 		{
 			name:        "enabled with valid registry",

@@ -71,6 +71,87 @@ func denied(t *testing.T, err error, text string) {
 	}
 }
 
+// registryWrites checks every write path to the registry ConfigMap (dry run):
+// denied for each of the given identities, admitted for the platform
+// administrator.
+func registryWrites(t *testing.T, ctx context.Context, cs, admin kubernetes.Interface, others map[string]kubernetes.Interface) {
+	t.Helper()
+	const name = "okx-no-replacement-registry-abc"
+	dry := []string{metav1.DryRunAll}
+	empty := `{\"registrations\": []}`
+	writes := []struct {
+		name string
+		do   func(k kubernetes.Interface) error
+	}{
+		{"merge patch", func(k kubernetes.Interface) error {
+			_, err := k.CoreV1().ConfigMaps(ns).Patch(ctx, name, types.MergePatchType, []byte(`{"data":{"registry.json":"`+empty+`"}}`), metav1.PatchOptions{DryRun: dry})
+			return err
+		}},
+		{"JSON patch", func(k kubernetes.Interface) error {
+			_, err := k.CoreV1().ConfigMaps(ns).Patch(ctx, name, types.JSONPatchType, []byte(`[{"op":"add","path":"/data","value":{"registry.json":"`+empty+`"}}]`), metav1.PatchOptions{DryRun: dry})
+			return err
+		}},
+		{"server-side apply", func(k kubernetes.Interface) error {
+			body := `{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"` + name + `"},"data":{"registry.json":"` + empty + `"}}`
+			_, err := k.CoreV1().ConfigMaps(ns).Patch(ctx, name, types.ApplyPatchType, []byte(body), metav1.PatchOptions{DryRun: dry, FieldManager: "test", Force: ptr.To(true)})
+			return err
+		}},
+		{"update", func(k kubernetes.Interface) error {
+			cm, err := cs.CoreV1().ConfigMaps(ns).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				return err
+			}
+			cm.Data = map[string]string{"registry.json": `{"registrations": []}`}
+			_, err = k.CoreV1().ConfigMaps(ns).Update(ctx, cm, metav1.UpdateOptions{DryRun: dry})
+			return err
+		}},
+		{"metadata change", func(k kubernetes.Interface) error {
+			patch := `{"metadata":{"labels":{"x":"y"},"annotations":{"x":"y"},"ownerReferences":[{"apiVersion":"v1","kind":"ConfigMap","name":"ordinary","uid":"00000000-0000-0000-0000-000000000001"}],"finalizers":["example.org/hold"]}}`
+			_, err := k.CoreV1().ConfigMaps(ns).Patch(ctx, name, types.MergePatchType, []byte(patch), metav1.PatchOptions{DryRun: dry})
+			return err
+		}},
+		{"delete", func(k kubernetes.Interface) error {
+			return k.CoreV1().ConfigMaps(ns).Delete(ctx, name, metav1.DeleteOptions{DryRun: dry})
+		}},
+		{"create with a registry name", func(k kubernetes.Interface) error {
+			_, err := k.CoreV1().ConfigMaps(ns).Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "okx-no-replacement-registry-new"}}, metav1.CreateOptions{DryRun: dry})
+			return err
+		}},
+		{"create with a generated registry name", func(k kubernetes.Interface) error {
+			_, err := k.CoreV1().ConfigMaps(ns).Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{GenerateName: "okx-no-replacement-registry-"}}, metav1.CreateOptions{DryRun: dry})
+			return err
+		}},
+	}
+	// A collection delete carries no object name: for everyone but the platform
+	// administrator the name rule cannot be evaluated and the policy fails
+	// closed (failurePolicy Fail); the message is that of the evaluation.
+	t.Run("S5: registry delete collection", func(t *testing.T) {
+		deleteCollection := func(k kubernetes.Interface) error {
+			return k.CoreV1().ConfigMaps(ns).DeleteCollection(ctx, metav1.DeleteOptions{DryRun: dry}, metav1.ListOptions{FieldSelector: "metadata.name=" + name})
+		}
+		for who, k := range others {
+			if err := deleteCollection(k); err == nil || !strings.Contains(err.Error(), "ValidatingAdmissionPolicy 'okx-inplace-protected-config'") {
+				t.Fatalf("%s: got %v, want a denial by the policy", who, err)
+			}
+		}
+		if err := deleteCollection(admin); err != nil {
+			t.Fatalf("the platform administrator: %v", err)
+		}
+	})
+	for _, w := range writes {
+		for who, k := range others {
+			t.Run("S5: registry "+w.name+" is denied to "+who, func(t *testing.T) {
+				denied(t, w.do(k), "written only by platform administrators")
+			})
+		}
+		t.Run("S5: registry "+w.name+" is admitted for the platform administrator", func(t *testing.T) {
+			if err := w.do(admin); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 //nolint:gocyclo,funlen // one envtest API server for all policy cases.
 func TestHardening(t *testing.T) {
 	env := &envtest.Environment{CRDDirectoryPaths: []string{filepath.Join("..", "..", "..", "..", "config", "crd", "bases")}, ErrorIfCRDPathMissing: true}
@@ -178,6 +259,17 @@ func TestHardening(t *testing.T) {
 	t.Run("S5: a new registry ConfigMap is created only by a platform administrator", func(t *testing.T) {
 		_, err := mallory.CoreV1().ConfigMaps(ns).Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "okx-no-replacement-registry-evil"}}, metav1.CreateOptions{DryRun: []string{"All"}})
 		denied(t, err, "platform administrators")
+	})
+	// The registry is the authority of the guard, and since an explicitly empty
+	// registry is valid, its write boundary is this policy alone: every way of
+	// writing it is denied to everyone but a platform administrator, whatever
+	// RBAC grants (the impersonated identities are members of system:masters).
+	registryWrites(t, ctx, cs, admin, map[string]kubernetes.Interface{
+		"an unauthorized member of system:masters": mallory,
+		"the Cluster API core controller":          as(t, cfg, "system:serviceaccount:capi-system:capi-manager"),
+		"the BYOH controller":                      as(t, cfg, "system:serviceaccount:byoh-system:byoh-controller-manager"),
+		"the in-place extension":                   as(t, cfg, "system:serviceaccount:okx-inplace-system:inplace-extension"),
+		"the guard itself":                         as(t, cfg, "system:serviceaccount:okx-inplace-system:no-replacement-guard"),
 	})
 	t.Run("S5: the guard Deployment is changed only by a platform administrator", func(t *testing.T) {
 		patch := []byte(`{"spec":{"template":{"spec":{"containers":[{"name":"g","env":[{"name":"BYOH_GRANT_APPROVER_USERS","value":"mallory"}]}]}}}}`)
