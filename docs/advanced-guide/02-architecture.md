@@ -67,4 +67,4 @@ The extended lifecycle contract distinguishes reset, unregister, cleanup and opt
 
 > OpenKubes owns the contracts, not the components.
 
-References: [Host registration](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/host_registration.md), [Host lifecycle](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/host_lifecycle.md), [Upgrade runbook](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/inplace-upgrade.md).
+References: [Host registration](../host_registration.md), [Host lifecycle](../host_lifecycle.md), [Upgrade runbook](../inplace-upgrade.md).

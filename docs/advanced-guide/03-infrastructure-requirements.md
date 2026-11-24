@@ -6,7 +6,7 @@ Virtual machines and physical servers are equal deployment targets. Hypervisor a
 
 ## Operating system and sizing
 
-The documented default installer supports Ubuntu 24.04 and 26.04 on amd64 and arm64. CI tests Kubernetes v1.35.10, v1.36.6 and v1.37.2 in containers; this does not imply real-host upgrade coverage on all combinations. Custom installers require separate compatibility validation.
+The documented default installer supports Ubuntu 24.04 and 26.04 on amd64 and arm64. CI exercises Kubernetes v1.36.6 and v1.37.2 in container-based tests; the v1.35 line appears only in version-skew unit tests (for example v1.35.0 and v1.35.9), not as a container-tested upgrade target. This does not imply real-host upgrade coverage on all combinations. Custom installers require separate compatibility validation.
 
 Illustrative lab sizing per host: 4 CPU cores, 8 GiB RAM, 80 GiB SSD. These are not enforced minimums. Size for workloads and system overhead; ensure low-latency reliable etcd storage. A two-host lab uses one control plane and one worker; the five-host HA reference uses three stacked-etcd control planes and two workers, excluding management and external load-balancing capacity.
 
@@ -50,4 +50,4 @@ swapon --show
 
 These checks are not a complete automated preflight.
 
-References: [README](https://github.com/openkubes/ok-baremetal-byoh/blob/main/README.md), [Installer](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/installer.md), [Getting Started](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/getting_started.md).
+References: [README](../../README.md), [Installer](../installer.md), [Getting Started](../getting_started.md).

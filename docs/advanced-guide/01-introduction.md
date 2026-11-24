@@ -40,4 +40,4 @@ The following chapters cover management-cluster preparation, host registration a
 
 OpenKubes BYOH remains an **Alpha-stage project**. Compatibility, security boundaries, supported configurations, and production suitability must be assessed for each deployment. The successful in-place upgrade E2E is a concrete milestone within this broader maturity context.
 
-For implementation details and operational constraints, see [Getting Started](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/getting_started.md), [Host Registration and Permissions](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/host_registration.md), [Host Lifecycle](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/host_lifecycle.md), and the [In-Place Upgrade Runbook](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/inplace-upgrade.md).
+For implementation details and operational constraints, see [Getting Started](../getting_started.md), [Host Registration and Permissions](../host_registration.md), [Host Lifecycle](../host_lifecycle.md), and the [In-Place Upgrade Runbook](../inplace-upgrade.md).

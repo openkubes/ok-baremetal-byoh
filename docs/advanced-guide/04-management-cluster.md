@@ -6,7 +6,7 @@ The management cluster hosts CAPI, BYOH and optional lifecycle extensions. Its p
 
 ## Compatibility and provenance
 
-Reference: kind with Kubernetes v1.36.4, CAPI v1.14.4, matching kubeadm providers, BYOH v1beta1 contract. The documented CAPI v1.14 management Kubernetes range is v1.33–v1.37. Verify all selected versions, including cert-manager. Pin source commits, image digests, agent artifact SHA-256, package checksums and manifests. Record actual running identities and actual executed script hashes; hash verification alone does not establish authenticity or security. Automatic script evidence coverage remains a follow-up requirement.
+Reference: kind with Kubernetes v1.36.4, CAPI v1.14.4, matching kubeadm providers, BYOH v1beta1 contract. The documented CAPI v1.14 management Kubernetes range is v1.33–v1.37. The provider itself is built against the Cluster API v1.14.3 Go module and implements the v1beta1 contract; the v1.14.4 versions above are the management-plane and `clusterctl` runtime versions. Verify all selected versions, including cert-manager. Pin source commits, image digests, agent artifact SHA-256, package checksums and manifests. Record actual running identities and actual executed script hashes; hash verification alone does not establish authenticity or security. Automatic script evidence coverage remains a follow-up requirement.
 
 ![Artifact provenance](images/artifact-provenance.svg)
 
@@ -67,4 +67,4 @@ Verify discovered handlers and actual hook responses, fail-closed behavior and n
 
 Management move/pivoting, same-plane and disaster recovery remain separate validation milestones.
 
-References: [Getting Started](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/getting_started.md), [Upgrade runbook](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/inplace-upgrade.md), [Base manifests](https://github.com/openkubes/ok-baremetal-byoh/tree/main/config/inplace/base).
+References: [Getting Started](../getting_started.md), [Upgrade runbook](../inplace-upgrade.md), [Base manifests](../../config/inplace/base).

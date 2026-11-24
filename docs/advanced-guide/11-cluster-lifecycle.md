@@ -24,4 +24,4 @@ The proposed next E2E is: independent backup; controlled decommission; authorize
 
 Destroy/rebuild is owned by external infrastructure tools, not BYOH. It requires a separate authorization and data-retention decision. Management move/pivoting and disaster recovery follow as separate validation milestones.
 
-References: [Host lifecycle](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/host_lifecycle.md), [In-place runbook](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/inplace-upgrade.md).
+References: [Host lifecycle](../host_lifecycle.md), [In-place runbook](../inplace-upgrade.md).

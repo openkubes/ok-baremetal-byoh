@@ -7,7 +7,7 @@ Distinguish implementation, unit/envtest coverage, container-based installer CI,
 | Capability | Evidence / maturity |
 |---|---|
 | Ubuntu 24.04 / 26.04, amd64 / arm64 | Documented default installer support and container CI |
-| Kubernetes v1.35.10, v1.36.6, v1.37.2 | Documented installer tests |
+| Kubernetes v1.36.6, v1.37.2 (container CI); v1.35 line in version-skew unit tests | Documented installer and CI tests |
 | CAPI-driven in-place upgrade | One successful five-host real-host E2E |
 | Manual host approvals and forward recovery | Exercised in that run |
 | Automated HOTL host release | Pending validation |
@@ -33,4 +33,4 @@ Run complete applicable lab suites (`tests/run.sh` in the lab context, confirm p
 
 Claude should verify all CLI flags, manifests, provider packaging and template variables against pinned code; resolve placeholders; validate provider neutrality and SVG links; review security assertions and check execution examples in an isolated environment. No Codex review is required. Do not merge or publish before explicit approval.
 
-References: [README](https://github.com/openkubes/ok-baremetal-byoh/blob/main/README.md), [E2E protocol](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/scaleway-kubeadm-e2e/inplace-upgrade-testprotocol.md), [Host registration](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/host_registration.md).
+References: [README](../../README.md), [E2E protocol](../scaleway-kubeadm-e2e/inplace-upgrade-testprotocol.md), [Host registration](../host_registration.md).

@@ -66,4 +66,4 @@ Confirm namespace, hostname, labels, agent information and network addresses. An
 
 Inspect `systemctl status byoh-hostagent`, `journalctl -u byoh-hostagent`, CSR conditions and ByoHost events. Check clock synchronization, TLS endpoint, hostname uniqueness and token expiry before retrying. Do not delete existing host credentials or re-enroll an attached host as a routine repair. Host agents run as root and current documented RBAC allows broad Secret reads; namespaces are not tenant security boundaries. Removing local credentials does not revoke a previously issued certificate. Use trusted hosts only.
 
-Reference: [Host registration and permissions](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/host_registration.md).
+Reference: [Host registration and permissions](../host_registration.md).

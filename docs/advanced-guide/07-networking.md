@@ -34,4 +34,4 @@ The installer does not configure firewalls. Restrict access to trusted paths and
 
 Inspect `ip -brief address`, `ip route`, `getent hosts <endpoint>` and the configured TLS endpoint using trusted CA material. From the verified workload context, inspect `kubectl get nodes -o wide`, `kubectl get pods -A`, and `kubectl get networkpolicy -A`. Validate cross-node pod traffic, service routing, DNS, policy allow/deny, API access and MTU-sensitive paths using approved test workloads. The repository's `hack/inplace/netcheck.sh` provides reference checks; inspect its requirements and identity gates before execution. Record results before and after upgrades.
 
-References: [Installer](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/installer.md), [In-place tooling](https://github.com/openkubes/ok-baremetal-byoh/tree/main/hack/inplace), [Kubernetes ports](https://kubernetes.io/docs/reference/networking/ports-and-protocols/).
+References: [Installer](../installer.md), [In-place tooling](../../hack/inplace), [Kubernetes ports](https://kubernetes.io/docs/reference/networking/ports-and-protocols/).

@@ -33,4 +33,4 @@ In replacement-capable clusters, scaling and some template changes can create or
 
 Record intended changes, operator identity, source revision, manifest and script checksums, observed runtime artifacts, conditions and before/after resource identities. Redact credentials. Retain backups independently of the system under maintenance. Any failed acceptance gate is a STOP, not automatic authorization for retry or replacement.
 
-References: [Host lifecycle](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/host_lifecycle.md), [In-place runbook](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/inplace-upgrade.md).
+References: [Host lifecycle](../host_lifecycle.md), [In-place runbook](../inplace-upgrade.md).

@@ -56,4 +56,4 @@ Validate the workload endpoint and CA independently against the intended Cluster
 
 All expected Machines and Nodes exist; assignments are unique and match the planned roles; API endpoint and networking work; control plane and etcd are healthy; workloads can schedule; component versions and UIDs are recorded. Capture the rendered desired state and actual identities. No claim of HA is justified solely by three replicas: validate load balancer and failure domains separately.
 
-References: [Getting Started](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/getting_started.md), [Host lifecycle](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/host_lifecycle.md).
+References: [Getting Started](../getting_started.md), [Host lifecycle](../host_lifecycle.md).

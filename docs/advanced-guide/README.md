@@ -6,7 +6,7 @@
 
 > Your infrastructure. Your hosts. Your Kubernetes.
 
-Draft 0.2 — technical review required. Alpha; not production-ready. No OK CLI required.
+Draft 0.3 — technical review applied; further review welcome. Alpha; not production-ready. No OK CLI required.
 
 - [01 – Introduction](01-introduction.md)
 - [02 – Architecture](02-architecture.md)

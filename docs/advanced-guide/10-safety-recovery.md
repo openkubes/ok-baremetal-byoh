@@ -22,4 +22,4 @@ An etcd snapshot is not a transactional rollback of Kubernetes packages or host 
 
 Collect before/after resource UIDs, versions, etcd membership and health, API probe results, networking tests, logs, grants and operator decisions. Record the actual executed script bytes and Git commit rather than substituting a later corrected version. Seal the evidence manifest with SHA-256; keep secrets and kubeconfigs out. Automatic script evidence capture is a required improvement, not a universally implemented feature.
 
-References: [No-Replacement ADR](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/adr/ADR-001-byoh-no-replacement-safety.md), [Runbook](https://github.com/openkubes/ok-baremetal-byoh/blob/main/docs/inplace-upgrade.md).
+References: [No-Replacement ADR](../adr/ADR-001-byoh-no-replacement-safety.md), [Runbook](../inplace-upgrade.md).
