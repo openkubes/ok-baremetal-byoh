@@ -234,7 +234,8 @@ func (h *ExtensionHandlers) DoUpdateMachine(ctx context.Context, req *runtimehoo
 // completeAfter and does no host work, so it proves only the CAPI control
 // loop (labs/byoh-inplace-spike/guarded/README.md).
 func (h *ExtensionHandlers) simulateUpdate(machine *clusterv1.Machine) outcome {
-	key := string(machine.UID) + "/" + machine.Spec.Version
+	// not the UID: Cluster API does not send it in the request
+	key := machine.Namespace + "/" + machine.Name + "/" + machine.Spec.Version
 	now := h.now()
 	started, loaded := h.simulated.LoadOrStore(key, now)
 	if loaded && inplace.UpdateDone(started.(time.Time), now, h.completeAfter) {
