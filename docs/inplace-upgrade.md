@@ -67,6 +67,16 @@ request in its spec; `Succeeded` needs the observed target versions.
   3. With separate approval: `kubectl patch byohost <h> --type merge -p '{"spec":{"inPlaceUpgrade":{"attempt":<n+1>}}}'`
      (rv-bound); the agent resumes from its checkpoint.
 - **Timeout:** same as `Failed`; check whether the step still runs before raising the attempt.
+- **Deleting a Machine after an upgrade (host reset):** the ByoMachine controller requests the reset
+  of the host only when its upgrade is `Succeeded` for exactly the request in the spec (id and
+  attempt); it then removes the request in the same write. For a `Running`, `Failed` or unreported
+  request it waits (ByoMachine condition `BYOHostReady=False`, reason `WaitingForInPlaceUpgrade`):
+  `Failed` is final in the API, but a step that timed out may still run on the host
+  (`systemctl list-units 'okx-inplace-*'`).
+  The webhook lets an administrator remove a request that is not `Running`, after which the
+  controller uses the ordinary reset. This is not a regular step: it is a recovery with separate
+  approval, after the units of the upgrade have been checked on the host. The result stays in
+  `status.inPlaceUpgrade`.
 - **Never:** remove the CAPI in-place annotations or pending hooks by hand, delete a Machine,
   ByoMachine or ByoHost, or edit the checkpoint file. Each is a separate, explicit decision.
 - **Rollback:** there is none in place (kubeadm does not downgrade). A broken control plane is

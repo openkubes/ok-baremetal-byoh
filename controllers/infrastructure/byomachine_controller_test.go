@@ -15,6 +15,7 @@ import (
 	"github.com/openkubes/ok-baremetal-byoh/test/builder"
 	eventutils "github.com/openkubes/ok-baremetal-byoh/test/utils/events"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -416,6 +417,201 @@ var _ = Describe("Controllers/ByomachineController", func() {
 							fmt.Sprintf("Normal ByoHostResetRequested Requested the reset of ByoHost %s", byoHost.Name),
 							fmt.Sprintf("Normal ByoHostResetRequested Reset requested by ByoMachine %s", byoMachine.Name),
 						}))
+					})
+
+					// A host that was upgraded in place keeps the request in its
+					// spec, and the ByoHost webhook refuses a reset beside a
+					// request. The request of an ended upgrade leaves the spec in
+					// the patch that requests the reset.
+					Context("When the ByoHost has an in-place upgrade in its spec", func() {
+						var hostBefore *infrastructurev1beta1.ByoHost
+
+						// reconcileOnce reconciles the ByoMachine and returns whether
+						// the reconciler asked for nothing more (no requeue).
+						reconcileOnce := func() bool {
+							res, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: byoMachineLookupKey})
+							Expect(err).NotTo(HaveOccurred())
+							return res.IsZero()
+						}
+						hostNow := func() *infrastructurev1beta1.ByoHost {
+							host := &infrastructurev1beta1.ByoHost{}
+							Expect(k8sClientUncached.Get(ctx, byoHostLookupKey, host)).Should(Succeed())
+							return host
+						}
+						expectWaitingForUpgrade := func() {
+							host := hostNow()
+							Expect(host.Spec.ResetRequested).To(BeFalse())
+							Expect(host.Spec.InPlaceUpgrade).To(Equal(hostBefore.Spec.InPlaceUpgrade))
+							Expect(host.ResourceVersion).To(Equal(hostBefore.ResourceVersion), "the ByoHost was written")
+							updatedByoMachine := &infrastructurev1beta1.ByoMachine{}
+							Expect(k8sClientUncached.Get(ctx, byoMachineLookupKey, updatedByoMachine)).Should(Succeed())
+							Expect(controllerutil.ContainsFinalizer(updatedByoMachine, infrastructurev1beta1.MachineFinalizer)).To(BeTrue())
+							condition := v1beta1conditions.Get(updatedByoMachine, infrastructurev1beta1.BYOHostReady)
+							Expect(condition.Status).To(Equal(corev1.ConditionFalse))
+							Expect(condition.Reason).To(Equal(infrastructurev1beta1.WaitingForInPlaceUpgradeReason))
+							Expect(eventutils.CollectEvents(recorder.Events)).To(BeEmpty())
+						}
+						expectResetRequested := func(phase infrastructurev1beta1.InPlaceUpgradePhase) {
+							host := hostNow()
+							Expect(host.Spec.ResetRequested).To(BeTrue())
+							Expect(host.Spec.InPlaceUpgrade).To(BeNil())
+							Expect(host.Spec.ByoMachineRef).To(Equal(hostBefore.Spec.ByoMachineRef))
+							Expect(host.Spec.BootstrapSecret).To(Equal(hostBefore.Spec.BootstrapSecret))
+							// The result of the upgrade stays in the status.
+							Expect(host.Status.InPlaceUpgrade).To(Equal(hostBefore.Status.InPlaceUpgrade))
+							Expect(host.Status.InPlaceUpgrade.Phase).To(Equal(phase))
+						}
+
+						BeforeEach(func() {
+							requestInPlaceUpgrade(k8sClientUncached, byoHostLookupKey, "abc123", 0)
+						})
+
+						It("should remove the request of a succeeded upgrade in the patch that requests the reset, then release the host", func() {
+							hostBefore = reportInPlaceUpgrade(k8sClientUncached, byoHostLookupKey, "abc123", 0, infrastructurev1beta1.InPlaceUpgradeSucceeded)
+
+							Expect(reconcileOnce()).To(BeTrue())
+							expectResetRequested(infrastructurev1beta1.InPlaceUpgradeSucceeded)
+							// One write of the ByoHost for both changes.
+							Expect(hostNow().Generation).To(Equal(hostBefore.Generation + 1))
+							updatedByoMachine := &infrastructurev1beta1.ByoMachine{}
+							Expect(k8sClientUncached.Get(ctx, byoMachineLookupKey, updatedByoMachine)).Should(Succeed())
+							Expect(v1beta1conditions.Get(updatedByoMachine, infrastructurev1beta1.BYOHostReady).Reason).To(Equal(infrastructurev1beta1.WaitingForHostResetReason))
+							Expect(eventutils.CollectEvents(recorder.Events)).Should(ConsistOf([]string{
+								fmt.Sprintf("Normal ByoHostInPlaceUpgradeEnded Request of succeeded in-place upgrade abc123 to v1.37.2 (attempt 0) removed for the reset by ByoMachine %s; status.inPlaceUpgrade keeps its result", byoMachine.Name),
+								fmt.Sprintf("Normal ByoHostResetRequested Requested the reset of ByoHost %s", byoHost.Name),
+								fmt.Sprintf("Normal ByoHostResetRequested Reset requested by ByoMachine %s", byoMachine.Name),
+							}))
+
+							// A retry before the agent has reset the host changes nothing.
+							requested := hostNow()
+							WaitForObjectToBeUpdatedInCache(requested, func(object client.Object) bool {
+								return object.(*infrastructurev1beta1.ByoHost).Spec.ResetRequested
+							})
+							Expect(reconcileOnce()).To(BeTrue())
+							Expect(hostNow().ResourceVersion).To(Equal(requested.ResourceVersion))
+							Expect(eventutils.CollectEvents(recorder.Events)).To(BeEmpty())
+
+							reportHostReset(k8sClientUncached, requested, byoMachine.UID)
+							reconcileOnce()
+							released := hostNow()
+							Expect(released.Spec).To(Equal(infrastructurev1beta1.ByoHostSpec{}))
+							Expect(released.Status.InPlaceUpgrade).To(Equal(hostBefore.Status.InPlaceUpgrade))
+							err := k8sClientUncached.Get(ctx, byoMachineLookupKey, &infrastructurev1beta1.ByoMachine{})
+							Expect(apierrors.IsNotFound(err)).To(BeTrue())
+						})
+
+						It("should not request the reset while the agent runs the upgrade, and request it when the upgrade has ended", func() {
+							hostBefore = reportInPlaceUpgrade(k8sClientUncached, byoHostLookupKey, "abc123", 0, infrastructurev1beta1.InPlaceUpgradeRunning)
+
+							Expect(reconcileOnce()).To(BeTrue())
+							expectWaitingForUpgrade()
+							// Again, with the same result (a restart of the controller).
+							Expect(reconcileOnce()).To(BeTrue())
+							expectWaitingForUpgrade()
+
+							hostBefore = reportInPlaceUpgrade(k8sClientUncached, byoHostLookupKey, "abc123", 0, infrastructurev1beta1.InPlaceUpgradeSucceeded)
+							Expect(reconcileOnce()).To(BeTrue())
+							expectResetRequested(infrastructurev1beta1.InPlaceUpgradeSucceeded)
+						})
+
+						It("should not request the reset after a failed upgrade, whose command may still run on the host", func() {
+							hostBefore = reportInPlaceUpgrade(k8sClientUncached, byoHostLookupKey, "abc123", 0, infrastructurev1beta1.InPlaceUpgradeFailed)
+
+							Expect(reconcileOnce()).To(BeTrue())
+							expectWaitingForUpgrade()
+							// The failure stays as it was reported.
+							Expect(hostNow().Status.InPlaceUpgrade.Phase).To(Equal(infrastructurev1beta1.InPlaceUpgradeFailed))
+							Expect(hostNow().Status.InPlaceUpgrade.Message).To(Equal("step failed"))
+							updatedByoMachine := &infrastructurev1beta1.ByoMachine{}
+							Expect(k8sClientUncached.Get(ctx, byoMachineLookupKey, updatedByoMachine)).Should(Succeed())
+							Expect(v1beta1conditions.Get(updatedByoMachine, infrastructurev1beta1.BYOHostReady).Message).To(ContainSubstring("has failed"))
+						})
+
+						It("should use the ordinary reset when an administrator has removed the failed request in a recovery", func() {
+							reportInPlaceUpgrade(k8sClientUncached, byoHostLookupKey, "abc123", 0, infrastructurev1beta1.InPlaceUpgradeFailed)
+							host := hostNow()
+							host.Spec.InPlaceUpgrade = nil
+							Expect(k8sClientUncached.Update(ctx, host)).Should(Succeed())
+							WaitForObjectToBeUpdatedInCache(host, func(object client.Object) bool {
+								return object.(*infrastructurev1beta1.ByoHost).Spec.InPlaceUpgrade == nil
+							})
+
+							Expect(reconcileOnce()).To(BeTrue())
+							reset := hostNow()
+							Expect(reset.Spec.ResetRequested).To(BeTrue())
+							Expect(reset.Status.InPlaceUpgrade.Phase).To(Equal(infrastructurev1beta1.InPlaceUpgradeFailed))
+							Expect(eventutils.CollectEvents(recorder.Events)).Should(ConsistOf([]string{
+								fmt.Sprintf("Normal ByoHostResetRequested Requested the reset of ByoHost %s", byoHost.Name),
+								fmt.Sprintf("Normal ByoHostResetRequested Reset requested by ByoMachine %s", byoMachine.Name),
+							}))
+						})
+
+						It("should not request the reset for a request that the agent has not reported", func() {
+							hostBefore = hostNow()
+							Expect(hostBefore.Status.InPlaceUpgrade).To(BeNil())
+
+							Expect(reconcileOnce()).To(BeTrue())
+							expectWaitingForUpgrade()
+						})
+
+						It("should not request the reset when the status reports an earlier attempt", func() {
+							reportInPlaceUpgrade(k8sClientUncached, byoHostLookupKey, "abc123", 0, infrastructurev1beta1.InPlaceUpgradeFailed)
+							// An administrator resumes the failed upgrade: the agent has not accepted attempt 1 yet.
+							requestInPlaceUpgrade(k8sClientUncached, byoHostLookupKey, "abc123", 1)
+							hostBefore = hostNow()
+
+							Expect(reconcileOnce()).To(BeTrue())
+							expectWaitingForUpgrade()
+						})
+
+						It("should not request the reset when the status reports another upgrade", func() {
+							hostBefore = reportInPlaceUpgrade(k8sClientUncached, byoHostLookupKey, "earlier", 0, infrastructurev1beta1.InPlaceUpgradeSucceeded)
+
+							Expect(reconcileOnce()).To(BeTrue())
+							expectWaitingForUpgrade()
+						})
+
+						It("should not overwrite a request that changes while the reset is requested", func() {
+							reportInPlaceUpgrade(k8sClientUncached, byoHostLookupKey, "abc123", 0, infrastructurev1beta1.InPlaceUpgradeSucceeded)
+
+							watchClient, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})
+							Expect(err).NotTo(HaveOccurred())
+							raced := false
+							racingReconciler := &controllers.ByoMachineReconciler{
+								ClusterCache: reconciler.ClusterCache, Recorder: recorder, RequeuePeriod: reconciler.RequeuePeriod,
+								Client: interceptor.NewClient(watchClient, interceptor.Funcs{
+									// The controller lists the ByoHosts with the index of the cache.
+									List: func(ctx context.Context, _ client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+										return reconciler.Client.List(ctx, list, opts...)
+									},
+									// The request changes (a new attempt) after the controller
+									// has read the succeeded upgrade, and before its patch.
+									Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, p client.Patch, opts ...client.PatchOption) error {
+										if _, ok := obj.(*infrastructurev1beta1.ByoHost); ok && !raced {
+											raced = true
+											requestInPlaceUpgrade(c, byoHostLookupKey, "abc123", 1)
+										}
+										return c.Patch(ctx, obj, p, opts...)
+									},
+								}),
+							}
+
+							res, err := racingReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: byoMachineLookupKey})
+							Expect(err).NotTo(HaveOccurred())
+							Expect(raced).To(BeTrue())
+							Expect(res.RequeueAfter).To(BeNumerically(">", 0))
+
+							host := hostNow()
+							Expect(host.Spec.ResetRequested).To(BeFalse())
+							Expect(host.Spec.InPlaceUpgrade).NotTo(BeNil())
+							Expect(host.Spec.InPlaceUpgrade.Attempt).To(Equal(int32(1)))
+							Expect(eventutils.CollectEvents(recorder.Events)).To(BeEmpty())
+
+							// The retry sees the new attempt and waits for it.
+							hostBefore = host
+							Expect(reconcileOnce()).To(BeTrue())
+							expectWaitingForUpgrade()
+						})
 					})
 
 					It("should not detach the host for a reset for an earlier ByoMachine", func() {
@@ -1155,6 +1351,56 @@ func attachByoHostToByoMachine(c client.Client, host *infrastructurev1beta1.ByoH
 // reportHostReset reports in the status of the ByoHost that the agent has reset
 // the host for the ByoMachine of the UID, as the agent does, and waits until
 // the cache of the controller has it.
+// requestInPlaceUpgrade writes an in-place upgrade into the spec of the
+// attached ByoHost, as the in-place extension does, and waits for the cache.
+func requestInPlaceUpgrade(c client.Client, key types.NamespacedName, id string, attempt int32) {
+	host := &infrastructurev1beta1.ByoHost{}
+	Expect(c.Get(ctx, key, host)).Should(Succeed())
+	Expect(host.Spec.ByoMachineRef).NotTo(BeNil())
+	host.Spec.InPlaceUpgrade = &infrastructurev1beta1.InPlaceUpgradeRequest{
+		ID: id, Attempt: attempt,
+		ClusterName: "cluster", ClusterUID: "uid-of-cluster", MachineName: "machine", MachineUID: "uid-of-machine",
+		ByoMachineUID: host.Spec.ByoMachineRef.UID, NodeName: host.Name, Role: infrastructurev1beta1.InPlaceUpgradeWorker,
+		FromVersion: "v1.36.6", ToVersion: "v1.37.2",
+		Packages: infrastructurev1beta1.InPlaceUpgradePackages{
+			Repository:               "https://pkgs.k8s.io/core:/stable:/v1.37/deb/",
+			RepositoryKeyFingerprint: "DE15B14486CD377B9E876E1A234654DA9A296436",
+			Debs: []infrastructurev1beta1.PinnedDeb{
+				{Name: "kubeadm", Version: "1.37.2-1.1", SHA256: "d1674bffcf80b36531375b35cf68d0dc23453a373c1b4537d78b6960732bc699"},
+				{Name: "kubelet", Version: "1.37.2-1.1", SHA256: "f95d0b572a24563bb6e2a1a1f0e84a8a30a24e11c95068b2e81c294a0e1bee11"},
+				{Name: "kubectl", Version: "1.37.2-1.1", SHA256: "e95d73aaf1da438cc8b287545b128fbe5e6a9f3723ecaa25eac1b42b8fe542ab"},
+			},
+		},
+	}
+	Expect(c.Update(ctx, host)).Should(Succeed())
+	WaitForObjectToBeUpdatedInCache(host, func(object client.Object) bool {
+		req := object.(*infrastructurev1beta1.ByoHost).Spec.InPlaceUpgrade
+		return req != nil && req.ID == id && req.Attempt == attempt
+	})
+}
+
+// reportInPlaceUpgrade writes the status of an in-place upgrade, as the agent
+// does, waits for the cache and returns the ByoHost as it is then.
+func reportInPlaceUpgrade(c client.Client, key types.NamespacedName, id string, attempt int32, phase infrastructurev1beta1.InPlaceUpgradePhase) *infrastructurev1beta1.ByoHost {
+	host := &infrastructurev1beta1.ByoHost{}
+	Expect(c.Get(ctx, key, host)).Should(Succeed())
+	host.Status.InPlaceUpgrade = &infrastructurev1beta1.InPlaceUpgradeStatus{ID: id, Attempt: attempt, Phase: phase}
+	switch phase {
+	case infrastructurev1beta1.InPlaceUpgradeSucceeded:
+		host.Status.InPlaceUpgrade.ObservedKubeletVersion, host.Status.InPlaceUpgrade.ObservedNodeVersion = "v1.37.2", "v1.37.2"
+	case infrastructurev1beta1.InPlaceUpgradeFailed:
+		host.Status.InPlaceUpgrade.Message = "step failed"
+	case infrastructurev1beta1.InPlaceUpgradeRunning:
+	}
+	Expect(c.Status().Update(ctx, host)).Should(Succeed())
+	WaitForObjectToBeUpdatedInCache(host, func(object client.Object) bool {
+		status := object.(*infrastructurev1beta1.ByoHost).Status.InPlaceUpgrade
+		return status != nil && status.ID == id && status.Attempt == attempt && status.Phase == phase
+	})
+	Expect(c.Get(ctx, key, host)).Should(Succeed())
+	return host
+}
+
 func reportHostReset(c client.Client, host *infrastructurev1beta1.ByoHost, uid types.UID) {
 	ph, err := v1beta1patch.NewHelper(host, c)
 	Expect(err).ShouldNot(HaveOccurred())
