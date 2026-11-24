@@ -28,7 +28,7 @@ OpenKubes extends the underlying BYOH provider with a controlled Kubernetes in-p
 
 The implementation includes package and artifact verification, host-level approvals, health and identity checks, persistent step checkpoints, and evidence collection. These are **specific safety and recovery mechanisms**, not a claim that every cluster topology or failure scenario has been tested.
 
-On 24 November 2026, the OpenKubes E2E lab successfully upgraded a five-node Kubernetes cluster (three control-plane nodes and two workers) on existing Scaleway bare-metal hosts from v1.36.6 to v1.37.2 without replacing Machines or hosts. This demonstrates the tested path on bare metal; it is not a blanket production-readiness guarantee or equivalent E2E evidence for every VM configuration.
+On 24 November 2026, the OpenKubes E2E lab successfully upgraded a five-node Kubernetes cluster (three control-plane nodes and two workers) on existing Scaleway bare-metal hosts from v1.36.6 to v1.37.2 without replacing Machines or hosts. This demonstrates the tested path on bare metal; it is not a blanket production-readiness guarantee or equivalent E2E evidence for every VM configuration. <!-- provider-neutrality: allow (names the validated Scaleway bare-metal E2E lab for the 24 Nov 2026 upgrade) -->
 
 ## Intended audience and scope
 

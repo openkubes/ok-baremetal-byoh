@@ -28,4 +28,4 @@ The repository provides `hack/inplace/preflight.sh`, `progress.sh`, `host-step.s
 
 Manual host approvals (HITL) were validated. Plan-level authorization with automated host release (HOTL) remains pending E2E validation. Future automation must enforce serialization, current grant validity, health and identity gates, explicit stop conditions and durable audit evidence. It must not simply annotate all hosts in advance.
 
-References: [Runbook](../inplace-upgrade.md), [Executed E2E protocol](../scaleway-kubeadm-e2e/inplace-upgrade-testprotocol.md).
+References: [Runbook](../inplace-upgrade.md), [Executed E2E protocol](../scaleway-kubeadm-e2e/inplace-upgrade-testprotocol.md). <!-- provider-neutrality: allow (link to the labeled Scaleway E2E evidence protocol) -->

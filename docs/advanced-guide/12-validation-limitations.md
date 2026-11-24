@@ -33,4 +33,4 @@ Run complete applicable lab suites (`tests/run.sh` in the lab context, confirm p
 
 Claude should verify all CLI flags, manifests, provider packaging and template variables against pinned code; resolve placeholders; validate provider neutrality and SVG links; review security assertions and check execution examples in an isolated environment. No Codex review is required. Do not merge or publish before explicit approval.
 
-References: [README](../../README.md), [E2E protocol](../scaleway-kubeadm-e2e/inplace-upgrade-testprotocol.md), [Host registration](../host_registration.md).
+References: [README](../../README.md), [E2E protocol](../scaleway-kubeadm-e2e/inplace-upgrade-testprotocol.md), [Host registration](../host_registration.md). <!-- provider-neutrality: allow (link to the labeled Scaleway E2E evidence protocol) -->
