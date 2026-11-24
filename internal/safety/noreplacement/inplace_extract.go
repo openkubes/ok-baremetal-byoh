@@ -256,6 +256,33 @@ func ExtractByoMachineChange(oldU, newU *unstructured.Unstructured) ByoMachineCh
 	}
 }
 
+// byoMachineSetLabelChange returns the old and the new MachineSet name when the labels and annotations of a
+// ByoMachine differ in exactly the two MachineSet labels (cluster.x-k8s.io/set-name and machine-template-hash), both
+// present and non-empty before and after. Any annotation change, any other label, an added or a removed label, or
+// only one of the two makes it not ok.
+func byoMachineSetLabelChange(oldU, newU *unstructured.Unstructured) (source, target, targetHash string, ok bool) {
+	if !equality.Semantic.DeepEqual(oldU.GetAnnotations(), newU.GetAnnotations()) {
+		return "", "", "", false
+	}
+	oldLabels, newLabels := oldU.GetLabels(), newU.GetLabels()
+	for key := range mergeMeta(oldLabels, newLabels) {
+		oldValue, hadOld := oldLabels[key]
+		newValue, hasNew := newLabels[key]
+		same := hadOld == hasNew && oldValue == newValue
+		if key == machineSetNameLabel || key == machineTemplateHashLabel {
+			if same || !hadOld || !hasNew || oldValue == "" || newValue == "" {
+				return "", "", "", false
+			}
+			continue
+		}
+		if !same {
+			return "", "", "", false
+		}
+	}
+	source, target, targetHash = oldLabels[machineSetNameLabel], newLabels[machineSetNameLabel], newLabels[machineTemplateHashLabel]
+	return source, target, targetHash, source != "" && target != "" && targetHash != ""
+}
+
 // MachineSetMoveTouched reports whether a MachineSet UPDATE touches either
 // move-authorization annotation.
 func MachineSetMoveTouched(oldMS, newMS *clusterv1.MachineSet) bool {

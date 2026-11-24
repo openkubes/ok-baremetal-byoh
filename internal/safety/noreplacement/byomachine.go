@@ -21,6 +21,22 @@ type ByoMachineChange struct {
 	UpdateInProgress  AnnoDelta // update-in-progress added (set) or removed (cleanup)
 	// MetadataChanged: labels or annotations differ (the toggle included).
 	MetadataChanged bool
+	// SetLabelsFollowMove: the only difference in labels and annotations is that both MachineSet labels
+	// (cluster.x-k8s.io/set-name, machine-template-hash) change from the source to the target MachineSet of the
+	// in-place move of the owner Machine (TargetResolver.ByoMachineFollowsMove).
+	SetLabelsFollowMove bool
+}
+
+// byoMachineRealignsSetLabels reports the label re-alignment that the MachineSet controller applies to the
+// InfraMachine of every Machine it owns (syncMachines, field manager capi-machineset-metadata): after an in-place
+// move the Machine belongs to its new MachineSet and carries its labels, and the ByoMachine follows. Cluster API
+// blocks the reconcile of the MachineSet while this apply is denied, so the next Machine is never moved.
+// Identity, spec, owner references, finalizers, annotations and every other label must be unchanged.
+func byoMachineRealignsSetLabels(c ByoMachineChange) bool {
+	if c.IdentityChanged || c.SpecChanged || c.OwnerRefsChanged || c.FinalizersChanged || c.UpdateInProgress != AnnoUnchanged {
+		return false
+	}
+	return c.SetLabelsFollowMove
 }
 
 // classifyByoMachine returns the in-place shape for a ByoMachine diff, or ShapeNone.
@@ -103,6 +119,19 @@ func EvaluateByoMachineInPlace(
 		return allow()
 	}
 	shape := classifyByoMachine(change)
+	if shape == ShapeNone && byoMachineRealignsSetLabels(change) {
+		// Only for a Machine of a MachineDeployment (a control-plane Machine has no MachineSet), under its grant.
+		if grant == nil {
+			return deny("ByoMachine label re-alignment requires an authorized upgrade grant")
+		}
+		if grant.TargetKind != TargetMachineDeployment {
+			return deny("ByoMachine label re-alignment is not valid for the grant target kind")
+		}
+		qq := *q
+		qq.Transition = TransitionMDFinalizeInfra
+		qq.VersionRelevant = false
+		return VerifyGrant(scope, grant, qq)
+	}
 	if shape == ShapeNone {
 		return deny("ByoMachine change is not a recognized in-place transition")
 	}
