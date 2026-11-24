@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 940" role="img" aria-labelledby="title desc">
+<title id="title">Kubernetes Host Lifecycle and Infrastructure Reuse</title><desc id="desc">Native BYOH host states and planned clean host reuse workflow, with optional external infrastructure rebuild.</desc>
+<defs><marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" viewBox="0 0 9 9"><path d="M0 0L9 4.5L0 9Z" fill="#4089bf"/></marker><style>text{font-family:Inter,Arial,sans-serif;fill:#163456;text-anchor:middle}.h{font-size:34px;font-weight:700}.sub{font-size:18px;fill:#526b80}.label{font-size:23px;font-weight:700}.small{font-size:16px;fill:#526b80}.section{font-size:21px;font-weight:700;text-anchor:start}.arrow{stroke:#4089bf;stroke-width:2.5;fill:none;marker-end:url(#a);stroke-linejoin:round}.blue{fill:#edf6ff;stroke:#90c4ed;stroke-width:1.8}.mint{fill:#eafaf5;stroke:#8ad8c7;stroke-width:1.8}.planned{fill:#f6fbff;stroke:#78a9cc;stroke-width:1.8;stroke-dasharray:7 5}</style></defs>
+<rect width="1200" height="940" rx="24" fill="#fcfeff"/>
+<text x="600" y="53" class="h">Kubernetes Host Lifecycle &amp; Infrastructure Reuse</text><text x="600" y="84" class="sub">Independent infrastructure ownership. Controlled Kubernetes lifecycle.</text>
+<rect x="45" y="111" width="1110" height="90" rx="18" class="blue"/><text x="600" y="148" class="label">Existing Linux infrastructure</text><text x="600" y="176" class="small">Virtual machines and physical servers · externally provisioned and maintained</text>
+<path d="M600 201V229" class="arrow"/>
+<rect x="45" y="239" width="1110" height="312" rx="20" fill="#f5fbfa" stroke="#b3ddd7"/><text x="72" y="274" class="section">01   Native BYOH host lifecycle</text>
+<rect x="75" y="304" width="225" height="83" rx="14" class="mint"/><text x="187" y="337" class="label">Free</text><text x="187" y="362" class="small">Registered capacity</text>
+<rect x="350" y="304" width="225" height="83" rx="14" class="blue"/><text x="462" y="337" class="label">Attached</text><text x="462" y="362" class="small">Assigned to ByoMachine</text>
+<rect x="625" y="304" width="225" height="83" rx="14" class="blue"/><text x="737" y="337" class="label">Provisioned</text><text x="737" y="362" class="small">Kubernetes node</text>
+<rect x="900" y="304" width="225" height="83" rx="14" class="mint"/><text x="1012" y="337" class="label">Resetting</text><text x="1012" y="362" class="small">Machine deletion</text>
+<path d="M300 345H345M575 345H620M850 345H895" class="arrow"/>
+<path d="M462 387V414H1012V392" class="arrow"/><text x="737" y="407" class="small">Deletion before provisioning completes</text>
+<path d="M1012 387V473H187V392" class="arrow"/><text x="600" y="495" class="small">Reset reported · controller clears assignment · host remains registered</text>
+<text x="600" y="530" class="small">Operate and upgrade while provisioned · protected deletion requires authorized decommissioning</text>
+<path d="M600 551V576" class="arrow"/>
+<rect x="45" y="585" width="1110" height="310" rx="20" fill="#f7fbff" stroke="#b5d4ec"/><text x="72" y="620" class="section">02   Extended lifecycle workflow · pending end-to-end validation</text>
+<rect x="75" y="640" width="310" height="74" rx="14" class="planned"/><text x="230" y="671" class="label">Unregister</text><text x="230" y="695" class="small">Stop agent · remove registration</text>
+<rect x="445" y="640" width="310" height="74" rx="14" class="planned"/><text x="600" y="671" class="label">Cleanup &amp; verify</text><text x="600" y="695" class="small">Validate clean host baseline</text>
+<path d="M385 677H440" class="arrow"/><path d="M600 714V741H330V763" class="arrow"/><path d="M600 741H870V763" class="arrow"/>
+<rect x="100" y="768" width="460" height="91" rx="16" class="mint"/><text x="330" y="803" class="label">Host reuse</text><text x="330" y="832" class="small">Same infrastructure · register and reprovision</text>
+<rect x="640" y="768" width="460" height="91" rx="16" class="blue"/><text x="870" y="803" class="label">Infrastructure rebuild</text><text x="870" y="832" class="small">Optional external destroy and provision</text>
+<text x="600" y="920" class="small">Native host reset is not equivalent to complete cleanup or credential revocation.</text>
+</svg>
