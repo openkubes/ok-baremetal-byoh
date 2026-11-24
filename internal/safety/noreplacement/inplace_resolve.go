@@ -80,7 +80,8 @@ func (r TargetResolver) ByoMachineFollowsMove(ctx context.Context, oldU, newU *u
 		return false
 	}
 	// the ByoMachine is the InfraMachine of that Machine, not only an object that names it as its owner
-	if infra := machine.Spec.InfrastructureRef; infra.Kind != newU.GetKind() || infra.Name != newU.GetName() || infra.Name == "" {
+	infra := machine.Spec.InfrastructureRef
+	if infra.APIGroup != newU.GroupVersionKind().Group || infra.Kind != newU.GetKind() || infra.Name != newU.GetName() || infra.Name == "" {
 		return false
 	}
 	targetMS, ok := r.machineSetOfDeployment(ctx, machine.Namespace, target)

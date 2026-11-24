@@ -10,6 +10,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -18,6 +19,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 // The label re-alignment of a ByoMachine after the in-place move of its Machine, as seen on the ha1 lab: the
@@ -255,11 +257,26 @@ func TestByoMachineSetLabelsFollowTheMove(t *testing.T) {
 			m.Spec.InfrastructureRef.Name = "another-byomachine"
 			return m
 		}(), grant()}, before(), after, false, "not a recognized in-place transition"},
+		{"the infrastructureRef of the Machine has another kind", []client.Object{source(), target(), func() *clusterv1.Machine {
+			m := movedMachine()
+			m.Spec.InfrastructureRef.Kind = "DockerMachine"
+			return m
+		}(), grant()}, before(), after, false, "not a recognized in-place transition"},
+		{"the infrastructureRef of the Machine has another API group", []client.Object{source(), target(), func() *clusterv1.Machine {
+			m := movedMachine()
+			m.Spec.InfrastructureRef.APIGroup = "other.example.com"
+			return m
+		}(), grant()}, before(), after, false, "not a recognized in-place transition"},
+		{"the Machine has no infrastructureRef", []client.Object{source(), target(), func() *clusterv1.Machine {
+			m := movedMachine()
+			m.Spec.InfrastructureRef = clusterv1.ContractVersionedObjectReference{}
+			return m
+		}(), grant()}, before(), after, false, "not a recognized in-place transition"},
 		{"the owner reference of the Machine is not a controller reference", []client.Object{source(), target(), func() *clusterv1.Machine {
 			m := movedMachine()
 			m.OwnerReferences[0].Controller = nil
 			return m
-		}(), grant()}, before(), after, false, ""},
+		}(), grant()}, before(), after, false, "not a recognized in-place transition"},
 		{"the target MachineSet is being deleted", []client.Object{source(), deleting(target()), movedMachine(), grant()}, before(), after, false, "not a recognized in-place transition"},
 		{"the source MachineSet is being deleted", []client.Object{deleting(source()), target(), movedMachine(), grant()}, before(), after, false, "not a recognized in-place transition"},
 		{"the source MachineSet has no MachineDeployment", []client.Object{func() *clusterv1.MachineSet {
@@ -308,6 +325,54 @@ func TestByoMachineSetLabelsWithoutToggleAndDryRun(t *testing.T) {
 	// a persisted re-alignment to forged values stays denied, with and without the toggle on both sides
 	if d := guardMove(moveWorld(t, world...), plain(moveSource, moveSrcHash), plain("md-0-forged", "forged"), false); d.Allowed {
 		t.Fatal("forged values were allowed")
+	}
+}
+
+// A MachineSet that cannot be read (API error, not only a missing object) denies: the binding to the move is never
+// assumed. The Machine and the grant are still readable, so the denial comes from the MachineSet read alone.
+func TestByoMachineSetLabelsMachineSetReadError(t *testing.T) {
+	future := grantNow.Add(time.Hour)
+	for _, failing := range []string{moveTarget, moveSource} {
+		t.Run(failing, func(t *testing.T) {
+			s := runtime.NewScheme()
+			_ = corev1.AddToScheme(s)
+			_ = clusterv1.AddToScheme(s)
+			reads := 0
+			c := fake.NewClientBuilder().WithScheme(s).WithObjects(
+				moveMachineSet(moveSource, moveSourceUID, moveSrcHash, moveMDUID), moveMachineSet(moveTarget, moveTargetUID, moveTgtHash, moveMDUID),
+				movedMachine(), moveGrant(TargetMachineDeployment, moveMDUID, future, "claim", mdTransitions),
+			).WithInterceptorFuncs(interceptor.Funcs{Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				// only the read of the binding fails, not the later one that resolves the grant target
+				if _, ok := obj.(*clusterv1.MachineSet); ok && key.Name == failing && reads == 0 {
+					reads++
+					return apierrors.NewServiceUnavailable("etcd is not reachable")
+				}
+				return cl.Get(ctx, key, obj, opts...)
+			}}).Build()
+			d := guardMove(c, moveByoMachine(moveSource, moveSrcHash), moveByoMachine(moveTarget, moveTgtHash), false)
+			if d.Allowed || reads != 1 || !strings.Contains(d.Reason, "not a recognized in-place transition") {
+				t.Fatalf("allowed=%v failed reads=%d reason %q", d.Allowed, reads, d.Reason)
+			}
+		})
+	}
+}
+
+// Pinned as it is, not introduced here: a request that toggles update-in-progress is decided by the older toggle
+// shape, which does not look at the labels (deferred hardening). The re-alignment rule is not what allows it.
+func TestByoMachineSetLabelsTogetherWithTheToggleUseTheToggleShape(t *testing.T) {
+	future := grantNow.Add(time.Hour)
+	world := []client.Object{
+		moveMachineSet(moveSource, moveSourceUID, moveSrcHash, moveMDUID), moveMachineSet(moveTarget, moveTargetUID, moveTgtHash, moveMDUID),
+		movedMachine(), moveGrant(TargetMachineDeployment, moveMDUID, future, "claim", mdTransitions),
+	}
+	oldU := moveByoMachine(moveSource, moveSrcHash)
+	oldU.SetAnnotations(map[string]string{"cluster.x-k8s.io/cloned-from-name": "md-0"})
+	if d := guardMove(moveWorld(t, world...), oldU, moveByoMachine(moveTarget, moveTgtHash), false); !d.Allowed {
+		t.Fatalf("toggle added together with the labels: %s", d.Reason)
+	}
+	// without a grant the same request is denied by the toggle shape
+	if d := guardMove(moveWorld(t, world[:3]...), oldU, moveByoMachine(moveTarget, moveTgtHash), false); d.Allowed {
+		t.Fatal("allowed without a grant")
 	}
 }
 
