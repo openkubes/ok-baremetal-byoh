@@ -459,7 +459,7 @@ func (e *Executor) kubeadmUpgrade(ctx context.Context, req *infrav1.InPlaceUpgra
 // per attempt: a failed unit stays for the journal and never blocks the next
 // attempt.
 func (e *Executor) unit(req *infrav1.InPlaceUpgradeRequest, what string) string {
-	return fmt.Sprintf("okx-inplace-%s-%d-%s.service", req.ID, req.Attempt, what)
+	return fmt.Sprintf("%s%s-%d-%s.service", UnitPrefix, req.ID, req.Attempt, what)
 }
 
 // durable runs a command that must not be interrupted (dpkg, kubeadm upgrade)
@@ -495,14 +495,14 @@ func (e *Executor) durable(ctx context.Context, unit, name string, args ...strin
 // unitState returns the ActiveState and the Result of a systemd unit; an
 // unknown unit is inactive.
 func (e *Executor) unitState(ctx context.Context, unit string) (state, result string, err error) {
-	out, err := e.Runner.Run(ctx, "systemctl", "show", "--property=ActiveState", "--property=Result", unit)
+	out, err := e.Runner.Run(ctx, "systemctl", "show", "--property="+propActiveState, "--property=Result", unit)
 	if err != nil {
 		return "", "", fmt.Errorf("reading the state of %s: %w", unit, err)
 	}
 	for _, line := range strings.Split(string(out), "\n") {
 		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
 			switch k {
-			case "ActiveState":
+			case propActiveState:
 				state = v
 			case "Result":
 				result = v

@@ -66,6 +66,8 @@ var _ = Describe("ByohostWebhook with the agent", func() {
 			// The webhook test checks API/RBAC behavior, not the host CRI runtime.
 			// Sandbox cleanup has dedicated unit tests.
 			PreResetCleanup: func(context.Context) error { return nil },
+			// Nor the systemd units of in-place upgrades, which have their own tests.
+			UpgradeUnits: noUpgradeUnits{},
 		}
 		registrar = &registration.HostRegistrar{K8sClient: ValidUserK8sClient}
 
@@ -157,3 +159,8 @@ var _ = Describe("ByohostWebhook with the agent", func() {
 		Entry("without --label", nil),
 	)
 })
+
+// noUpgradeUnits is a host on which no command of an in-place upgrade runs.
+type noUpgradeUnits struct{}
+
+func (noUpgradeUnits) Busy(context.Context) ([]string, error) { return nil, nil }

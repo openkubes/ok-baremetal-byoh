@@ -62,6 +62,19 @@ const (
 	// failed to uninstall the k8s components while it resets the host for
 	// spec.resetRequested. The agent tries again.
 	K8sComponentsUninstallationFailedReason = "K8sComponentsUninstallationFailed"
+
+	// HostResetBlockedByInPlaceUpgradeReason indicates that the host agent
+	// does not reset the host for spec.resetRequested because a command of an
+	// in-place upgrade (dpkg, kubeadm upgrade) still runs on it, in a systemd
+	// unit that outlived its attempt. The agent stops nothing and tries again;
+	// the message names the units.
+	HostResetBlockedByInPlaceUpgradeReason = "HostResetBlockedByInPlaceUpgrade"
+
+	// HostExecutionStateUnknownReason indicates that the host agent does not
+	// reset the host for spec.resetRequested because it could not establish
+	// whether a command of an in-place upgrade still runs on it. The agent
+	// tries again.
+	HostExecutionStateUnknownReason = "HostExecutionStateUnknown"
 )
 
 // Conditions and Reasons defined on BYOMachine

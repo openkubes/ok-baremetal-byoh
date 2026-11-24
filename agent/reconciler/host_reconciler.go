@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/openkubes/ok-baremetal-byoh/agent/cloudinit"
 	"github.com/openkubes/ok-baremetal-byoh/agent/inplaceupgrade"
@@ -46,9 +47,21 @@ type HostReconciler struct {
 	// resets the host. The file exists only while the components that the
 	// agent has installed are on the host.
 	UninstallScriptPath string
+	// UpgradeUnits tells whether a command of an in-place upgrade may still
+	// run on the host. The host is reset only when it says that none does: a
+	// nil UpgradeUnits blocks every reset.
+	UpgradeUnits UpgradeUnitChecker
+
 	// Upgrader upgrades Kubernetes on the host in place, for
 	// spec.inPlaceUpgrade. A nil Upgrader fails every upgrade.
 	Upgrader InPlaceUpgrader
+}
+
+// UpgradeUnitChecker reports the systemd units of in-place upgrades that have
+// not provably ended on the host. An error means that the state of the host
+// is unknown.
+type UpgradeUnitChecker interface {
+	Busy(ctx context.Context) ([]string, error)
 }
 
 // InPlaceUpgrader upgrades Kubernetes on the host in place
@@ -244,6 +257,10 @@ func (r *HostReconciler) reconcileReset(ctx context.Context, byoHost *infrastruc
 // --skip-installation says that the host has them.
 func (r *HostReconciler) resetHost(ctx context.Context, byoHost *infrastructurev1beta1.ByoHost) error {
 	logger := ctrl.LoggerFrom(ctx)
+	// Before anything on the host changes.
+	if err := r.requireNoUpgradeCommand(ctx, byoHost); err != nil {
+		return err
+	}
 	logger.Info("Resetting host")
 
 	uninstallScript, installed, err := r.readUninstallScript()
@@ -260,6 +277,12 @@ func (r *HostReconciler) resetHost(ctx context.Context, byoHost *infrastructurev
 	v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sNodeBootstrapSucceeded, infrastructurev1beta1.K8sNodeAbsentReason, clusterv1beta1.ConditionSeverityInfo, "")
 
 	if installed {
+		// Again before the uninstall script, which runs dpkg and removes the
+		// container runtime: the reset may have been resumed here after a
+		// restart of the agent.
+		if err := r.requireNoUpgradeCommand(ctx, byoHost); err != nil {
+			return err
+		}
 		logger.Info("Executing Uninstall script")
 		if err := r.CmdRunner.RunCmd(ctx, uninstallScript); err != nil {
 			logger.Error(err, "error execting Uninstallation script")
@@ -284,6 +307,47 @@ func (r *HostReconciler) resetHost(ctx context.Context, byoHost *infrastructurev
 	// If patching status.lastReset fails, the next reconcile must not
 	// repeat a successful kubeadm reset.
 	return nil
+}
+
+// requireNoUpgradeCommand returns an error while a command of an in-place
+// upgrade may still run on the host, or while that cannot be established. The
+// API objects do not tell: dpkg and kubeadm upgrade run in systemd units that
+// outlive the agent, a step timeout and a failed attempt, and a reset beside
+// them would break the host.
+//
+// It stops nothing and removes nothing. The reset is tried again, and it is
+// not reported in status.lastReset, so the controller keeps the host attached.
+// The reason is in the condition of the ByoHost; an event is recorded when it
+// changes, not on every retry.
+func (r *HostReconciler) requireNoUpgradeCommand(ctx context.Context, byoHost *infrastructurev1beta1.ByoHost) error {
+	logger := ctrl.LoggerFrom(ctx)
+	reason, message := "", ""
+	if r.UpgradeUnits == nil {
+		reason, message = infrastructurev1beta1.HostExecutionStateUnknownReason, "the agent has no check of the units of in-place upgrades"
+	} else if busy, err := r.UpgradeUnits.Busy(ctx); err != nil {
+		reason, message = infrastructurev1beta1.HostExecutionStateUnknownReason, fmt.Sprintf("cannot tell whether a command of an in-place upgrade still runs: %v", err)
+	} else if len(busy) > 0 {
+		reason, message = infrastructurev1beta1.HostResetBlockedByInPlaceUpgradeReason, "a command of an in-place upgrade has not ended: "+strings.Join(busy, ", ")
+	}
+
+	previous := v1beta1conditions.Get(byoHost, infrastructurev1beta1.K8sComponentsInstallationSucceeded)
+	wasBlocked := previous != nil && (previous.Reason == infrastructurev1beta1.HostResetBlockedByInPlaceUpgradeReason || previous.Reason == infrastructurev1beta1.HostExecutionStateUnknownReason)
+	if reason == "" {
+		if wasBlocked {
+			logger.Info("No command of an in-place upgrade runs any more, the host is reset")
+			r.Recorder.Eventf(byoHost, nil, corev1.EventTypeNormal, "HostResetUnblocked", "ResetHost", "no command of an in-place upgrade runs any more")
+			// The blockade is over and the components are still installed;
+			// the reset that follows reports their removal.
+			v1beta1conditions.MarkTrue(byoHost, infrastructurev1beta1.K8sComponentsInstallationSucceeded)
+		}
+		return nil
+	}
+	logger.Info("Not resetting the host", "reason", reason, "message", message)
+	if previous == nil || previous.Reason != reason || previous.Message != message {
+		r.Recorder.Eventf(byoHost, nil, corev1.EventTypeWarning, reason, "ResetHost", "%s", message)
+	}
+	v1beta1conditions.MarkFalse(byoHost, infrastructurev1beta1.K8sComponentsInstallationSucceeded, reason, clusterv1beta1.ConditionSeverityWarning, "%s", message)
+	return fmt.Errorf("host reset blocked: %s", message)
 }
 
 // resetNodeForAttachment checks the UID-bound checkpoint before the node reset.
