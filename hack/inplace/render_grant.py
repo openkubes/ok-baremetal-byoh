@@ -15,6 +15,9 @@ without machineUID (it would make the lookup ambiguous). Data (M1 §1.1, interna
   authorizationDigest  sha256 of the approval record (who approved, when, which gate)
   notAfter             the end of the change window (keep it short); permittedUseCount 1
 The record files stay in the gate evidence, so every digest can be traced back to its document.
+A grant is never deleted or changed. If the window ends before the rollout does, render a new grant with a later
+--not-after once the first one has expired (two valid grants of one target are ambiguous and denied); it gets
+another name, because the end of the window is part of the grant ID.
 """
 import argparse
 import datetime
@@ -60,11 +63,14 @@ def render(a, now=None):
     if not_after - now > datetime.timedelta(hours=24):
         raise ValueError("--not-after is more than 24 h away: keep the change window short")
     pkg = digest(a.package_lock)
-    grant_id = f"{SHORT[a.kind]}-{a.name}-{a.to}-{hashlib.sha256((a.uid + a.to + pkg).encode()).hexdigest()[:8]}"
+    # The end of the window is part of the ID: a grant cannot be deleted or changed, so the grant of a later window
+    # for the same target (after the first one expired) needs another name.
+    window = not_after.strftime("%Y-%m-%dT%H:%M:%SZ")
+    grant_id = f"{SHORT[a.kind]}-{a.name}-{a.to}-{hashlib.sha256((a.uid + a.to + pkg + window).encode()).hexdigest()[:8]}"
     data = {
         "grantID": grant_id, "clusterUID": a.cluster_uid, "targetKind": a.kind, "targetName": a.name, "targetUID": a.uid,
         "fromVersion": a.from_version, "toVersion": a.to, "transitions": ",".join(TRANSITIONS[a.kind]),
-        "payloadDigest": pkg, "notAfter": not_after.strftime("%Y-%m-%dT%H:%M:%SZ"), "permittedUseCount": "1",
+        "payloadDigest": pkg, "notAfter": window, "permittedUseCount": "1",
         "requestDigest": digest(a.request), "authorizationDigest": digest(a.authorization),
     }
     return {"apiVersion": "v1", "kind": "ConfigMap",

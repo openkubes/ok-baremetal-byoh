@@ -49,6 +49,17 @@ class Render(unittest.TestCase):
             self.assertRegex(d[k], r"^sha256:[0-9a-f]{64}$")
         self.assertEqual(rg.render(self.args(), NOW), cm, "deterministic")
 
+    def test_a_later_window_gets_another_name(self):
+        """A grant cannot be deleted or changed: the grant of a second window for the same target (seen on the ha1
+        lab, where the first window was too short) must not collide with the expired one."""
+        first = rg.render(self.args(not_after="2026-11-24T18:00:00Z"), NOW)
+        second = rg.render(self.args(not_after="2026-11-25T02:00:00Z"), NOW)
+        self.assertNotEqual(first["metadata"]["name"], second["metadata"]["name"])
+        self.assertNotEqual(first["data"]["grantID"], second["data"]["grantID"])
+        self.assertEqual({k: v for k, v in first["data"].items() if k not in ("grantID", "notAfter")},
+                         {k: v for k, v in second["data"].items() if k not in ("grantID", "notAfter")})
+        self.assertTrue(first["metadata"]["name"].startswith("okx-grant-kcp-ha1-control-plane-v1.37.2-"))
+
     def test_md_grant_includes_the_machineset_acknowledge(self):
         d = rg.render(self.args(kind="MachineDeployment", name="ha1-md-0"), NOW)["data"]
         self.assertIn("MD-ACK", d["transitions"].split(","))
