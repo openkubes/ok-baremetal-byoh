@@ -52,7 +52,8 @@ verify)
 	chmod 600 "$TMPD/drainer.kubeconfig"
 	d() { kubectl --kubeconfig "$TMPD/drainer.kubeconfig" --request-timeout=20s "$@"; }
 	fails=0
-	for c in "yes get nodes" "yes patch nodes" "yes list pods -A" "yes create pods/eviction -A" \
+	# the eviction is a subresource: `can-i create pods/eviction` would ask for a pod named "eviction"
+	for c in "yes get nodes" "yes patch nodes" "yes list pods -A" "yes create pods --subresource=eviction -A" \
 		"no get secrets -A" "no delete pods -A" "no delete nodes" "no create pods -A" "no update nodes/status" "no '*' '*'"; do
 		want=${c%% *}
 		got=$(eval d auth can-i "${c#* }" 2>/dev/null || true)

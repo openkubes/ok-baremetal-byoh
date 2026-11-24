@@ -47,11 +47,22 @@ case_ "create a replacement Machine" "$(dry create -f "$TMPD/replacement.json")"
 case_ "scale the KCP to 1 (scale subresource)" "$(dry -n "$NS" scale kcp "$kcp" --replicas=1)"
 case_ "scale the MD to 0 (scale subresource)" "$(dry -n "$NS" scale md "$md" --replicas=0)"
 case_ "change the KCP replicas" "$(dry -n "$NS" patch kcp "$kcp" --type merge -p '{"spec":{"replicas":5}}')"
-case_ "raise the KCP maxSurge" "$(dry -n "$NS" patch kcp "$kcp" --type merge -p '{"spec":{"rollout":{"strategy":{"rollingUpdate":{"maxSurge":2}}}}}')"
+# Cluster API itself only accepts a maxSurge of 0 or 1, so the only raise that reaches the guard is 0 -> 1.
+surge=$(k -n "$NS" get kcp "$kcp" -o jsonpath='{.spec.rollout.strategy.rollingUpdate.maxSurge}')
+if [ "$surge" = 0 ]; then
+	case_ "raise the KCP maxSurge" "$(dry -n "$NS" patch kcp "$kcp" --type merge -p '{"spec":{"rollout":{"strategy":{"rollingUpdate":{"maxSurge":1}}}}}')"
+else
+	echo "SKIP  raise the KCP maxSurge: it is ${surge:-unset}, not 0 (nothing to raise within what Cluster API accepts)"
+fi
 case_ "change the KCP machine template" "$(dry -n "$NS" patch kcp "$kcp" --type merge -p '{"spec":{"machineTemplate":{"spec":{"infrastructureRef":{"name":"other"}}}}}')"
 case_ "change the KCP kubeadm configuration" "$(dry -n "$NS" patch kcp "$kcp" --type merge -p '{"spec":{"kubeadmConfigSpec":{"preKubeadmCommands":["true"]}}}')"
 case_ "change the MD infrastructure template" "$(dry -n "$NS" patch md "$md" --type merge -p '{"spec":{"template":{"spec":{"infrastructureRef":{"name":"other"}}}}}')"
-case_ "change the KCP version without a grant" "$(dry -n "$NS" patch kcp "$kcp" --type merge -p "{\"spec\":{\"version\":\"${TARGET:-v1.37.2}\"}}")"
+# A version that no grant covers and that differs from the current one (a patch to the current version is no change
+# and reaches no webhook): TARGET, or the next patch release of the running version.
+current=$(k -n "$NS" get kcp "$kcp" -o jsonpath='{.spec.version}')
+ungranted=${TARGET:-${current%.*}.$((${current##*.} + 1))}
+[ "$ungranted" != "$current" ] || { echo "TARGET $TARGET is the current version of the KCP: choose a version it does not have" >&2; exit 2; }
+case_ "change the KCP version without a grant for it ($current -> $ungranted)" "$(dry -n "$NS" patch kcp "$kcp" --type merge -p "{\"spec\":{\"version\":\"$ungranted\"}}")"
 case_ "delete the KCP" "$(dry -n "$NS" delete kcp "$kcp")"
 case_ "delete the MD" "$(dry -n "$NS" delete md "$md")"
 case_ "remove the protection label" "$(dry label ns "$NS" safety.openkubes.org/in-place-only-)"
