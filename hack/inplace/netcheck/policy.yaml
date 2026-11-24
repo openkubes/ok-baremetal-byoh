@@ -1,0 +1,38 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+# Policy regression for okx-netcheck (hack/inplace/netcheck.sh policy). Expected with both policies:
+#   client-allowed -> echo pods and Service :8080   ALLOW  (Kubernetes NetworkPolicy ingress rule)
+#   client-denied  -> echo pods and Service :8080   DENY   (ingress default deny + CNP egress)
+#   every client   -> kube-dns :53                  ALLOW  (CNP egress keeps DNS)
+# Two independent enforcement paths (Kubernetes NetworkPolicy on ingress, CiliumNetworkPolicy on
+# egress), both L3/L4 only. No toServices+toPorts rule (its semantics change in Cilium 1.21).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: echo-ingress
+  namespace: okx-netcheck
+spec:
+  podSelector:
+    matchLabels: {app: echo}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: client, role: allowed}
+      ports: [{port: 8080, protocol: TCP}]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: client-denied-egress
+  namespace: okx-netcheck
+spec:
+  endpointSelector:
+    matchLabels: {app: client, role: denied}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports: [{port: "53", protocol: UDP}, {port: "53", protocol: TCP}]

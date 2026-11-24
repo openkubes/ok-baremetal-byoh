@@ -130,7 +130,9 @@ without secrets or kubeconfigs.
 - Historical manual upgrade: [upgrade-1.37.md](scaleway-kubeadm-e2e/upgrade-1.37.md) <!-- provider-neutrality: allow (E2E lab record) -->
 - Upgrade automation baseline: [upgrade-make-runbook.md](scaleway-kubeadm-e2e/upgrade-make-runbook.md) <!-- provider-neutrality: allow (E2E lab record) -->
 - E2E lab rollout plan: [inplace-upgrade-ha1-rollout.md](scaleway-kubeadm-e2e/inplace-upgrade-ha1-rollout.md) <!-- provider-neutrality: allow (E2E lab record) -->
-- Tooling: `hack/inplace/` (preflight, progress, monitor, etcd-snapshot, uids, render-registry; identity checks
-  of the kubeconfigs in `lib.sh`, Cilium compatibility in `cilium_compat.py`; offline tests in `hack/inplace/test`)
+- Tooling: `hack/inplace/` (preflight, progress, monitor, etcd-snapshot, uids, render-registry; the per-host gate
+  `host-step.sh` with `host_step.py`; grants rendered by `render_grant.py`; connectivity/policy checks `netcheck.sh`;
+  identity checks of the kubeconfigs in `lib.sh`, Cilium compatibility in `cilium_compat.py`; offline tests in
+  `hack/inplace/test`)
 - Deployment: `config/inplace/base` (generic) and per-lab overlays (`config/inplace/overlays/<lab>`)
 - Grant contract: `labs/byoh-inplace-spike/design/M1-grant-contract-and-transition-matrix.md`

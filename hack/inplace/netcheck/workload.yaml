@@ -1,0 +1,105 @@
+# Copyright 2026 The Cluster API Provider BringYourOwnHost Authors.
+# SPDX-License-Identifier: Apache-2.0
+# Connectivity and NetworkPolicy regression workload (hack/inplace/netcheck.sh).
+# Applied and removed only as approved gate steps (it creates workloads in the workload cluster).
+# One echo server and two clients on every node (control planes included): pod-to-pod across all
+# node pairs, pod-to-Service, DNS. policy.yaml then proves Kubernetes NetworkPolicy and
+# CiliumNetworkPolicy enforcement (L3/L4 only).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: okx-netcheck
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: echo
+  namespace: okx-netcheck
+spec:
+  selector:
+    matchLabels: {app: echo}
+  template:
+    metadata:
+      labels: {app: echo}
+    spec:
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: echo
+          image: registry.k8s.io/e2e-test-images/agnhost:2.56@sha256:352a050380078cb2a1c246357a0dfa2fcf243ee416b92ff28b44a01d1b4b0294
+          args: ["netexec", "--http-port=8080", "--udp-port=-1"]
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: okx-netcheck
+spec:
+  selector: {app: echo}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: client-allowed
+  namespace: okx-netcheck
+spec:
+  selector:
+    matchLabels: {app: client, role: allowed}
+  template:
+    metadata:
+      labels: {app: client, role: allowed}
+    spec:
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: client
+          image: registry.k8s.io/e2e-test-images/agnhost:2.56@sha256:352a050380078cb2a1c246357a0dfa2fcf243ee416b92ff28b44a01d1b4b0294
+          args: ["pause"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: client-denied
+  namespace: okx-netcheck
+spec:
+  selector:
+    matchLabels: {app: client, role: denied}
+  template:
+    metadata:
+      labels: {app: client, role: denied}
+    spec:
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: client
+          image: registry.k8s.io/e2e-test-images/agnhost:2.56@sha256:352a050380078cb2a1c246357a0dfa2fcf243ee416b92ff28b44a01d1b4b0294
+          args: ["pause"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
