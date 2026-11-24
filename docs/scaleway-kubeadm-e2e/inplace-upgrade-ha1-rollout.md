@@ -1,7 +1,9 @@
 # ha1 in-place upgrade: Scaleway integration and upgrade plan (v1.36.6 → v1.37.2)
 
-> **Status: PLAN.** Prepared in Gates B10.22/B10.23, nothing executed. Every numbered step is its own gate with
-> explicit approval; stop on any failed check; no automatic retry, rollback or cleanup. Mechanism and recovery:
+> **Status: EXECUTED on 2026-11-24, result PASS** ([test protocol](inplace-upgrade-testprotocol.md)). The text
+> below is the plan as it was written before the run (Gates B10.22/B10.23); what the run did differently is listed
+> in [Deviations of the run](#deviations-of-the-run). Every numbered step was its own gate with explicit approval;
+> stop on any failed check; no automatic retry, rollback or cleanup. Mechanism and recovery:
 > [../inplace-upgrade.md](../inplace-upgrade.md). Tooling: `hack/inplace/`. Management context is always
 > named explicitly (`kind-ok-lab-mgmt`); hosts only over the pinned SSH of ok-scaleway-lab.
 
@@ -148,6 +150,25 @@ the same host per the runbook (`../inplace-upgrade.md`); never `kubeadm reset`, 
 Never: delete or replace a Machine, ByoMachine, ByoHost or VM; set `cluster.x-k8s.io/delete-machine`; remove CAPI
 in-place annotations or hooks by hand; pre-approve a host that is not waiting; continue after a failed check without
 a new approval.
+
+## Deviations of the run
+- **B2 order:** the agents were updated w-1, w-2, cp-3, cp-2, cp-1 (canary on a worker), and a second time during
+  Phase D to the fixed agent `cdf534b` (cp-1 in the failed state, then cp-3, cp-2, w-1, w-2).
+- **B4** (drainer identity) was created right before the version patch, because its token lives 48 h; revoked after
+  the run. Its `verify` reported 9 of 10 (a defect of the check, fixed in #39).
+- **B5:** `negative-tests.sh` reached 14 of 16 with the script of the run (two stale cases, fixed in #39: 16 of 16).
+  The guard outage drill (scale to 0) was not run.
+- **B6:** `RuntimeSDK` is only a gate of the core controller; the KCP controller has `InPlaceUpdates` alone.
+- **C1:** Cilium 1.21.0-pre.4, a pre-release, accepted for this lab only.
+- **D0:** the grant watcher of the host RBAC and `monitor.sh` ran for the whole phase (two windows of 4 h).
+- **D1:** the first UpdateMachine calls failed (extension defect, #34); extension redeployed before any host.
+- **D2:** `ha1-cp-1` needed attempt 1 after the agent fix (#35). The host approval is typed by the operator in a
+  terminal; it cannot be supplied by automation.
+- **D5:** the extension declined the MachineSet (#36); Cluster API tried to replace a worker until the fix and a
+  restart of `capi-controller-manager`; then the guard denied the ByoMachine label re-alignment (#37).
+- **D8:** the netcheck workload was removed, the drainer revoked. Not done: KCP `maxSurge` back to 1 (the guard
+  denies raising it in a protected namespace), decommission, the guard outage drill.
+- **Sequence** was exactly the planned one: cp-1, cp-3, cp-2, w-1, w-2.
 
 ## Unregistering and VM destruction
 With the guard active, Machine/KCP/MD/namespace deletion in `ha1` is denied. Before the B10.20 teardown:
