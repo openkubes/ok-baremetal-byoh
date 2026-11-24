@@ -77,7 +77,7 @@ func moveByoMachine(setName, hash string) *unstructured.Unstructured {
 	u.SetLabels(map[string]string{"cluster.x-k8s.io/cluster-name": "ha1", machineSetNameLabel: setName, machineTemplateHashLabel: hash})
 	u.SetAnnotations(map[string]string{updateInProgressAnnotation: "", "cluster.x-k8s.io/cloned-from-name": "md-0"})
 	u.SetFinalizers([]string{"byomachine.infrastructure.cluster.x-k8s.io"})
-	u.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: clusterv1.GroupVersion.String(), Kind: "Machine",
+	u.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: clusterv1.GroupVersion.String(), Kind: machineKind,
 		Name: moveMachine, UID: "machine-uid", Controller: ptr.To(true)}})
 	return u
 }

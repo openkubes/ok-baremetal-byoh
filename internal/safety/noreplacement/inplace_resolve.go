@@ -112,10 +112,13 @@ func (r TargetResolver) machineSetOfDeployment(ctx context.Context, namespace, n
 	return ms, ms.DeletionTimestamp.IsZero() && md.Kind == string(TargetMachineDeployment) && md.UID != ""
 }
 
+// machineKind is the kind of the controller owner of a ByoMachine.
+const machineKind = "Machine"
+
 // OwnerMachine reads the Machine that controls a ByoMachine; its UID must be the one of the owner reference.
 func (r TargetResolver) OwnerMachine(ctx context.Context, u *unstructured.Unstructured) (*clusterv1.Machine, error) {
 	ref := controllerRef(u.GetOwnerReferences())
-	if ref.Kind != "Machine" {
+	if ref.Kind != machineKind {
 		return nil, fmt.Errorf("ByoMachine %s has no controller Machine owner", u.GetName())
 	}
 	m := &clusterv1.Machine{}
