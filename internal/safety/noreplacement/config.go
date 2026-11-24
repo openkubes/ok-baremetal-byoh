@@ -30,6 +30,9 @@ type registryDocument struct {
 // The caller must load this configuration from a trusted source.
 // This function does not authorize who may change that source.
 //
+// An empty registry protects nothing and verifies nothing: every guarded
+// request in a namespace that carries the routing label then fails closed.
+//
 // The returned map is owned by the caller and must not be mutated
 // after it becomes active in an admission handler.
 func ParseProtectedRegistry(
@@ -49,8 +52,11 @@ func ParseProtectedRegistry(
 		return nil, fmt.Errorf("registry contains trailing data")
 	}
 
-	if len(document.Registrations) == 0 {
-		return nil, fmt.Errorf("registry must contain protected clusters")
+	// An explicitly empty list is a valid registry: a management cluster may
+	// protect no cluster at all. A document without the list (or with null)
+	// is not, so that a truncated or wrong file never passes as "empty".
+	if document.Registrations == nil {
+		return nil, fmt.Errorf("registry must declare its registrations (use [] for none)")
 	}
 
 	result := make(map[string]NamespaceRegistration)

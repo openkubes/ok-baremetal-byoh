@@ -25,8 +25,14 @@ func TestParseProtectedRegistry(t *testing.T) {
 		wantError bool
 	}{
 		{"valid", valid, false},
-		{"empty", `{}`, true},
-		{"empty list", `{"registrations":[]}`, true},
+		{"no registrations key", `{}`, true},
+		{"null registrations", `{"registrations":null}`, true},
+		{"empty input", ``, true},
+		{"whitespace only", " \n", true},
+		{"json null", `null`, true},
+		{"list instead of document", `[]`, true},
+		{"empty list with trailing data", `{"registrations":[]}{}`, true},
+		{"empty list with unknown field", `{"registrations":[],"enabled":false}`, true},
 		{"invalid json", `{`, true},
 		{"trailing data", valid + `{}`, true},
 		{
