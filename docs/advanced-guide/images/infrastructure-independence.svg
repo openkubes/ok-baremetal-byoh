@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1448" height="1000" viewBox="0 90 1448 1000" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1448" height="1000" viewBox="0 90 1448 1000" role="img" aria-labelledby="title desc"><!-- Copyright 2026 The OpenKubes Authors. SPDX-License-Identifier: Apache-2.0 --><metadata>Copyright 2026 The OpenKubes Authors. SPDX-License-Identifier: Apache-2.0. Licensed under the Apache License, Version 2.0.</metadata>
   <title id="title">OpenKubes Infrastructure Independence – Virtual Machines and Bare-Metal Hosts</title>
   <desc id="desc">A light OpenKubes-themed architecture diagram showing that infrastructure provisioning is separate from Kubernetes lifecycle management. Provisioning tools feed existing virtual machines and bare-metal hosts into a BYOH host capacity pool, which OpenKubes BYOH and Cluster API use to manage the Kubernetes lifecycle.</desc>
 
@@ -45,7 +45,7 @@
     </marker>
   </defs>
 
-  <rect width="1448" height="1086" fill="url(#bgFade)"/>
+  <rect x="0" y="90" width="1448" height="1000" fill="url(#bgFade)"/>
 
   <!-- background corner decoration -->
   <path d="M1448 0H1300c25 46 60 76 108 98 20 9 30 15 40 31V0z" fill="#d2f5ef" opacity="0.9"/>

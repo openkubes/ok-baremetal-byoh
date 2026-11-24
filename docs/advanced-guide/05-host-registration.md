@@ -4,7 +4,7 @@ Register only trusted Linux hosts that pass the infrastructure readiness checks.
 
 ## Prepare the agent
 
-Obtain the OpenKubes agent package or binary from the approved artifact set for the host architecture. Record source commit, SHA-256 and the installed executable identity. Do not substitute the upstream v0.6.0 package when OpenKubes extensions are required. The exact downstream distribution path remains subject to packaging validation. For a verified DEB, inspect it with `dpkg-deb --info "$AGENT_DEB"`, compare its SHA-256 with the approved lock, and install using `sudo apt install "$AGENT_DEB"` (absolute path). Do not start the service until enrollment is prepared.
+Obtain the OpenKubes agent package or binary from the approved artifact set for the host architecture. Record source commit, SHA-256 and the installed executable identity. Use the OpenKubes downstream agent release — the provider and agent built from an approved OpenKubes revision (release process in [../release.md](../release.md)) — and do not substitute a plain upstream Superbrothers agent build when OpenKubes extensions are required. Note that `v0.6.0` is an OpenKubes release version, not an upstream tag: the pinned upstream baseline is a commit, `5ea71bf` (see [../../UPSTREAM.md](../../UPSTREAM.md)). The exact downstream distribution path remains subject to packaging validation. For a verified DEB, inspect it with `dpkg-deb --info "$AGENT_DEB"`, compare its SHA-256 with the approved lock, and install using `sudo apt install "$AGENT_DEB"` (absolute path). Do not start the service until enrollment is prepared.
 
 ## Establish bootstrap credentials
 
