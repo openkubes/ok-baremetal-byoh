@@ -156,6 +156,73 @@ var _ = Describe("ByohostWebhook/InPlaceUpgrade", func() {
 		})
 	})
 
+	// The writes of the ByoMachine controller and of the agent when a ByoMachine
+	// is deleted after an in-place upgrade (reset, then detach).
+	Context("When a host is reset after an in-place upgrade", func() {
+		controller := v1.UserInfo{Username: "system:serviceaccount:byoh-system:byoh-controller-manager", Groups: []string{"system:serviceaccounts", "system:authenticated"}}
+		var oldHost *ByoHost
+		BeforeEach(func() {
+			oldHost = attached()
+			oldHost.Spec.InPlaceUpgrade = validInPlaceUpgrade()
+			oldHost.Status.InPlaceUpgrade = &InPlaceUpgradeStatus{ID: "abc123", Phase: InPlaceUpgradeSucceeded, ObservedKubeletVersion: "v1.37.2", ObservedNodeVersion: "v1.37.2"}
+		})
+
+		It("Should still reject a reset beside the request, whatever the phase", func() {
+			for _, phase := range []InPlaceUpgradePhase{InPlaceUpgradeSucceeded, InPlaceUpgradeFailed, InPlaceUpgradeRunning} {
+				oldHost.Status.InPlaceUpgrade.Phase = phase
+				newHost := oldHost.DeepCopy()
+				newHost.Spec.ResetRequested = true
+				response := update("", oldHost, newHost, controller)
+				Expect(response.Allowed).To(BeFalse(), string(phase))
+				Expect(response.Result.Message).To(ContainSubstring("a host that is reset is not upgraded"))
+			}
+		})
+
+		DescribeTable("Should allow the reset together with the removal of an ended request",
+			func(phase InPlaceUpgradePhase) {
+				oldHost.Status.InPlaceUpgrade.Phase = phase
+				newHost := oldHost.DeepCopy()
+				newHost.Spec.ResetRequested = true
+				newHost.Spec.InPlaceUpgrade = nil
+				Expect(update("", oldHost, newHost, controller).Allowed).To(BeTrue())
+			},
+			Entry("Succeeded", InPlaceUpgradeSucceeded),
+			Entry("Failed", InPlaceUpgradeFailed),
+		)
+
+		It("Should reject the reset together with the removal of a running request", func() {
+			oldHost.Status.InPlaceUpgrade.Phase = InPlaceUpgradeRunning
+			newHost := oldHost.DeepCopy()
+			newHost.Spec.ResetRequested = true
+			newHost.Spec.InPlaceUpgrade = nil
+			response := update("", oldHost, newHost, controller)
+			Expect(response.Allowed).To(BeFalse())
+			Expect(response.Result.Message).To(ContainSubstring("cannot remove an in-place upgrade while the agent runs it"))
+		})
+
+		It("Should allow the report of the reset and the detach, with the result of the upgrade kept in the status", func() {
+			oldHost.Spec.InPlaceUpgrade = nil
+			oldHost.Spec.ResetRequested = true
+
+			reset := oldHost.DeepCopy()
+			reset.Status.LastReset = &LastReset{ByoMachineUID: oldHost.Spec.ByoMachineRef.UID, Time: metav1.Now()}
+			Expect(update("status", oldHost, reset, agent).Allowed).To(BeTrue())
+
+			detached := reset.DeepCopy()
+			detached.Spec = ByoHostSpec{}
+			Expect(update("", reset, detached, controller).Allowed).To(BeTrue())
+			Expect(detached.Status.InPlaceUpgrade.Phase).To(Equal(InPlaceUpgradeSucceeded))
+		})
+
+		It("Should reject a new request on a host that is reset", func() {
+			oldHost.Spec.InPlaceUpgrade = nil
+			oldHost.Spec.ResetRequested = true
+			newHost := oldHost.DeepCopy()
+			newHost.Spec.InPlaceUpgrade = validInPlaceUpgrade()
+			Expect(update("", oldHost, newHost, extension).Allowed).To(BeFalse())
+		})
+	})
+
 	Context("When the agent reports an upgrade", func() {
 		var oldHost *ByoHost
 		BeforeEach(func() {

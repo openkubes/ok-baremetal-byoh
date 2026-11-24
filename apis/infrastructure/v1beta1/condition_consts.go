@@ -86,6 +86,13 @@ const (
 	// generated for a given BYOMachine
 	InstallationSecretNotAvailableReason = "InstallationSecretNotAvailable"
 
+	// WaitingForInPlaceUpgradeReason indicates that a deleted ByoMachine does
+	// not request the reset of its ByoHost because of the in-place upgrade in
+	// the spec of the host: only an upgrade that the agent has reported as
+	// Succeeded gives way to the reset. A running, failed or unreported
+	// upgrade may still change the host.
+	WaitingForInPlaceUpgradeReason = "WaitingForInPlaceUpgrade"
+
 	// WaitingForHostResetReason indicates that a deleted ByoMachine waits for
 	// the host agent to reset the host that the ByoMachine is attached to.
 	WaitingForHostResetReason = "WaitingForHostReset"

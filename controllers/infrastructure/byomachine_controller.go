@@ -261,12 +261,38 @@ func (r *ByoMachineReconciler) reconcileDelete(ctx context.Context, machineScope
 	}
 
 	if !host.Spec.ResetRequested {
+		upgrade := host.Spec.InPlaceUpgrade
+		if wait := inPlaceUpgradeBlocksReset(host); wait != "" {
+			// The ByoHost watch reconciles the ByoMachine again when the agent
+			// reports the upgrade, or when the request changes.
+			logger.Info("Waiting for the in-place upgrade of the ByoHost before its reset", "byohost", host.Name, "upgrade", upgrade.ID, "reason", wait)
+			v1beta1conditions.MarkFalse(machineScope.ByoMachine, infrav1.BYOHostReady, infrav1.WaitingForInPlaceUpgradeReason, clusterv1beta1.ConditionSeverityInfo, "%s", wait)
+			return reconcile.Result{}, nil
+		}
+
 		logger.Info("Requesting the agent to reset the ByoHost", "byohost", host.Name)
 		base := host.DeepCopy()
 		host.Spec.ResetRequested = true
-		if err := r.Client.Patch(ctx, host, client.MergeFrom(base)); err != nil {
+		patch := client.MergeFrom(base)
+		if upgrade != nil {
+			// The request of a succeeded upgrade leaves the spec in the patch that
+			// requests the reset: a host is never both. Optimistic locking makes
+			// the two changes apply only to the state that was read, so that a
+			// request or report written meanwhile is never overwritten.
+			host.Spec.InPlaceUpgrade = nil
+			patch = client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})
+		}
+		err := r.Client.Patch(ctx, host, patch)
+		if upgrade != nil && apierrors.IsConflict(err) {
+			logger.Info("ByoHost changed while requesting its reset, trying again", "byohost", host.Name)
+			return ctrl.Result{RequeueAfter: claimConflictRequeueAfter}, nil
+		}
+		if err != nil {
 			logger.Error(err, "failed to request the reset of the byohost", "byohost", host.Name)
 			return ctrl.Result{}, err
+		}
+		if upgrade != nil {
+			r.Recorder.Eventf(host, machineScope.ByoMachine, corev1.EventTypeNormal, "ByoHostInPlaceUpgradeEnded", "ResetByoHost", "Request of succeeded in-place upgrade %s to %s (attempt %d) removed for the reset by ByoMachine %s; status.inPlaceUpgrade keeps its result", upgrade.ID, upgrade.ToVersion, upgrade.Attempt, machineScope.ByoMachine.Name)
 		}
 		r.Recorder.Eventf(host, machineScope.ByoMachine, corev1.EventTypeNormal, "ByoHostResetRequested", "ResetByoHost", "Reset requested by ByoMachine %s", machineScope.ByoMachine.Name)
 		r.Recorder.Eventf(machineScope.ByoMachine, host, corev1.EventTypeNormal, "ByoHostResetRequested", "ResetByoHost", "Requested the reset of ByoHost %s", host.Name)
@@ -277,6 +303,36 @@ func (r *ByoMachineReconciler) reconcileDelete(ctx context.Context, machineScope
 	logger.Info("Waiting for the agent to reset the ByoHost", "byohost", host.Name)
 	v1beta1conditions.MarkFalse(machineScope.ByoMachine, infrav1.BYOHostReady, infrav1.WaitingForHostResetReason, clusterv1beta1.ConditionSeverityInfo, "")
 	return reconcile.Result{}, nil
+}
+
+// inPlaceUpgradeBlocksReset returns why the host cannot be reset yet because of
+// the in-place upgrade in its spec, or "" when the reset can be requested.
+//
+// The request leaves the spec, in the patch that requests the reset, only when
+// the agent has reported exactly this request (id and attempt) as Succeeded:
+// the agent reports it after every step has returned and the result is
+// verified, so nothing of the upgrade runs on the host any more.
+//
+// Everything else waits. Failed is final for the attempt in the API, but not
+// on the host: a step that timed out is reported as Failed while its command
+// (dpkg, kubeadm upgrade) may still run in its systemd unit. A request that
+// the agent has not reported (no status, or the status of another request or
+// attempt) may start at any moment. A reset under any of these is not safe,
+// and the controller cannot see the host; an administrator decides.
+func inPlaceUpgradeBlocksReset(host *infrav1.ByoHost) string {
+	req, status := host.Spec.InPlaceUpgrade, host.Status.InPlaceUpgrade
+	switch {
+	case req == nil:
+		return ""
+	case !status.Matches(req):
+		return fmt.Sprintf("in-place upgrade %s (attempt %d) is requested and the agent has not reported it yet", req.ID, req.Attempt)
+	case status.Phase == infrav1.InPlaceUpgradeSucceeded:
+		return ""
+	case status.Phase == infrav1.InPlaceUpgradeFailed:
+		return fmt.Sprintf("in-place upgrade %s (attempt %d) has failed at step %q; its command may still run on the host, the host is not reset by itself", req.ID, req.Attempt, status.Step)
+	default:
+		return fmt.Sprintf("in-place upgrade %s (attempt %d) is %s", req.ID, req.Attempt, status.Phase)
+	}
 }
 
 // isHostReset returns whether the agent has reset the host for its current
