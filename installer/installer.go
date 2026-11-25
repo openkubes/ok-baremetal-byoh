@@ -38,11 +38,16 @@ const (
 	// DefaultKubernetesRepository is the base URL of the apt repositories of
 	// Kubernetes, which has a repository for each minor version.
 	DefaultKubernetesRepository = "https://pkgs.k8s.io/core:/stable:"
-	// DefaultContainerdVersion is the version of containerd to install. It is
-	// an LTS release that supports the Kubernetes versions in the README. When
-	// it changes, run `make update-containerd-service` to update the systemd
-	// unit of containerd, and update the tested versions in the README.
-	DefaultContainerdVersion = "2.3.7"
+	// DefaultContainerdVersion is the version of containerd to install. It
+	// supports the Kubernetes versions in the README. It is a release of the
+	// 2.4 line, which is not the LTS line of containerd (2.3): up to 2.3.7 a
+	// shim of a static pod can outlive its sandbox when the kubelet restarts
+	// during an in-place upgrade of a control plane, and the uninstall script
+	// then refuses to remove the runtime (containerd/containerd#12560, fixed
+	// by #13958 in 2.4.0). When it changes, run `make
+	// update-containerd-service` to update the systemd unit of containerd,
+	// and update the tested versions in the README.
+	DefaultContainerdVersion = "2.4.2"
 	// DefaultContainerdReleaseURL is the base URL of the containerd releases.
 	DefaultContainerdReleaseURL = "https://github.com/containerd/containerd/releases/download"
 	// DefaultRuncVersion is the version of runc to install, which
@@ -69,7 +74,7 @@ type Options struct {
 	// KubernetesRepository is the base URL of the apt repositories for each
 	// minor version of Kubernetes.
 	KubernetesRepository string
-	// ContainerdVersion is the version of containerd, such as "2.3.7".
+	// ContainerdVersion is the version of containerd, such as "2.4.2".
 	ContainerdVersion string
 	// ContainerdReleaseURL is the base URL of the containerd releases, which
 	// has the same layout as the releases on GitHub.

@@ -26,7 +26,7 @@ type K8sInstallerConfigSpec struct {
 	KubernetesRepository string `json:"kubernetesRepository,omitempty"`
 
 	// ContainerdVersion is the version of containerd to install, such as
-	// "2.3.7". It must be 2.0.0 or later. Defaults to the version that the
+	// "2.4.2". It must be 2.0.0 or later. Defaults to the version that the
 	// installer is tested with.
 	// +optional
 	// +kubebuilder:validation:Pattern=`^\d+\.\d+\.\d+$`

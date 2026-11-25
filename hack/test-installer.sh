@@ -100,7 +100,7 @@ system_is_up() {
 }
 
 # script_var prints the value of a variable that a script sets, such as
-# CONTAINERD_VERSION='2.3.7'.
+# CONTAINERD_VERSION='2.4.2'.
 script_var() {
     sed -nE "s/^$1='([^']*)'\$/\1/p" "$2"
 }
