@@ -29,13 +29,13 @@ spec:
     spec:
       # The defaults.
       kubernetesRepository: https://pkgs.k8s.io/core:/stable:
-      containerdVersion: 2.3.7
+      containerdVersion: 2.4.2
       containerdReleaseURL: https://github.com/containerd/containerd/releases/download
       runcVersion: 1.5.2
       runcReleaseURL: https://github.com/opencontainers/runc/releases/download
 ```
 
-The default version of containerd is an LTS release, and the default version of runc is the one that the containerd release is tested with. `containerdVersion` must be 2.0.0 or later. The releases do not include the systemd unit of containerd, so the script installs the one of the default version from the containerd repository for the other versions too.
+The default version of containerd is a release of the 2.4 line, and the default version of runc is the one that the containerd release is tested with. The 2.4 line is not the LTS line of containerd (2.3): with containerd up to 2.3.7, a shim of a static pod can outlive its sandbox when the kubelet restarts during an in-place upgrade of a control plane ([containerd/containerd#12560](https://github.com/containerd/containerd/issues/12560), fixed by [#13958](https://github.com/containerd/containerd/pull/13958) in 2.4.0). The uninstall script refuses to remove the runtime while a shim is left, so such a host is not reset. A host that is already provisioned keeps the version it was installed with until it is provisioned again. `containerdVersion` must be 2.0.0 or later. The releases do not include the systemd unit of containerd, so the script installs the one of the default version from the containerd repository for the other versions too.
 
 The installer does not change the firewall of the hosts. Open the ports that Kubernetes and the CNI plugin use (https://kubernetes.io/docs/reference/networking/ports-and-protocols/).
 

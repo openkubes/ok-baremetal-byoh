@@ -85,4 +85,4 @@ The default installer installs the version of Kubernetes of the Machine from pkg
 | v1.36      | v1.36.6              |
 | v1.35      | v1.35.10             |
 
-**NOTE:**  The `installer` workflow tests these versions on hosts of the supported OSes on amd64 and arm64, with the default versions of containerd (2.3.7) and runc (1.5.2): for each version in turn on the same host, the default installer installs it, `kubeadm init` brings up a control plane, and `kubeadm reset` and the uninstall script remove it. The hosts are containers on the runners of GitHub Actions (`hack/test-installer.sh`).
+**NOTE:**  The `installer` workflow tests these versions on hosts of the supported OSes on amd64 and arm64, with the default versions of containerd (2.4.2) and runc (1.5.2): for each version in turn on the same host, the default installer installs it, `kubeadm init` brings up a control plane, and `kubeadm reset` and the uninstall script remove it. The hosts are containers on the runners of GitHub Actions (`hack/test-installer.sh`).

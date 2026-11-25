@@ -12,7 +12,7 @@ Illustrative lab sizing per host: 4 CPU cores, 8 GiB RAM, 80 GiB SSD. These are 
 
 ## Runtime and OS baseline
 
-The default installer installs containerd 2.3.7 and runc 1.5.2 (documented defaults), Kubernetes packages at the desired version, cri-tools and systemd cgroups. It configures swap, kernel modules and sysctls. Conflicting distribution packages (`containerd`, `containerd.io`, `docker.io`, `runc`) cause failure. Existing runtime configurations need review. The operator owns OS preparation and firewall rules.
+The default installer installs containerd 2.4.2 and runc 1.5.2 (documented defaults), Kubernetes packages at the desired version, cri-tools and systemd cgroups. It configures swap, kernel modules and sysctls. Conflicting distribution packages (`containerd`, `containerd.io`, `docker.io`, `runc`) cause failure. Existing runtime configurations need review. The operator owns OS preparation and firewall rules.
 
 ## Connectivity and identity
 

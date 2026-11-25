@@ -22,7 +22,7 @@ type Input struct {
 	// KubernetesRepository is the URL of the apt repository for the minor
 	// version, such as "https://pkgs.k8s.io/core:/stable:/v1.36/deb/".
 	KubernetesRepository string
-	// ContainerdVersion is the version of containerd, such as "2.3.7".
+	// ContainerdVersion is the version of containerd, such as "2.4.2".
 	ContainerdVersion string
 	// ContainerdReleaseURL is the base URL of the containerd releases without
 	// the trailing slash.
