@@ -13,6 +13,7 @@ jobs:
   publish:
     if: >-
       ${{
+        github.repository == 'openkubes/ok-baremetal-byoh' &&
         github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.event == 'push' &&
         github.event.workflow_run.head_branch == 'main' &&
@@ -39,43 +40,33 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
-      - name: Build and publish AMD64 + ARM64
+      - name: Publish candidate images and lock build outputs
         env:
           SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          SHORT_SHA="${SOURCE_SHA:0:12}"
-          IMAGE="ghcr.io/openkubes/byoh-controller:git-${SHORT_SHA}"
-
-          make docker-buildx \
-            IMAGE_PLATFORMS=linux/amd64,linux/arm64 \
-            DOCKER_BUILDX_PUSH=true \
-            IMG="$IMAGE"
-
-      - name: Build and publish the in-place guard and extension (AMD64 + ARM64)
-        env:
-          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          SHORT_SHA="${SOURCE_SHA:0:12}"
-          make docker-buildx-guard docker-buildx-extension \
-            IMAGE_PLATFORMS=linux/amd64,linux/arm64 \
-            DOCKER_BUILDX_PUSH=true \
-            IMG_GUARD="ghcr.io/openkubes/no-replacement-guard:git-${SHORT_SHA}" \
-            IMG_EXTENSION="ghcr.io/openkubes/inplace-extension:git-${SHORT_SHA}"
-
-      - name: Verify published image and report digest
-        env:
-          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
         run: |
           set -euo pipefail
-
-          SHORT_SHA="${SOURCE_SHA:0:12}"
-          echo "### BYOH images published" >> "$GITHUB_STEP_SUMMARY"
-          for NAME in byoh-controller no-replacement-guard inplace-extension; do
-            IMAGE="ghcr.io/openkubes/${NAME}:git-${SHORT_SHA}"
-            docker buildx imagetools inspect "$IMAGE"
-            DIGEST="$(docker buildx imagetools inspect "$IMAGE" \
-              --format '{{.Manifest.Digest}}')"
-            test -n "$DIGEST"
-            [[ "$DIGEST" == sha256:* ]]
-            printf "Immutable reference: \`ghcr.io/openkubes/%s@%s\`\\n" "$NAME" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          test "$(git rev-parse HEAD^{commit})" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          metadata=$(mktemp -d)
+          for name in byoh-controller no-replacement-guard inplace-extension; do
+            image="ghcr.io/openkubes/${name}:git-${SOURCE_SHA:0:12}"
+            case "$name" in
+              byoh-controller) args=(docker-buildx IMG="$image");;
+              no-replacement-guard) args=(docker-buildx-guard IMG_GUARD="$image");;
+              inplace-extension) args=(docker-buildx-extension IMG_EXTENSION="$image");;
+            esac
+            make "${args[@]}" IMAGE_PLATFORMS=linux/amd64,linux/arm64 \
+              DOCKER_BUILDX_PUSH=true BUILDX_METADATA_FILE="$metadata/$name.json"
           done
+          lock="$RUNNER_TEMP/image-lock.json"
+          python3 hack/release/image-lock.py create "$SOURCE_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$metadata" > "$lock"
+          jq -r '.images[].reference' "$lock" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save immutable candidate image lock
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: byoh-image-lock-${{ github.event.workflow_run.head_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/image-lock.json
+          if-no-files-found: error
+          retention-days: 90

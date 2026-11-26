@@ -13,7 +13,7 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 IMAGE = "localhost/openkubes/byoh-controller:git-012345abcdef"
-BASE = """image: ghcr.io/superbrothers/cluster-api-byoh-controller:dev
+BASE = """image: ghcr.io/openkubes/byoh-controller:dev
 - name: MANUAL_CSR_APPROVAL
   value: "${MANUAL_CSR_APPROVAL:=disable}"
 - --diagnostics-address=${CAPI_DIAGNOSTICS_ADDRESS:=:8443}

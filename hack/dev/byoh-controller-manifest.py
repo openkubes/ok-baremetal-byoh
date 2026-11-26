@@ -14,7 +14,7 @@ def render(text: str, image: str) -> str:
     if not (local or ghcr):
         raise ValueError("controller image must be a local Git revision or pinned OpenKubes GHCR digest")
     changes = {
-        "ghcr.io/superbrothers/cluster-api-byoh-controller:dev": image,
+        "ghcr.io/openkubes/byoh-controller:dev": image,
         "${MANUAL_CSR_APPROVAL:=disable}": "enable",
         "${CAPI_DIAGNOSTICS_ADDRESS:=:8443}": ":8443",
         "${CAPI_INSECURE_DIAGNOSTICS:=false}": "false",

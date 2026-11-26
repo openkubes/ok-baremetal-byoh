@@ -25,6 +25,9 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+    - name: Test release packaging without publishing
+      run: python3 -m unittest discover -s hack/release
+
     - name: Verify the systemd unit of containerd in the installer
       run: make verify-containerd-service
 
