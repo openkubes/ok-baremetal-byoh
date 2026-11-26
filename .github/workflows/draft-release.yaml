@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# Serialize this workflow's writers for each release tag. Humans must also
+# avoid concurrent writes and wait for full draft verification.
+concurrency:
+  group: byoh-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   package:
     if: github.repository == 'openkubes/ok-baremetal-byoh'
@@ -24,31 +30,39 @@ jobs:
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
 
       - name: Set up read-only registry inspection
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
-      - name: Verify approved source and package release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify approved source
         shell: bash
         run: |
           set -euo pipefail
           inputs=$(bash hack/release/tag-inputs.sh "$GITHUB_REF")
           read -r sha run attempt <<< "$inputs"
           test "$(git rev-parse "$GITHUB_SHA^{commit}")" = "$sha"
-          bash hack/release/fetch-image-lock.sh "$sha" "$run" "$attempt" "$RUNNER_TEMP/byoh-lock"
-          bash hack/release/package.sh "$sha" "$GITHUB_REF_NAME" "$run" "$attempt" "$RUNNER_TEMP/byoh-lock/image-lock.json" "$RUNNER_TEMP/byoh-release"
+          printf 'BYOH_RELEASE_SHA=%s\nBYOH_PRODUCER_RUN=%s\nBYOH_PRODUCER_ATTEMPT=%s\n' "$sha" "$run" "$attempt" >> "$GITHUB_ENV"
+
+      - name: Fetch exact producer lock
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash hack/release/fetch-image-lock.sh "$BYOH_RELEASE_SHA" "$BYOH_PRODUCER_RUN" "$BYOH_PRODUCER_ATTEMPT" "$RUNNER_TEMP/byoh-lock"
+
+      - name: Package and verify release
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash hack/release/package.sh "$BYOH_RELEASE_SHA" "$GITHUB_REF_NAME" "$BYOH_PRODUCER_RUN" "$BYOH_PRODUCER_ATTEMPT" "$RUNNER_TEMP/byoh-lock/image-lock.json" "$RUNNER_TEMP/byoh-release"
           cd "$RUNNER_TEMP/byoh-release"
           sha256sum --check --strict checksums.txt
 
       - name: Stage audited bundle
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: byoh-release-bundle
+          name: byoh-release-bundle-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/byoh-release/
           if-no-files-found: error
 
@@ -58,15 +72,26 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout release preflight
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
       - name: Download audited bundle
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          name: byoh-release-bundle
+          name: byoh-release-bundle-attempt-${{ github.run_attempt }}
           path: _dist
 
       - name: Recheck staged checksums
         working-directory: _dist
         run: sha256sum --check --strict checksums.txt
+
+      - name: Refuse an existing release or partial draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash hack/release/require-new-release.sh "$GITHUB_REF_NAME"
 
       - name: Create the draft release
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
@@ -75,5 +100,6 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           fail_on_unmatched_files: true
-          working-directory: _dist
+          working_directory: _dist
+          overwrite_files: false
           files: "*"

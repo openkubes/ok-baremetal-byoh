@@ -131,7 +131,7 @@ docker-build: ## Build docker image with the manager for the platform of this ma
 	docker build --build-arg GO_VERSION=$(GO_VERSION) -t ${IMG} .
 
 docker-push: ## Push docker image with the manager.
-	bash hack/release/check-push-target.sh "${IMG}"
+	bash hack/release/check-push-target.sh "${IMG}" byoh-controller
 	docker push ${IMG}
 
 empty :=
@@ -143,15 +143,15 @@ IMAGE_PLATFORMS ?= $(subst $(space),$(comma),$(addprefix linux/,$(ALL_ARCH)))
 DOCKER_BUILDX_PUSH ?= false
 
 docker-buildx: ## Build docker image with the manager for all the platforms in ALL_ARCH, and push it if DOCKER_BUILDX_PUSH is true.
-	$(if $(filter true,$(DOCKER_BUILDX_PUSH)),bash hack/release/check-push-target.sh "${IMG}")
+	$(if $(filter true,$(DOCKER_BUILDX_PUSH)),bash hack/release/check-push-target.sh "${IMG}" byoh-controller)
 	docker buildx build $(if $(BUILDX_METADATA_FILE),--metadata-file "$(BUILDX_METADATA_FILE)") --platform $(IMAGE_PLATFORMS) --build-arg GO_VERSION=$(GO_VERSION) -t ${IMG} $(if $(filter true,$(DOCKER_BUILDX_PUSH)),--push) .
 
 docker-buildx-guard: ## Build the No-Replacement guard image (IMG_GUARD) for IMAGE_PLATFORMS, and push it if DOCKER_BUILDX_PUSH is true.
-	$(if $(filter true,$(DOCKER_BUILDX_PUSH)),bash hack/release/check-push-target.sh "${IMG_GUARD}")
+	$(if $(filter true,$(DOCKER_BUILDX_PUSH)),bash hack/release/check-push-target.sh "${IMG_GUARD}" no-replacement-guard)
 	docker buildx build $(if $(BUILDX_METADATA_FILE),--metadata-file "$(BUILDX_METADATA_FILE)") --platform $(IMAGE_PLATFORMS) --build-arg GO_VERSION=$(GO_VERSION) -f cmd/no-replacement-guard/Dockerfile -t ${IMG_GUARD} $(if $(filter true,$(DOCKER_BUILDX_PUSH)),--push) .
 
 docker-buildx-extension: ## Build the in-place extension image (IMG_EXTENSION) for IMAGE_PLATFORMS, and push it if DOCKER_BUILDX_PUSH is true.
-	$(if $(filter true,$(DOCKER_BUILDX_PUSH)),bash hack/release/check-push-target.sh "${IMG_EXTENSION}")
+	$(if $(filter true,$(DOCKER_BUILDX_PUSH)),bash hack/release/check-push-target.sh "${IMG_EXTENSION}" inplace-extension)
 	docker buildx build $(if $(BUILDX_METADATA_FILE),--metadata-file "$(BUILDX_METADATA_FILE)") --platform $(IMAGE_PLATFORMS) --build-arg GO_VERSION=$(GO_VERSION) -f cmd/inplace-extension/Dockerfile -t ${IMG_EXTENSION} $(if $(filter true,$(DOCKER_BUILDX_PUSH)),--push) .
 
 prepare-byoh-docker-host-image:

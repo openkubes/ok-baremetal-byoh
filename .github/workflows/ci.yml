@@ -9,14 +9,9 @@ on:
       - 'LICENSE'
       - 'NOTICE'
       - 'PROJECT'
+  # Run required PR checks even when the proposed change only updates docs.
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - '*.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - 'NOTICE'
-      - 'PROJECT'
 
 jobs:
   verify:

@@ -40,20 +40,26 @@ def reference(name, digest):
 def platform_digests(index):
     require(index.get("mediaType") in INDEX_TYPES, "expected multi-platform image index")
     result = {}
+    attestations = []
     for descriptor in index["manifests"]:
         platform = descriptor.get("platform", {})
-        arch = platform.get("architecture")
-        if descriptor.get("annotations", {}).get("vnd.docker.reference.type") == "attestation-manifest":
-            continue
-        if platform.get("os") == "unknown" and arch == "unknown":
-            raise ValueError("unidentified index descriptor")
-        require(platform.get("os") == "linux" and arch in ARCHES and arch not in result
-                and descriptor.get("mediaType") in IMAGE_TYPES,
-                f"unexpected or duplicate runnable platform: {platform}")
+        os_name, arch = platform.get("os"), platform.get("architecture")
+        annotations = descriptor.get("annotations", {})
         digest = descriptor["digest"]
-        require(re.fullmatch(r"sha256:[a-f0-9]{64}", digest), "invalid platform digest")
+        require(re.fullmatch(r"sha256:[a-f0-9]{64}", digest), "invalid manifest digest")
+        require(descriptor.get("mediaType") in IMAGE_TYPES, "invalid manifest media type")
+        if annotations.get("vnd.docker.reference.type") == "attestation-manifest":
+            require((os_name, arch) == ("unknown", "unknown"), "attestation claims a runnable platform")
+            attestations.append((digest, annotations.get("vnd.docker.reference.digest")))
+            continue
+        require(os_name == "linux" and arch in ARCHES and arch not in result,
+                f"unexpected or duplicate runnable platform: {platform}")
         result[arch] = digest
     require(set(result) == set(ARCHES), "expected both linux/amd64 and linux/arm64")
+    runnable = set(result.values())
+    require(len(runnable) == len(ARCHES), "runnable platforms must have distinct digests")
+    require(all(digest not in runnable and subject in runnable for digest, subject in attestations),
+            "attestation does not reference a distinct runnable manifest in the index")
     return result
 
 

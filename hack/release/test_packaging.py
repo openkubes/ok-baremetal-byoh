@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -27,7 +28,10 @@ def index():
         {"mediaType": media + ".manifest.v1+json", "digest": digest,
          "platform": {"os": "linux", "architecture": arch}}
         for arch, digest in (("amd64", AMD), ("arm64", ARM))
-    ] + [{"annotations": {"vnd.docker.reference.type": "attestation-manifest"},
+    ] + [{"annotations": {"vnd.docker.reference.type": "attestation-manifest",
+                          "vnd.docker.reference.digest": AMD},
+          "mediaType": media + ".manifest.v1+json",
+          "digest": "sha256:" + "e" * 64,
           "platform": {"os": "unknown", "architecture": "unknown"}}]}
 
 
@@ -48,6 +52,24 @@ class ImageLockTest(unittest.TestCase):
         for manifests in (index()["manifests"][:1], index()["manifests"] * 2):
             with self.assertRaises(ValueError):
                 lock_module.platform_digests({**index(), "manifests": manifests})
+
+    def test_malformed_attestations_and_shared_runnable_digest(self):
+        malformed = [
+            (2, "platform", {"os": "linux", "architecture": "amd64"}),
+            (2, "annotations", {}),
+            (2, "mediaType", "application/octet-stream"),
+            (2, "digest", AMD),
+            (2, "digest", "not-a-digest"),
+            (2, "annotations", {"vnd.docker.reference.type": "attestation-manifest",
+                                "vnd.docker.reference.digest": INDEX_DIGEST}),
+            (1, "digest", AMD),
+        ]
+        for position, field, value in malformed:
+            with self.subTest(position=position, field=field, value=value):
+                bad = index()
+                bad["manifests"][position][field] = value
+                with self.assertRaises(ValueError):
+                    lock_module.platform_digests(bad)
 
     def test_build_output_not_mutable_tag(self):
         observed = []
@@ -87,22 +109,82 @@ class ImageLockTest(unittest.TestCase):
 
 
 class PushAndTagTest(unittest.TestCase):
-    def test_make_rejects_upstream_before_docker(self):
+    def test_make_push_allowlist_and_local_build(self):
         with tempfile.TemporaryDirectory() as t:
             sentinel = Path(t) / "docker-called"
             fake = Path(t) / "docker"
             fake.write_text("#!/bin/sh\ntouch " + str(sentinel) + "\n")
             fake.chmod(0o755)
             env = {**os.environ, "PATH": t + os.pathsep + os.environ["PATH"]}
-            for target, var in (("docker-push", "IMG"), ("docker-buildx", "IMG"),
-                                ("docker-buildx-guard", "IMG_GUARD"),
-                                ("docker-buildx-extension", "IMG_EXTENSION")):
-                result = subprocess.run(["make", target, "DOCKER_BUILDX_PUSH=true",
-                                         var + "=ghcr.io/superbrothers/byoh:bad"],
-                                        cwd=ROOT, env=env, capture_output=True, text=True)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("refusing to push to the upstream", result.stderr)
-                self.assertFalse(sentinel.exists())
+            sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+            for target, var, name in (("docker-push", "IMG", "byoh-controller"),
+                                      ("docker-buildx", "IMG", "byoh-controller"),
+                                      ("docker-buildx-guard", "IMG_GUARD", "no-replacement-guard"),
+                                      ("docker-buildx-extension", "IMG_EXTENSION", "inplace-extension")):
+                for ref in (f"ghcr.io/superbrothers/{name}:git-{sha[:12]}",
+                            f"quay.io/openkubes/{name}:git-{sha[:12]}",
+                            f"ghcr.io/other/{name}:git-{sha[:12]}",
+                            f"ghcr.io/openkubes/wrong-image:git-{sha[:12]}",
+                            f"ghcr.io/openkubes/{'inplace-extension' if name != 'inplace-extension' else 'byoh-controller'}:git-{sha[:12]}",
+                            f"ghcr.io/openkubes/{name}:latest",
+                            f"ghcr.io/openkubes/{name}:v1.2.3",
+                            f"ghcr.io/openkubes/{name}:git-{'a' * 12 if sha[:12] != 'a' * 12 else 'b' * 12}"):
+                    result = subprocess.run(["make", target, "DOCKER_BUILDX_PUSH=true", var + "=" + ref],
+                                            cwd=ROOT, env=env, capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0, ref)
+                    self.assertIn("STOP: push", result.stderr)
+                    self.assertFalse(sentinel.exists())
+                subprocess.run(["make", target, "DOCKER_BUILDX_PUSH=true",
+                                var + f"=ghcr.io/openkubes/{name}:git-{sha[:12]}"],
+                               cwd=ROOT, env=env, check=True, capture_output=True)
+                self.assertTrue(sentinel.exists())
+                sentinel.unlink()
+            subprocess.run(["make", "docker-buildx", "IMG=localhost/byoh:dev",
+                            "DOCKER_BUILDX_PUSH=false"], cwd=ROOT, env=env,
+                           check=True, capture_output=True)
+            self.assertTrue(sentinel.exists())
+
+    def test_exact_pinned_action_inputs_and_staging(self):
+        workflow = (ROOT / ".github/workflows/draft-release.yaml").read_text()
+        action = re.search(
+            r"      - name: Create the draft release\n"
+            r"        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3[^\n]*\n"
+            r"(.*)\Z", workflow, re.S)
+        self.assertIsNotNone(action)
+        self.assertRegex(action[1], r"(?m)^          working_directory: _dist$")
+        self.assertRegex(action[1], r"(?m)^          overwrite_files: false$")
+        self.assertRegex(action[1], r"(?m)^          draft: true$")
+        self.assertNotRegex(action[1], r"(?m)^          working-directory:")
+        self.assertLess(workflow.index("bash hack/release/require-new-release.sh"), action.start())
+        self.assertEqual(workflow.count("name: byoh-release-bundle-attempt-"), 2)
+        self.assertIn("cancel-in-progress: false", workflow)
+        package_step = workflow.split("      - name: Package and verify release", 1)[1].split("      - name: ", 1)[0]
+        self.assertNotIn("GH_TOKEN", package_step)
+
+    def test_release_api_fail_closed_across_pages_and_reruns(self):
+        with tempfile.TemporaryDirectory() as t:
+            path = Path(t)
+            gh = path / "gh"
+            gh.write_text('#!/bin/sh\n[ "$1" = api ] && [ "$2" = --paginate ] || exit 99\n'
+                          '[ "${MOCK_FAIL:-}" != true ] || exit 42\nprintf "%s" "$MOCK_PAGES"\n')
+            gh.chmod(0o755)
+            tag = "v1.2.3"
+            cases = (
+                ("[]", False, 0, ""),
+                ('[{"tag_name":"v0.0.1","draft":false}]\n[{"tag_name":"v1.2.3","draft":false}]', False, 1, "published"),
+                ('[{"tag_name":"v1.2.3","draft":true}]', False, 1, "manual reconciliation"),
+                ('[{"tag_name":"v1.2.3","draft":true,"assets":[{"name":"partial"}]}]', False, 1, "manual reconciliation"),
+                ('[{"tag_name":"v1.2.3"}]', False, 1, "classify"),
+                ("invalid-json", False, 1, "classify"),
+                ("", True, 1, "cannot verify"),
+            )
+            for pages, fail, status, diagnostic in cases:
+                env = {**os.environ, "PATH": t + os.pathsep + os.environ["PATH"],
+                       "MOCK_PAGES": pages, "MOCK_FAIL": str(fail).lower()}
+                result = subprocess.run(["bash", HERE / "require-new-release.sh", tag],
+                                        env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertIn(diagnostic, result.stderr)
 
     def test_no_upstream_or_registry_write_in_tag_workflow(self):
         draft = (ROOT / ".github/workflows/draft-release.yaml").read_text()
@@ -136,7 +218,9 @@ esac
             artifact = dict(total_count=1, artifacts=[dict(name=name, expired=False)])
             for fields, metadata, expected in (({}, {}, True), ({"conclusion": "failure"}, {}, False),
                                                ({"head_branch": "fix"}, {}, False),
-                                               ({}, {"total_count": 2}, False)):
+                                               ({}, {"total_count": 2}, False),
+                                               ({}, {"total_count": 0, "artifacts": []}, False),
+                                               ({}, {"artifacts": [dict(name=name, expired=True)]}, False)):
                 out = root / "lock"
                 env = {**os.environ, "PATH": t + os.pathsep + os.environ["PATH"],
                        "MOCK_RUN": json.dumps({**run, **fields}),
@@ -163,6 +247,25 @@ esac
                 result = subprocess.run(["bash", HERE / "tag-inputs.sh", "refs/tags/" + version],
                                         cwd=t, capture_output=True, text=True)
                 self.assertEqual(result.returncode == 0, sha == commit)
+            keys = [f"BYOH_RELEASE_COMMIT={commit}", "BYOH_IMAGE_RUN_ID=12", "BYOH_IMAGE_RUN_ATTEMPT=1"]
+            cases = []
+            for pos, entry in enumerate(keys):
+                key = entry.split("=")[0]
+                cases.extend([
+                    (keys + [entry], "duplicate", key),
+                    (keys + [f"{key}=777"], "duplicate", key),
+                    (keys[:pos] + keys[pos+1:], "missing", key),
+                    (keys[:pos] + [f"{key}=bad"] + keys[pos+1:], "malformed", key),
+                    (keys + [f" {entry}"], "malformed", key),
+                ])
+            for i, (lines, diagnostic, key) in enumerate(cases):
+                tag = f"v2.0.{i}"
+                git("-c", "user.name=Fixture", "-c", "user.email=test@example.invalid",
+                    "tag", "-am", "\n".join(lines), tag)
+                result = subprocess.run(["bash", HERE / "tag-inputs.sh", "refs/tags/" + tag],
+                                        cwd=t, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, lines)
+                self.assertIn(f"{diagnostic} tag annotation: {key}", result.stderr)
             git("tag", "v1.0.2")
             self.assertNotEqual(subprocess.run(["bash", HERE / "tag-inputs.sh", "refs/tags/v1.0.2"],
                                                cwd=t, capture_output=True).returncode, 0)
