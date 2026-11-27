@@ -53,18 +53,23 @@ func TestParsePackageLock(t *testing.T) {
 	}
 }
 
-// TestCommittedLock keeps the committed lock of the deployment valid.
+// TestCommittedLock keeps both committed deployment targets valid.
 func TestCommittedLock(t *testing.T) {
-	data, err := os.ReadFile("../../config/inplace/base/packages-v1.37.2.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	lock, err := ParsePackageLock(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := lock["v1.37.2"]; !ok {
-		t.Fatal("no v1.37.2")
+	for _, target := range []string{"v1.36.7", "v1.37.2"} {
+		t.Run(target, func(t *testing.T) {
+			data, err := os.ReadFile("../../config/inplace/base/packages-" + target + ".json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			lock, err := ParsePackageLock(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(lock) != 1 || len(lock[target].Debs) != 3 ||
+				lock[target].RepositoryKeyFingerprint != "DE15B14486CD377B9E876E1A234654DA9A296436" {
+				t.Fatalf("unexpected lock for %s: %+v", target, lock)
+			}
+		})
 	}
 }
 
