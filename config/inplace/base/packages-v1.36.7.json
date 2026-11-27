@@ -1,0 +1,11 @@
+{
+  "v1.36.7": {
+    "repository": "https://pkgs.k8s.io/core:/stable:/v1.36/deb/",
+    "repositoryKeyFingerprint": "DE15B14486CD377B9E876E1A234654DA9A296436",
+    "debs": [
+      {"name": "kubeadm", "version": "1.36.7-1.1", "sha256": "7913227376d04cef8f5d3f79f9dbc2fc9715d158f238084fec3190b0f99d838c"},
+      {"name": "kubelet", "version": "1.36.7-1.1", "sha256": "b95df26f55f89fe2257f6db888a1131a9aa89cb8911a79febdb03b0d818f7b71"},
+      {"name": "kubectl", "version": "1.36.7-1.1", "sha256": "256df369fc4195550453c9fa51ead426e4dace2cea2154e505d3f36df511b3f0"}
+    ]
+  }
+}
