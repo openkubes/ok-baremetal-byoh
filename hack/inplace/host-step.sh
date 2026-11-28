@@ -8,6 +8,7 @@
 #                                         host of SEQUENCE waiting for its approval (exit 0 = APPROVE, 2 hold, 3 STOP)
 #   host-step.sh verify TARGET HOST       read-only: HOST is done (agent Succeeded, Node Ready at TARGET, Machine no
 #                                         longer updating; control plane: static pods at TARGET) and the cluster is healthy
+#   host-step.sh gate TARGET HOST         read-only: the same live checks as approve, then the current ByoHost RV
 #   host-step.sh approve TARGET HOST      (mutation, typed confirmation) the per-host hold point: only when `next`
 #                                         says APPROVE for HOST and the cluster is healthy, sets the approval
 #                                         annotation on that one ByoHost, bound to its resourceVersion
@@ -18,7 +19,7 @@
 # active, no Machine, ByoMachine, ByoHost or Node added, removed or replaced since UIDS_BASELINE.
 . "$(dirname "$0")/lib.sh"
 
-mode=${1:?usage: host-step.sh members | next TARGET | verify TARGET HOST | approve TARGET HOST}
+mode=${1:?usage: host-step.sh members | next TARGET | verify TARGET HOST | gate TARGET HOST | approve TARGET HOST}
 APPROVAL=inplace.openkubes.org/approved-upgrade
 
 collect() {
@@ -75,7 +76,7 @@ case $mode in
 members)
 	members
 	;;
-next | verify | approve)
+next | verify | gate | approve)
 	TARGET=${2:?TARGET}
 	: "${SEQUENCE:?set SEQUENCE}" "${UIDS_BASELINE:?set UIDS_BASELINE}" "${ETCD_MEMBERS:?set ETCD_MEMBERS}" "${GW_SSH:?set GW_SSH}"
 	[ -s "$UIDS_BASELINE" ] || { echo "UIDS_BASELINE $UIDS_BASELINE is missing or empty" >&2; exit 1; }
@@ -97,7 +98,7 @@ next | verify | approve)
 		[ "$rc" = 0 ] && echo "VERIFY PASS: $HOST" || echo "VERIFY FAIL: $HOST (do not approve the next host)"
 		exit "$rc"
 	fi
-	# approve
+	# Shared gate for manual approval and a separately authorized API writer.
 	decision=$(python3 -I "$HERE/host_step.py" next "$TMPD/machines.json" "$TMPD/byomachines.json" "$TMPD/byohosts.json" "$TMPD/nodes.json" "$TARGET" "$SEQUENCE") || {
 		echo "$decision"
 		echo "refused: the gate does not say APPROVE" >&2
@@ -107,6 +108,11 @@ next | verify | approve)
 	grep -q "^APPROVE: $HOST " <<<"$decision" || { echo "refused: the host waiting for its approval is not $HOST" >&2; exit 1; }
 	health "$TARGET" || { echo "refused: the cluster is not healthy" >&2; exit 1; }
 	rv=$(k -n "$NS" get byohost "$HOST" -o jsonpath='{.metadata.resourceVersion}')
+	if [ "$mode" = gate ]; then
+		[ -n "$rv" ] || { echo "the ByoHost resourceVersion is missing" >&2; exit 1; }
+		printf 'APPROVAL-GATE PASS %s %s %s\n' "$HOST" "$TARGET" "$rv"
+		exit 0
+	fi
 	printf 'Approve the in-place upgrade of ByoHost %s to %s (it is drained, then upgraded by its agent).\nType "APPROVE %s %s": ' "$HOST" "$TARGET" "$HOST" "$TARGET" > /dev/tty
 	read -r answer < /dev/tty
 	[ "$answer" = "APPROVE $HOST $TARGET" ] || { echo "not confirmed: nothing changed" >&2; exit 1; }
@@ -114,7 +120,7 @@ next | verify | approve)
 	echo "$(ts) approved $HOST -> $TARGET (resourceVersion $rv); monitor with progress.sh / monitor.sh, then: host-step.sh verify $TARGET $HOST"
 	;;
 *)
-	echo "usage: host-step.sh members | next TARGET | verify TARGET HOST | approve TARGET HOST" >&2
+	echo "usage: host-step.sh members | next TARGET | verify TARGET HOST | gate TARGET HOST | approve TARGET HOST" >&2
 	exit 2
 	;;
 esac
