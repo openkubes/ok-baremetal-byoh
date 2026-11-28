@@ -68,7 +68,7 @@ if override is not None:
     sys.stdout.write(stdout)
     sys.stderr.write(stderr)
     sys.exit(rc)
-if os.environ["MODE"] == "policy" and pod.startswith("denied"):
+if os.environ["MODE"] in ("policy", "smoke") and pod.startswith("denied"):
     message = "REFUSED" if target.startswith("kubernetes.default.") else "TIMEOUT"
     print(message, "command terminated with exit code 1", sep="\\n", file=sys.stderr)
     sys.exit(1)
@@ -142,6 +142,23 @@ class NetcheckMatrix(unittest.TestCase):
                 self.assertLessEqual(peak, 4)
                 self.assertEqual(self.matrix(serial.stdout), self.matrix(parallel.stdout))
                 self.assertEqual(self.matrix(parallel.stdout)[-1], "RESULT: 70/70 passed")
+
+    def test_smoke_is_two_nodes_and_rejects_an_ambiguous_denial(self):
+        for concurrency in ("1", "4"):
+            with self.subTest(concurrency=concurrency):
+                args = ["bash", str(self.runner), "smoke", "node-3"]
+                good = subprocess.run(args, env=self.env("smoke", concurrency), capture_output=True, text=True, timeout=30)
+                self.assertEqual(good.returncode, 0, good.stdout)
+                self.assertIn("RESULT: 16/16 passed", good.stdout)
+                starts, peak = self.starts_and_peak()
+                self.assertEqual(sum(starts.values()), 16)
+                self.assertEqual({pod for pod, _ in starts}, {"allowed-1", "allowed-3", "denied-1", "denied-3"})
+                self.assertLessEqual(peak, int(concurrency))
+                rejected = subprocess.run(args, env=self.env("smoke", concurrency,
+                    PROBE_OVERRIDES=json.dumps({"denied-3 192.0.2.1:8080": [0, "", ""]})),
+                    capture_output=True, text=True, timeout=30)
+                self.assertEqual(rejected.returncode, 1)
+                self.assertIn("expected timeout, got error", rejected.stdout)
 
     def test_failed_probe_preserves_fail_verdict_and_coverage(self):
         for mode in ("open", "policy"):
