@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/openkubes/ok-baremetal-byoh/agent/cloudinit"
 	"github.com/openkubes/ok-baremetal-byoh/agent/inplaceupgrade"
@@ -208,7 +209,9 @@ func (r *HostReconciler) executeInstallerController(ctx context.Context, byoHost
 	uninstallScript := string(secret.Data["uninstall"])
 
 	logger.Info("executing install script")
+	started := time.Now()
 	err = r.CmdRunner.RunCmd(ctx, installScript)
+	logger.Info("Kubernetes component installer timing", "elapsedMs", time.Since(started).Milliseconds(), "success", err == nil)
 	if err != nil {
 		logger.Error(err, "error executing installation script")
 		r.Recorder.Eventf(byoHost, nil, corev1.EventTypeWarning, "InstallScriptExecutionFailed", "InstallK8sComponents", "install script execution failed")
