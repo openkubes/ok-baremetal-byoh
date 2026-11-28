@@ -5,15 +5,16 @@
 # Connectivity and policy checks of the okx-netcheck workload (netcheck/workload.yaml, netcheck/policy.yaml), a health
 # check between the hosts of an in-place upgrade. It only reads and runs `kubectl exec` in the okx-netcheck clients;
 # applying and removing the workload and the policies are separate, approved steps.
-# Usage: netcheck.sh open|policy|probe SECONDS
+# Usage: netcheck.sh open|policy|smoke NODE|probe SECONDS
 #   open    no policy applied: every client reaches every echo pod (all node pairs), the Service, DNS
 #   policy  policy.yaml applied: allowed clients reach echo, denied clients do not, DNS for all
+#   smoke  one upgraded node and a distinct peer under the existing policy
 #   probe   one connection per second from an allowed client to the Service; reports failures
 # Exit 0 PASS, 1 FAIL. Matrix execution is serial unless OKX_NETCHECK_CONCURRENCY is set.
 # OKX_NETCHECK_CONCURRENCY: 1..16
-mode=${1:?usage: netcheck.sh open|policy|probe SECONDS}
+mode=${1:?usage: netcheck.sh open|policy|smoke NODE|probe SECONDS}
 case $mode in
-open|policy)
+open|policy|smoke)
 	concurrency=${OKX_NETCHECK_CONCURRENCY:-1}
 	[[ "$concurrency" =~ ^([1-9]|1[0-6])$ ]] ||
 		{ echo "OKX_NETCHECK_CONCURRENCY must be 1..16" >&2; exit 2; }
@@ -107,19 +108,31 @@ nodes=$(w get nodes --no-headers | wc -l | tr -d ' ')
 [ "$nodes" -gt 0 ] && [ "${#echos[@]}" = "$nodes" ] || { echo "FAIL  ${#echos[@]} echo pods for $nodes nodes"; exit 1; }
 
 case $mode in
-open|policy)
+open|policy|smoke)
 	if [ "$concurrency" != 1 ]; then
 		trap matrix_cleanup EXIT
 		trap 'exit 130' INT
 		trap 'exit 143' TERM
 	fi
+	if [ "$mode" = smoke ]; then
+		focus=${2:?upgraded workload Node required}
+		peer=""
+		seen=0
+		for e in "${echos[@]}"; do
+			if [ "${e#* }" = "$focus" ]; then seen=$((seen + 1))
+			elif [ -z "$peer" ]; then peer=${e#* }; fi
+		done
+		[ "$seen" = 1 ] && [ -n "$peer" ] ||
+			{ echo "FAIL  smoke needs the exact upgraded Node and a distinct peer"; exit 1; }
+	fi
 	for role in allowed denied; do
 		want=ok
-		[ "$mode" = policy ] && [ "$role" = denied ] && want=timeout
+		[ "$mode" != open ] && [ "$role" = denied ] && want=timeout
 		clients=$(n get pods -l "app=client,role=$role" -o jsonpath='{range .items[*]}{.metadata.name} {.spec.nodeName}{"\n"}{end}' | LC_ALL=C sort -k2,2 -k1,1)
 		[ -n "$clients" ] && [ "$(printf '%s\n' "$clients" | wc -l | tr -d ' ')" = "$nodes" ] ||
 			{ echo "FAIL  expected one $role client per node"; exit 1; }
 		while read -r pod node; do
+			if [ "$mode" = smoke ] && [ "$node" != "$focus" ] && [ "$node" != "$peer" ]; then continue; fi
 			for e in "${echos[@]}"; do
 				ip=${e% *}
 				check_probe "$want" conn "$role $node -> echo ${e#* } ($ip)" "$pod" "$ip:8080"
@@ -130,6 +143,7 @@ open|policy)
 		done <<< "$clients"
 	done
 	if [ "$concurrency" != 1 ]; then finish_batch; fi
+	if [ "$mode" = smoke ] && [ "$total" != 16 ]; then echo "FAIL  incomplete smoke coverage"; exit 1; fi
 	;;
 probe)
 	secs=${2:?probe SECONDS}
