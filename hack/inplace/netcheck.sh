@@ -135,6 +135,7 @@ open|policy|smoke)
 			if [ "$mode" = smoke ] && [ "$node" != "$focus" ] && [ "$node" != "$peer" ]; then continue; fi
 			for e in "${echos[@]}"; do
 				ip=${e% *}
+				if [ "$mode" = smoke ] && [ "${e#* }" != "$focus" ] && [ "${e#* }" != "$peer" ]; then continue; fi
 				check_probe "$want" conn "$role $node -> echo ${e#* } ($ip)" "$pod" "$ip:8080"
 			done
 			check_probe "$want" conn "$role $node -> Service" "$pod" "$SVC"
