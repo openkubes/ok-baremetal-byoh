@@ -2,9 +2,9 @@
 SHELL:=/usr/bin/env bash
 
 # The registry of the image of the manager
-REGISTRY ?= ghcr.io/superbrothers
+REGISTRY ?= ghcr.io/openkubes
 
-IMAGE_NAME ?= cluster-api-byoh-controller
+IMAGE_NAME ?= byoh-controller
 TAG ?= dev
 RELEASE_DIR := _dist
 
@@ -131,6 +131,7 @@ docker-build: ## Build docker image with the manager for the platform of this ma
 	docker build --build-arg GO_VERSION=$(GO_VERSION) -t ${IMG} .
 
 docker-push: ## Push docker image with the manager.
+	bash hack/release/check-push-target.sh "${IMG}" byoh-controller
 	docker push ${IMG}
 
 empty :=
@@ -142,13 +143,16 @@ IMAGE_PLATFORMS ?= $(subst $(space),$(comma),$(addprefix linux/,$(ALL_ARCH)))
 DOCKER_BUILDX_PUSH ?= false
 
 docker-buildx: ## Build docker image with the manager for all the platforms in ALL_ARCH, and push it if DOCKER_BUILDX_PUSH is true.
-	docker buildx build --platform $(IMAGE_PLATFORMS) --build-arg GO_VERSION=$(GO_VERSION) -t ${IMG} $(if $(filter true,$(DOCKER_BUILDX_PUSH)),--push) .
+	$(if $(filter true,$(DOCKER_BUILDX_PUSH)),bash hack/release/check-push-target.sh "${IMG}" byoh-controller)
+	docker buildx build $(if $(BUILDX_METADATA_FILE),--metadata-file "$(BUILDX_METADATA_FILE)") --platform $(IMAGE_PLATFORMS) --build-arg GO_VERSION=$(GO_VERSION) -t ${IMG} $(if $(filter true,$(DOCKER_BUILDX_PUSH)),--push) .
 
 docker-buildx-guard: ## Build the No-Replacement guard image (IMG_GUARD) for IMAGE_PLATFORMS, and push it if DOCKER_BUILDX_PUSH is true.
-	docker buildx build --platform $(IMAGE_PLATFORMS) --build-arg GO_VERSION=$(GO_VERSION) -f cmd/no-replacement-guard/Dockerfile -t ${IMG_GUARD} $(if $(filter true,$(DOCKER_BUILDX_PUSH)),--push) .
+	$(if $(filter true,$(DOCKER_BUILDX_PUSH)),bash hack/release/check-push-target.sh "${IMG_GUARD}" no-replacement-guard)
+	docker buildx build $(if $(BUILDX_METADATA_FILE),--metadata-file "$(BUILDX_METADATA_FILE)") --platform $(IMAGE_PLATFORMS) --build-arg GO_VERSION=$(GO_VERSION) -f cmd/no-replacement-guard/Dockerfile -t ${IMG_GUARD} $(if $(filter true,$(DOCKER_BUILDX_PUSH)),--push) .
 
 docker-buildx-extension: ## Build the in-place extension image (IMG_EXTENSION) for IMAGE_PLATFORMS, and push it if DOCKER_BUILDX_PUSH is true.
-	docker buildx build --platform $(IMAGE_PLATFORMS) --build-arg GO_VERSION=$(GO_VERSION) -f cmd/inplace-extension/Dockerfile -t ${IMG_EXTENSION} $(if $(filter true,$(DOCKER_BUILDX_PUSH)),--push) .
+	$(if $(filter true,$(DOCKER_BUILDX_PUSH)),bash hack/release/check-push-target.sh "${IMG_EXTENSION}" inplace-extension)
+	docker buildx build $(if $(BUILDX_METADATA_FILE),--metadata-file "$(BUILDX_METADATA_FILE)") --platform $(IMAGE_PLATFORMS) --build-arg GO_VERSION=$(GO_VERSION) -f cmd/inplace-extension/Dockerfile -t ${IMG_EXTENSION} $(if $(filter true,$(DOCKER_BUILDX_PUSH)),--push) .
 
 prepare-byoh-docker-host-image:
 	docker build test/e2e -f test/e2e/BYOHDockerFile -t ${BYOH_BASE_IMG}
@@ -211,14 +215,14 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	$(KUSTOMIZE) build config/crd | kubectl delete -f -
 
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && $(KUSTOMIZE) edit set image ghcr.io/superbrothers/cluster-api-byoh-controller=${IMG}
+	cd config/manager && $(KUSTOMIZE) edit set image ghcr.io/openkubes/byoh-controller=${IMG}
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
 
 publish-infra-yaml:kustomize # Generate infrastructure-components.yaml for the provider
-	cd config/manager && $(KUSTOMIZE) edit set image ghcr.io/superbrothers/cluster-api-byoh-controller=${IMG}
+	cd config/manager && $(KUSTOMIZE) edit set image ghcr.io/openkubes/byoh-controller=${IMG}
 	$(KUSTOMIZE) build config/default > infrastructure-components.yaml
 
 CONTROLLER_GEN_VER := v0.21.0
@@ -297,7 +301,7 @@ build-cluster-templates: $(RELEASE_DIR) cluster-templates
 
 
 build-infra-yaml:kustomize ## Generate infrastructure-components.yaml for the provider
-	cd config/manager && $(KUSTOMIZE) edit set image ghcr.io/superbrothers/cluster-api-byoh-controller=${IMG}
+	cd config/manager && $(KUSTOMIZE) edit set image ghcr.io/openkubes/byoh-controller=${IMG}
 	$(KUSTOMIZE) build config/default > $(RELEASE_DIR)/infrastructure-components.yaml
 
 build-metadata-yaml:

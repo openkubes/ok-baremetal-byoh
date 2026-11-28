@@ -1,73 +1,155 @@
-# Release
-This document describes how to release the Cluster API BYOH infrastructure provider.
+# Release the OpenKubes BYOH provider
 
-A tag `vX.Y.Z` starts the [Draft Release](https://github.com/superbrothers/cluster-api-provider-bringyourownhost/actions/workflows/draft-release.yaml) workflow, which publishes the release in two jobs:
+[OK-241 packaging acceptance](https://kubernauts.atlassian.net/browse/OK-241?focusedCommentId=15452).
+The trusted main workflow is the only release-image producer. It checks out the
+successful CI run's full source SHA and publishes Linux amd64/arm64 builds of:
 
-- `image` builds the controller image for amd64 and arm64, and pushes it as `ghcr.io/superbrothers/cluster-api-byoh-controller:vX.Y.Z`.
-- `release` runs after the image is pushed. It builds the following assets and creates a draft release of the tag with them:
-  - `infrastructure-components.yaml`, which uses the image of the tag, and `metadata.yaml`
-  - the cluster templates
-  - the agent for amd64 and arm64: the deb packages `byoh-hostagent_<version>_<arch>.deb` and the binaries `byoh-hostagent-linux-<arch>`
-  - `checksums.txt`, the SHA-256 checksums of the other assets, which `sha256sum --check` reads
+- `ghcr.io/openkubes/byoh-controller`
+- `ghcr.io/openkubes/no-replacement-guard`
+- `ghcr.io/openkubes/inplace-extension`
 
-The draft is hidden until it is published, so the users and clusterctl get the release only after that. Only clusterctl with a `GITHUB_TOKEN` that can push to this repository lists the draft too.
+Its Actions artifact `byoh-image-lock-<full-sha>-attempt-<attempt>` records the
+producer run and Buildx output digests, including both runnable platform digests.
+The version-tag workflow does not build or push images. It validates that lock
+against GHCR and embeds the Controller index digest in
+`infrastructure-components.yaml`. The other two image pins are recorded in the
+lock; use them only with a reviewed overlay for a supported profile that requires
+those components. Do not install the raw lab overlay or broaden the GA profile.
 
-We follow semantic versioning for the releases, see https://semver.org.
+## Tagless dry run
 
----
-### Steps
+Use a disposable clean Linux clone with Git, Docker/Buildx, Go from `go.mod`,
+Python 3, gh (read access), jq, dpkg-deb, binutils and coreutils. Choose a
+maintainer-approved full candidate SHA, intended version and successful main
+producer run ID/attempt for that exact candidate. These positional shell
+variables are inputs, not defaults:
 
-1. If a new major or minor version is being released, open a PR that adds its release series to `metadata.yaml`, mapped to the Cluster API contract that the provider implements. This is not needed for a patch release. The provider implements the `v1beta1` contract. clusterctl v1.14 installs providers of the `v1beta1` contract along with a core provider of the `v1beta2` contract, until `v1beta1` reaches its end of life.
+```bash
+git switch --detach "$BYOH_RELEASE_COMMIT"
+work=$(mktemp -d)
+bash hack/release/fetch-image-lock.sh "$BYOH_RELEASE_COMMIT" \
+  "$BYOH_IMAGE_RUN_ID" "$BYOH_IMAGE_RUN_ATTEMPT" "$work/lock"
+bash hack/release/package.sh "$BYOH_RELEASE_COMMIT" "$VERSION" \
+  "$BYOH_IMAGE_RUN_ID" "$BYOH_IMAGE_RUN_ATTEMPT" "$work/lock/image-lock.json" "$work/bundle"
+(cd "$work/bundle" && sha256sum --check --strict checksums.txt)
+```
 
-2. Tag the commit of `main` to release, and push the tag:
-   ```shell
-   git checkout main
-   git pull
-   git tag -a v0.6.0 -m v0.6.0
-   git push origin v0.6.0
+Set `VERSION` to the intended `vX.Y.Z` (or valid prerelease). The packager builds
+from a clean isolated checkout, passing the version explicitly so no local or
+remote version tag is needed. It only reads GHCR and builds local files. It
+rejects missing platforms, upstream/mutable BYOH images, and mismatched source,
+run or digests. It checks the architecture and source SHA of the standalone Host
+Agent executables, DEB metadata, and byte equality of packaged and standalone
+executables on both architectures. The bundle includes six templates,
+`metadata.yaml`, the provider manifest, the image lock, both binaries and both
+DEBs. Keep the accepted `checksums.txt`, version, SHA, run ID/attempt, and
+validation evidence together.
+
+## Clean install and release gates
+
+1. In a fresh disposable supported management cluster, validate the approved
+   bundle with the documented installation path and no fallback to upstream.
+   If using clusterctl, configure a local provider repository/override pointing
+   at the exact staged version; ensure `metadata.yaml` maps the selected
+   major/minor to the supported `v1beta1` contract. Only add a series for a new
+   major/minor. For a public release, verify that a clean unauthenticated
+   consumer can pull all required OpenKubes digests.
+2. Verify BYOH CRDs, controller and webhooks are ready; compare observed image
+   IDs with the lock's platform digests. For a supported profile that uses
+   Guard/Runtime Extension, verify its reviewed digest-pinned overlay and
+   readiness. Install the checked DEB on one fresh supported host of each
+   architecture; verify agent version/source and systemd operation, perform
+   explicit CSR approval, confirm host readiness, and provision/smoke-test a
+   workload. Record exact versions, checksums, and results.
+3. Confirm all remaining OK-241 release gates separately: the independently
+   reviewed and tested MR !16, the independent repeated five-host lifecycle
+   including the separately installed hard-clean tool, and the reviewed
+   Advanced Guide and supported profiles.
+4. Only after an administrator has verified the required protections below
+   and separately authorized tagging, an approved maintainer pushes the version tag. Use an annotated tag (signed when required by release policy)
+   with these exact lines in its message, substituting approved values:
+   ```text
+   BYOH_RELEASE_COMMIT=<full BYOH source SHA>
+   BYOH_IMAGE_RUN_ID=<successful main publisher run ID>
+   BYOH_IMAGE_RUN_ATTEMPT=<publisher attempt number>
    ```
+   The tag's peeled commit and checked-out source must equal the approved SHA;
+   the recorded publisher attempt must be successful and have exactly one
+   matching image lock. The workflow does not itself verify the tag signer's
+   identity: verify the proposed protections are active and record maintainer approval.
+5. Download the draft bundle, check every file against `checksums.txt`, and
+   compare against the accepted dry-run checksums and digest pins. If bytes
+   differ, stop and explicitly re-verify the exact draft assets. Only after
+   separate publication approval publish the draft and the announcement.
+   Image aliases, signed provenance and SBOMs are independent enhancements.
 
-3. Wait for the [Draft Release](https://github.com/superbrothers/cluster-api-provider-bringyourownhost/actions/workflows/draft-release.yaml) workflow to finish. If a job fails without a change of the code, re-run the failed jobs. If the fix needs a change of the code, delete the draft release and the tag, merge the fix and tag again. `gh release delete --cleanup-tag` deletes the release and the tag in the repository:
-   ```shell
-   gh release delete v0.6.0 --cleanup-tag
-   git tag -d v0.6.0
-   ```
+## Required repository protections (proposal, not applied or verified)
 
-4. The first time only, check that the image can be pulled without credentials, as the kubelets pull it without a pull Secret. Open `https://github.com/superbrothers/cluster-api-provider-bringyourownhost/pkgs/container/cluster-api-byoh-controller` without signing in, or pull the image after logging out:
-   ```shell
-   docker logout ghcr.io
-   docker pull ghcr.io/superbrothers/cluster-api-byoh-controller:v0.6.0
-   ```
-   `docker buildx imagetools inspect` uses the stored credentials, so it does not show whether the package is public. The package of this repository became public when the workflow pushed it for the first time, although GitHub documents private as the default. If it is private, open `https://github.com/users/superbrothers/packages/container/cluster-api-byoh-controller/settings`, and change the visibility to public in "Danger Zone". A public package cannot be made private again.
+**No-go until verified.** Before authorizing any release tag, an authorized
+administrator must approve the configuration below, read back the active
+repository and inherited rules, and record the ruleset IDs, checks and release
+team membership in OK-241. A valid annotation proves neither permissions nor
+the signer's identity. This repository's live protections were not verified by
+this PR. Do not assume the rules exist, and do not test them by pushing a
+production-pattern tag.
 
-5. Check the draft release and the image:
-   - The release has all the assets above, they match `checksums.txt`, and `infrastructure-components.yaml` uses the image of the tag:
-     ```shell
-     gh release download v0.6.0 -D v0.6.0
-     cd v0.6.0
-     sha256sum --check checksums.txt
-     grep 'image: ghcr.io' infrastructure-components.yaml
-     ```
-   - The image has `linux/amd64` and `linux/arm64`:
-     ```shell
-     docker buildx imagetools inspect ghcr.io/superbrothers/cluster-api-byoh-controller:v0.6.0
-     ```
+| Proposed active ruleset | Ref condition | Rules | Bypass |
+| --- | --- | --- | --- |
+| BYOH main review and CI (branch) | include `refs/heads/main`; no exclusions | Restrict deletions; block force pushes; require PR with at least 1 approval, dismiss stale approvals, require approval of the most recent reviewable push by someone other than its pusher, and require conversation resolution. Require branches up to date and the GitHub Actions checks `verify`, `build-agent (amd64)`, `build-agent (arm64)`, `build-image` and `test` from workflow **CI**. | None, including admins and apps. |
+| BYOH release creation (tag) | include `refs/tags/v*.*.*`; no exclusions | Restrict creations. | **Always** for exactly the organization team approved to create BYOH releases (proposed name: `byoh-release-maintainers`; administrator must resolve/approve the team ID and membership). No other bypass actors. |
+| BYOH release tag immutability (tag) | include `refs/tags/v*.*.*`; no exclusions | Restrict updates and deletions. | None. The creation team's bypass does not apply to this separate ruleset. |
 
-6. Publish the draft release with "Publish release" in the GitHub UI, or with `gh release edit v0.6.0 --draft=false`.
+In Rulesets, select check source **GitHub Actions**, not "any source"; confirm
+the exact check contexts from an eligible PR run before activating. For the
+REST ruleset configuration use `target: branch` or `target: tag`,
+`enforcement: active`, `conditions.ref_name` with these includes and empty
+excludes; the creation-only bypass uses `actor_type: Team`, its approved
+numeric `actor_id`, and `bypass_mode: always`. See the
+[GitHub ruleset API](https://docs.github.com/en/rest/repos/rules#create-a-repository-ruleset).
+No repository settings change is part of the packaging PR.
 
-7. Check that clusterctl installs the release into a disposable management cluster. The `byoh` provider built into clusterctl points to the upstream repository, so override it in `clusterctl.yaml` (by default `~/.config/cluster-api/clusterctl.yaml`):
-   ```yaml
-   providers:
-   - name: byoh
-     url: https://github.com/superbrothers/cluster-api-provider-bringyourownhost/releases/latest/infrastructure-components.yaml
-     type: InfrastructureProvider
-   ```
-   ```shell
-   clusterctl init --infrastructure byoh:v0.6.0
-   ```
+## Eligible source, retention and safe retry
 
-8. Update the documentation, if applicable.
+- Choose a full SHA reviewed and approved as the release source, reachable
+  from protected `main`, with successful CI, the reviewed packaging workflow
+  and a successful main publisher attempt containing the unique, unexpired
+  lock for that exact SHA. Record the source, producer run/attempt, lock hashes,
+  digests and acceptance evidence together. The tagless check revalidates the
+  producer and all digests; never recover from a short Git tag or Docker tag.
+- Docs-only pushes can skip main CI, even though docs-only PRs now run the
+  required PR checks. If a chosen docs-only SHA has no lock, stop: choose and
+  explicitly approve an eligible SHA, or separately approve a new
+  packaging-relevant commit through normal review/CI. Never borrow the nearest
+  successful image lock, even when the diff is documentation only.
+- Work within the producer's 90-day lock retention (check the actual artifact
+  expiry). If missing, expired or ambiguous, stop. A separately approved rerun
+  of the trusted producer is possible only if it still uses the exact candidate
+  CI source; re-approve its new attempt and digests and repeat validation. If
+  that run is unavailable, select a new eligible SHA. Keep copies for audit,
+  but do not use a local copy to bypass the workflow's provenance check.
+- Workflow writes for a tag serialize. Immediately before draft creation the
+  workflow rejects any matching published release **or** existing draft,
+  including a failed attempt with partial assets. No asset is overwritten.
+  If failure happened before any release existed, rerun **all** jobs (not only
+  failed jobs) to generate and verify an attempt-specific staged bundle. If a
+  draft exists, stop automated retries: a maintainer must verify every asset
+  and checksum before approving a complete draft, or separately authorize
+  manual recovery of an incomplete draft. Never move, delete or reuse a
+  published tag to recover. Do not run manual/API release writers concurrently;
+  GitHub does not provide an atomic check-and-create here. Enable immutable
+  published releases if available as a separate, human-approved safeguard.
 
-### Pre-releases
+## Build input limitations
 
-To try the workflow, for example before the first release of a minor version, push a pre-release tag such as `v0.6.0-rc.0` first, and check it with the steps 3 to 5. The workflow marks the release of a tag with a `-` as a pre-release. When clusterctl picks the latest version, it prefers releases to pre-releases, but it picks a pre-release if the repository has no release. Delete the draft release and the tag if they are not needed, with `gh release delete v0.6.0-rc.0 --cleanup-tag` and `git tag -d v0.6.0-rc.0`, and delete the version of the image in the package, if needed.
+The release job pins [setup-go v7.0.0](https://github.com/actions/setup-go/releases/tag/v7.0.0)
+by exact commit and reads `go.mod`. The existing agent Docker build and the
+controller Dockerfiles still resolve a version-tagged Go base, not a pinned
+OCI index. Before opting into digest pinning, verify the official
+`docker.io/library/golang:<toolchain>` index and both platform descriptors,
+then update the reference and redo the clean-build matrix together with each
+toolchain bump. Do not invent a digest or pin one architecture's manifest for
+both builds. This PR does not change the base image; source locking and asset
+checksums do not prove fully reproducible or hermetic builds. Existing runner,
+tool and module availability, and anonymous GHCR reads remain environment
+requirements. `GH_TOKEN` is scoped to the two GitHub API steps, not passed to
+the Docker/Go packaging subprocesses.

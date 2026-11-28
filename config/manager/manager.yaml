@@ -35,7 +35,7 @@ spec:
         - --health-probe-bind-address=:8081
         - --requeue-period=${BYOH_REQUEUE_PERIOD:=10s}
         - --byomachine-concurrency=${BYOH_BYOMACHINE_CONCURRENCY:=1}
-        image: ghcr.io/superbrothers/cluster-api-byoh-controller:latest
+        image: ghcr.io/openkubes/byoh-controller:dev
         name: manager
         ports:
         - containerPort: 8443
