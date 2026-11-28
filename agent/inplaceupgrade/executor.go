@@ -35,6 +35,7 @@ import (
 	"time"
 
 	infrav1 "github.com/openkubes/ok-baremetal-byoh/apis/infrastructure/v1beta1"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // Step is a step of an in-place upgrade.
@@ -206,7 +207,11 @@ func (e *Executor) Execute(ctx context.Context, req *infrav1.InPlaceUpgradeReque
 		if onStep != nil {
 			onStep(step)
 		}
-		if err := e.runStep(ctx, step, req, &result); err != nil {
+		started := time.Now()
+		err := e.runStep(ctx, step, req, &result)
+		log.FromContext(ctx).Info("In-place upgrade step timing", "requestID", req.ID, "attempt", req.Attempt,
+			"step", step, "elapsedMs", time.Since(started).Milliseconds(), "success", err == nil)
+		if err != nil {
 			return result, &StepError{step, err}
 		}
 		if !slices.Contains(cp.Done, step) {
@@ -366,7 +371,10 @@ func (e *Executor) download(ctx context.Context, req *infrav1.InPlaceUpgradeRequ
 		if err := os.MkdirAll(filepath.Dir(path), stateDirMode); err != nil {
 			return err
 		}
+		started := time.Now()
 		if sum, err := fileSHA256(path); err == nil && sum == deb.SHA256 {
+			log.FromContext(ctx).Info("In-place package timing", "requestID", req.ID, "package", deb.Name,
+				"cacheHit", true, "elapsedMs", time.Since(started).Milliseconds())
 			continue
 		}
 		url := fmt.Sprintf("%s%s/%s", req.Packages.Repository, e.arch(), filepath.Base(path))
@@ -387,6 +395,8 @@ func (e *Executor) download(ctx context.Context, req *infrav1.InPlaceUpgradeRequ
 		if err := os.Rename(tmp, path); err != nil {
 			return err
 		}
+		log.FromContext(ctx).Info("In-place package timing", "requestID", req.ID, "package", deb.Name,
+			"cacheHit", false, "elapsedMs", time.Since(started).Milliseconds())
 	}
 	return nil
 }
